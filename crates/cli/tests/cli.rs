@@ -753,3 +753,70 @@ fn run_executes_workflow_from_cassette() {
     let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
     assert_eq!(sessions.as_array().expect("sessions").len(), 2);
 }
+
+#[test]
+fn run_executes_agent_team_from_cassette() {
+    let home = tempfile::tempdir().expect("home");
+    let project = tempfile::tempdir().expect("project");
+    let team_dir = project.path().join(".dshr/teams");
+    std::fs::create_dir_all(&team_dir).expect("team dir");
+    std::fs::write(
+        team_dir.join("demo.yaml"),
+        "name: demo\nworkers: 1\ntasks:\n  - id: a\n    title: A\n    prompt: do a\n",
+    )
+    .expect("team");
+
+    let cassette = home.path().join("team.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"tool_use_start","index":0,"id":"call_1","name":"team"},
+            {"type":"tool_input_delta","index":0,"json":"{\"name\":\"demo\"}"},
+            {"type":"done","stop_reason":"tool_use"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"task a result"},
+            {"type":"done","stop_reason":"end_turn"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"done"},
+            {"type":"done","stop_reason":"end_turn"}
+          ]
+        ]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .current_dir(project.path())
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "run",
+            "--danger",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "use team demo",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("done"));
+
+    let listed = dshr()
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(sessions.as_array().expect("sessions").len(), 2);
+}

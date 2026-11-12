@@ -17,6 +17,7 @@ members = [
     "crates/sandbox",
     "crates/server",
     "crates/workflow",
+    "crates/team",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -46,6 +47,7 @@ dshr-jobs = { path = "crates/jobs" }
 dshr-sandbox = { path = "crates/sandbox" }
 dshr-server = { path = "crates/server" }
 dshr-workflow = { path = "crates/workflow" }
+dshr-team = { path = "crates/team" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }

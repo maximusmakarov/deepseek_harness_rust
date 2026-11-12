@@ -390,6 +390,8 @@ pub struct PermissionPolicy {
 
 ## 11. Субагенты
 
+Workflows и agent teams поверх субагентов — [ADR-020](adr/020-workflows-worktrees.md), [ADR-021](adr/021-agent-teams.md).
+
 Workflows поверх субагентов — [ADR-020](adr/020-workflows-worktrees.md).
 
 Реализация — `SubagentTool` + дочерний `Agent`; границы M4 — [ADR-017](adr/017-external-tools.md).

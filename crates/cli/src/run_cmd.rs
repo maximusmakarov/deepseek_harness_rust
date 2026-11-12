@@ -170,10 +170,17 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         ));
     parent_tools.register(SubagentTool::new(Arc::clone(&runner)));
     parent_tools.register(dshr_workflow::WorkflowTool::new(
-        runner,
+        Arc::clone(&runner),
         vec![
             loader.home().join("workflows"),
             std::path::PathBuf::from(&cwd).join(".dshr/workflows"),
+        ],
+    ));
+    parent_tools.register(dshr_team::TeamTool::new(
+        runner,
+        vec![
+            loader.home().join("teams"),
+            std::path::PathBuf::from(&cwd).join(".dshr/teams"),
         ],
     ));
 

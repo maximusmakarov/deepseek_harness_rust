@@ -24,5 +24,6 @@
 | [018](018-sandbox-plugins.md) | Песочница и плагины: границы M5 | Accepted |
 | [019](019-server-ui.md) | Сервер, Web UI и SDK: границы M6 | Accepted |
 | [020](020-workflows-worktrees.md) | Workflows и worktrees: первый срез M7 | Accepted |
+| [021](021-agent-teams.md) | Agent teams: доска, владение, зависимости | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

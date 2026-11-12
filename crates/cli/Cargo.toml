@@ -30,6 +30,7 @@ dshr-session.workspace = true
 dshr-skills.workspace = true
 dshr-session-jsonl.workspace = true
 dshr-tools.workspace = true
+dshr-team.workspace = true
 dshr-tui.workspace = true
 dshr-workflow.workspace = true
 futures-util.workspace = true
