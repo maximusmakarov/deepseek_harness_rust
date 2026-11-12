@@ -9,6 +9,9 @@ members = [
     "crates/llm-mock",
     "crates/session",
     "crates/session-jsonl",
+    "crates/tools",
+    "crates/agent",
+    "crates/tui",
     "crates/cli",
 ]
 
@@ -27,6 +30,9 @@ dshr-llm-openai = { path = "crates/llm-openai" }
 dshr-llm-mock = { path = "crates/llm-mock" }
 dshr-session = { path = "crates/session" }
 dshr-session-jsonl = { path = "crates/session-jsonl" }
+dshr-tools = { path = "crates/tools" }
+dshr-agent = { path = "crates/agent" }
+dshr-tui = { path = "crates/tui" }
 
 clap = { version = "4.6", features = ["derive", "env"] }
 dirs = "7"
@@ -41,9 +47,12 @@ uuid = { version = "1", features = ["serde", "v7"] }
 async-trait = "0.1"
 async-stream = "0.3"
 futures-util = "0.3"
+globset = "0.4"
+ignore = "0.4"
+regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 time = { version = "0.3", features = ["formatting"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs", "io-util", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs", "io-util", "net", "process"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 assert_cmd = "2"

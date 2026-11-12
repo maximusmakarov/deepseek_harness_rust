@@ -297,7 +297,24 @@ fn run_records_a_replayable_cassette() {
     let text = std::fs::read_to_string(&recorded).expect("recorded cassette");
     let value: serde_json::Value = serde_json::from_str(&text).expect("json");
     assert_eq!(value["model"], "deepseek-flash");
-    assert!(value["chunks"].as_array().expect("chunks").len() >= 2);
+    let calls = value["calls"].as_array().expect("calls");
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].as_array().expect("chunks").len() >= 2);
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            recorded.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "again",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pong"));
 }
 
 #[test]
@@ -350,4 +367,55 @@ fn run_resumes_existing_session() {
     let text = String::from_utf8_lossy(&shown.stdout);
     assert_eq!(text.matches("## User").count(), 2, "{text}");
     assert_eq!(text.matches("## Assistant").count(), 2, "{text}");
+}
+
+#[test]
+fn run_executes_tool_loop_from_cassette() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = dir.path().join("tools.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"tool_use_start","index":0,"id":"call_1","name":"read"},
+            {"type":"tool_input_delta","index":0,"json":"{\"path\":\"Cargo.toml\"}"},
+            {"type":"done","stop_reason":"tool_use"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"done"},
+            {"type":"done","stop_reason":"end_turn"}
+          ]
+        ]}"#,
+    )
+    .expect("write cassette");
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "read",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("done"));
+
+    let listed = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(sessions[0]["turns"], 1);
 }

@@ -161,6 +161,8 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M2 — Инструменты + цикл + TUI (15–20 дней)
 
+**Статус:** ядро выполнено 12.11.2026; `apply_patch`, `ask_user`, persistent bash, diff-view и eval-набор перенесены.
+
 **Содержание**
 - `dshr-tools`: реестр со scoped-регистрацией, JSON Schema (`schemars` + `jsonschema`), пайплайн `pre → execute → post`, лимиты вывода, spill в файл, параллелизм с семафором.
 - Инструменты: `read`, `write`, `edit` (уникальная замена), `apply_patch`, `glob`, `grep` (`ignore`), `bash`, `todo`, `ask_user`, `present`.

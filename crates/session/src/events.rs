@@ -22,6 +22,7 @@ pub enum TurnEndReason {
     Completed,
     Cancelled,
     Error,
+    MaxSteps,
 }
 
 /// Append-only, model-visible facts.
@@ -61,6 +62,15 @@ pub enum SessionEvent {
         turn: TurnId,
         error: String,
     },
+    ToolResult {
+        seq: u64,
+        at: String,
+        turn: TurnId,
+        tool_call_id: String,
+        name: String,
+        content: String,
+        is_error: bool,
+    },
     TurnEnd {
         seq: u64,
         at: String,
@@ -78,6 +88,7 @@ impl SessionEvent {
             | Self::UserMessage { seq, .. }
             | Self::AssistantMessage { seq, .. }
             | Self::AssistantAttempt { seq, .. }
+            | Self::ToolResult { seq, .. }
             | Self::TurnEnd { seq, .. } => *seq,
         }
     }
@@ -90,6 +101,7 @@ impl SessionEvent {
             | Self::UserMessage { at, .. }
             | Self::AssistantMessage { at, .. }
             | Self::AssistantAttempt { at, .. }
+            | Self::ToolResult { at, .. }
             | Self::TurnEnd { at, .. } => at,
         }
     }
@@ -102,6 +114,7 @@ impl SessionEvent {
             Self::UserMessage { .. } => "user_message",
             Self::AssistantMessage { .. } => "assistant_message",
             Self::AssistantAttempt { .. } => "assistant_attempt",
+            Self::ToolResult { .. } => "tool_result",
             Self::TurnEnd { .. } => "turn_end",
         }
     }

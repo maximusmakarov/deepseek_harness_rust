@@ -5,7 +5,11 @@
 //! yields the same chunks without network access, which makes CLI and session
 //! tests reproducible.
 
+use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+
+use futures_util::StreamExt;
 use std::path::Path;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -22,7 +26,11 @@ use tokio_util::sync::CancellationToken;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Cassette {
     pub model: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chunks: Vec<StreamChunk>,
+    /// One entry per `stream` call; preferred over `chunks` when non-empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<Vec<StreamChunk>>,
 }
 
 impl Cassette {
@@ -31,6 +39,16 @@ impl Cassette {
         Self {
             model: model.into(),
             chunks,
+            calls: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn from_calls(model: impl Into<String>, calls: Vec<Vec<StreamChunk>>) -> Self {
+        Self {
+            model: model.into(),
+            chunks: Vec::new(),
+            calls,
         }
     }
 
@@ -51,6 +69,19 @@ impl Cassette {
     }
 
     fn normalize(&mut self) {
+        if !self.calls.is_empty() {
+            for call in &mut self.calls {
+                if !call
+                    .iter()
+                    .any(|chunk| matches!(chunk, StreamChunk::Done { .. }))
+                {
+                    call.push(StreamChunk::Done {
+                        stop_reason: StopReason::EndTurn,
+                    });
+                }
+            }
+            return;
+        }
         if !self
             .chunks
             .iter()
@@ -65,12 +96,16 @@ impl Cassette {
 
 pub struct ReplayProvider {
     cassette: Cassette,
+    next_call: Mutex<usize>,
 }
 
 impl ReplayProvider {
     #[must_use]
     pub fn new(cassette: Cassette) -> Self {
-        Self { cassette }
+        Self {
+            cassette,
+            next_call: Mutex::new(0),
+        }
     }
 
     pub fn from_file(path: &Path) -> Result<Self, LlmError> {
@@ -102,7 +137,23 @@ impl LlmProvider for ReplayProvider {
         _request: Request,
         cancel: CancellationToken,
     ) -> Result<ChunkStream, LlmError> {
-        let chunks = self.cassette.chunks.clone();
+        let chunks = if self.cassette.calls.is_empty() {
+            self.cassette.chunks.clone()
+        } else {
+            let mut index = self
+                .next_call
+                .lock()
+                .map_err(|_| LlmError::Config("replay lock poisoned".into()))?;
+            let call = self
+                .cassette
+                .calls
+                .get(*index)
+                .or_else(|| self.cassette.calls.last())
+                .cloned()
+                .unwrap_or_default();
+            *index += 1;
+            call
+        };
         let stream = stream! {
             for chunk in chunks {
                 if cancel.is_cancelled() {
@@ -110,6 +161,129 @@ impl LlmProvider for ReplayProvider {
                     break;
                 }
                 yield Ok(chunk);
+            }
+        };
+        Ok(Box::pin(stream))
+    }
+}
+
+/// Provider that returns one scripted response per `stream` call.
+///
+/// Used by agent-loop tests to model a multi-step tool conversation without
+/// network or cassette files.
+pub struct ScriptedProvider {
+    model: String,
+    responses: Mutex<VecDeque<Vec<StreamChunk>>>,
+}
+
+impl ScriptedProvider {
+    #[must_use]
+    pub fn new(model: impl Into<String>, responses: Vec<Vec<StreamChunk>>) -> Self {
+        Self {
+            model: model.into(),
+            responses: Mutex::new(responses.into()),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl LlmProvider for ScriptedProvider {
+    fn name(&self) -> &str {
+        "scripted"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::default()
+    }
+
+    async fn stream(
+        &self,
+        _request: Request,
+        cancel: CancellationToken,
+    ) -> Result<ChunkStream, LlmError> {
+        if cancel.is_cancelled() {
+            return Err(LlmError::Cancelled);
+        }
+        let response = self
+            .responses
+            .lock()
+            .map_err(|_| LlmError::Config("scripted provider lock poisoned".into()))?
+            .pop_front()
+            .ok_or_else(|| LlmError::Protocol("no scripted response left".into()))?;
+        Ok(Box::pin(futures_util::stream::iter(
+            response.into_iter().map(Ok),
+        )))
+    }
+}
+
+/// Wraps a provider and records every stream call as a cassette entry.
+pub struct RecordingProvider {
+    inner: Arc<dyn LlmProvider>,
+    calls: Arc<Mutex<Vec<Vec<StreamChunk>>>>,
+}
+
+impl RecordingProvider {
+    #[must_use]
+    pub fn new(inner: Arc<dyn LlmProvider>) -> Self {
+        Self {
+            inner,
+            calls: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    #[must_use]
+    pub fn calls(&self) -> Vec<Vec<StreamChunk>> {
+        self.calls
+            .lock()
+            .map(|calls| calls.clone())
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn cassette(&self, model: impl Into<String>) -> Cassette {
+        Cassette::from_calls(model, self.calls())
+    }
+}
+
+#[async_trait::async_trait]
+impl LlmProvider for RecordingProvider {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn model(&self) -> &str {
+        self.inner.model()
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        self.inner.capabilities()
+    }
+
+    async fn stream(
+        &self,
+        request: Request,
+        cancel: CancellationToken,
+    ) -> Result<ChunkStream, LlmError> {
+        let mut inner = self.inner.stream(request, cancel).await?;
+        let calls = self.calls.clone();
+        let stream = stream! {
+            let mut recorded = Vec::new();
+            while let Some(item) = inner.next().await {
+                let failed = item.is_err();
+                if let Ok(chunk) = &item {
+                    recorded.push(chunk.clone());
+                }
+                yield item;
+                if failed {
+                    break;
+                }
+            }
+            if let Ok(mut guard) = calls.lock() {
+                guard.push(recorded);
             }
         };
         Ok(Box::pin(stream))

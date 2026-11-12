@@ -2,16 +2,20 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use clap::Args;
+use dshr_agent::{
+    Agent, AgentConfig, AgentObserver, ApprovalPolicy, AutoApprover, DenyApprover, PermissionMode,
+    ToolCallInfo,
+};
 use dshr_config::{Config, ConfigLoader};
-use dshr_core::{DshrError, Result, TurnId};
-use dshr_llm::{BlockAssembler, ContentBlock, LlmError, LlmProvider, Request, StreamChunk};
+use dshr_core::{DshrError, Result};
+use dshr_llm::{LlmError, LlmProvider};
 use dshr_llm_deepseek::DeepSeekProvider;
-use dshr_llm_mock::{Cassette, ReplayProvider};
+use dshr_llm_mock::{RecordingProvider, ReplayProvider};
 use dshr_llm_openai::OpenAiProvider;
-use dshr_session::{SessionEvent, TurnEndReason, now_rfc3339};
 use dshr_session_jsonl::SessionStore;
-use futures_util::StreamExt;
+use dshr_tools::{ToolOutcome, ToolRegistry};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Args)]
@@ -44,59 +48,90 @@ pub struct RunArgs {
     #[arg(long)]
     pub json: bool,
 
-    /// Maximum output tokens
+    /// Maximum output tokens per model request
     #[arg(long, default_value_t = 2048)]
     pub max_tokens: u32,
+
+    /// Maximum model requests in one turn
+    #[arg(long, default_value_t = 8)]
+    pub max_steps: usize,
+
+    /// Allow shell commands and writes outside the workspace
+    #[arg(long)]
+    pub danger: bool,
+
+    /// Auto-approve every request that the policy escalates
+    #[arg(long)]
+    pub yes: bool,
+
+    /// Disable built-in tools
+    #[arg(long)]
+    pub no_tools: bool,
 }
 
 pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
     let config = loader.load()?.config;
     let provider = build_provider(args, &config)?;
+    let recorder = args
+        .record
+        .as_ref()
+        .map(|_| Arc::new(RecordingProvider::new(provider.clone())));
+    let provider: Arc<dyn LlmProvider> = match &recorder {
+        Some(recorder) => Arc::clone(recorder) as Arc<dyn LlmProvider>,
+        None => provider,
+    };
 
     let session_dir = config
         .session
         .dir
         .clone()
         .ok_or_else(|| DshrError::config("session.dir is not resolved"))?;
-    let store = SessionStore::new(session_dir);
+    let store = Arc::new(SessionStore::new(session_dir));
     let cwd = std::env::current_dir()
         .map_err(DshrError::Io)?
         .display()
         .to_string();
 
-    let mut session = match &args.session {
+    let session = match &args.session {
         Some(id) => store.open(id)?,
         None => store.create(provider.name(), provider.model(), &cwd)?,
     };
 
-    let turn = TurnId::new();
-    let seq = session.next_seq();
-    store.append(
-        &mut session,
-        SessionEvent::TurnStart {
-            seq,
-            at: now_rfc3339(),
-            turn: turn.clone(),
-        },
-    )?;
-    let seq = session.next_seq();
-    store.append(
-        &mut session,
-        SessionEvent::UserMessage {
-            seq,
-            at: now_rfc3339(),
-            turn: turn.clone(),
-            content: vec![ContentBlock::text(args.prompt.clone())],
-        },
-    )?;
-
-    let request = Request {
-        model: provider.model().to_owned(),
-        system: Some(system_prompt(&cwd)),
-        messages: session.derive_messages(),
-        max_tokens: args.max_tokens,
-        ..Request::default()
+    let tools = if args.no_tools {
+        ToolRegistry::new()
+    } else {
+        ToolRegistry::with_builtin()
     };
+
+    let mode = if args.danger {
+        PermissionMode::DangerFull
+    } else {
+        PermissionMode::WorkspaceWrite
+    };
+    let approver: Arc<dyn dshr_agent::Approver> = if args.yes || args.danger {
+        Arc::new(AutoApprover)
+    } else {
+        Arc::new(DenyApprover)
+    };
+    let policy = ApprovalPolicy {
+        mode,
+        workspace: std::path::PathBuf::from(&cwd),
+        approver,
+    };
+
+    let mut agent = Agent::new(
+        provider,
+        Arc::new(tools),
+        store,
+        session,
+        policy,
+        AgentConfig {
+            system_prompt: system_prompt(&cwd),
+            max_steps: args.max_steps.max(1),
+            max_tokens: args.max_tokens,
+            output_limit: config.tools.output_limit_chars,
+        },
+    );
 
     let cancel = CancellationToken::new();
     let signal = tokio::spawn({
@@ -108,102 +143,91 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         }
     });
 
-    let mut stream = provider
-        .stream(request, cancel.clone())
-        .await
-        .map_err(llm_error)?;
-
-    let mut assembler = BlockAssembler::new();
-    let mut recorded = Vec::new();
-    let mut cancelled = false;
-    let mut failure = None;
-
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(chunk) => {
-                if !args.json
-                    && let StreamChunk::TextDelta { text } = &chunk
-                {
-                    print!("{text}");
-                    let _ = std::io::stdout().flush();
-                }
-                recorded.push(chunk.clone());
-                assembler.push(chunk);
-            }
-            Err(LlmError::Cancelled) => {
-                cancelled = true;
-                break;
-            }
-            Err(err) => {
-                failure = Some(err);
-                break;
-            }
-        }
-    }
+    let observer = HeadlessObserver { json: args.json };
+    let outcome = agent.run_turn(&args.prompt, cancel, &observer).await;
     signal.abort();
 
-    if let Some(err) = failure {
-        append_attempt(&store, &mut session, &turn, &err.to_string())?;
-        append_turn_end(&store, &mut session, &turn, TurnEndReason::Error)?;
-        return Err(llm_error(err));
+    match outcome {
+        Ok(report) => {
+            if let (Some(recorder), Some(path)) = (&recorder, &args.record) {
+                recorder
+                    .cassette(agent.session().header.model.clone())
+                    .write_file(path)
+                    .map_err(llm_error)?;
+            }
+            let text = report.text;
+            if args.json {
+                let payload = serde_json::json!({
+                    "session_id": agent.session().header.id.as_str(),
+                    "provider": agent.session().header.provider,
+                    "model": agent.session().header.model,
+                    "text": text,
+                    "usage": report.usage,
+                    "steps": report.steps,
+                    "tool_calls": report.tool_calls,
+                });
+                let encoded = serde_json::to_string_pretty(&payload)
+                    .map_err(|error| DshrError::config(format!("serialize result: {error}")))?;
+                println!("{encoded}");
+            } else {
+                println!();
+                eprintln!(
+                    "session {} · {} in / {} out · {} step(s), {} tool call(s)",
+                    agent.session().header.id,
+                    report.usage.input_tokens,
+                    report.usage.output_tokens,
+                    report.steps,
+                    report.tool_calls
+                );
+            }
+            Ok(0)
+        }
+        Err(dshr_agent::AgentError::Cancelled) => {
+            eprintln!("cancelled; session {}", agent.session().header.id);
+            Ok(130)
+        }
+        Err(error) => Err(DshrError::config(error.to_string())),
+    }
+}
+
+struct HeadlessObserver {
+    json: bool,
+}
+
+#[async_trait]
+impl AgentObserver for HeadlessObserver {
+    async fn on_text(&self, text: &str) {
+        if !self.json {
+            print!("{text}");
+            let _ = std::io::stdout().flush();
+        }
     }
 
-    if cancelled {
-        append_attempt(&store, &mut session, &turn, "cancelled")?;
-        append_turn_end(&store, &mut session, &turn, TurnEndReason::Cancelled)?;
-        eprintln!("cancelled; session {}", session.header.id);
-        return Ok(130);
+    async fn on_tool_start(&self, call: &ToolCallInfo) {
+        if !self.json {
+            println!();
+            eprintln!("→ {}({})", call.name, summarize(&call.input));
+        }
     }
 
-    let output = assembler.finish().map_err(llm_error)?;
-    if output.content.is_empty() {
-        append_attempt(&store, &mut session, &turn, "empty response")?;
-        append_turn_end(&store, &mut session, &turn, TurnEndReason::Error)?;
-        return Err(DshrError::config("provider returned an empty response"));
+    async fn on_tool_end(&self, call: &ToolCallInfo, outcome: &ToolOutcome) {
+        if !self.json {
+            eprintln!(
+                "← {} {}",
+                call.name,
+                if outcome.is_error { "error" } else { "ok" }
+            );
+        }
     }
+}
 
-    let seq = session.next_seq();
-    store.append(
-        &mut session,
-        SessionEvent::AssistantMessage {
-            seq,
-            at: now_rfc3339(),
-            turn: turn.clone(),
-            content: output.content.clone(),
-            usage: output.usage,
-            stop_reason: output.stop_reason.clone(),
-        },
-    )?;
-    append_turn_end(&store, &mut session, &turn, TurnEndReason::Completed)?;
-
-    if let Some(path) = &args.record {
-        Cassette::new(provider.model().to_owned(), recorded)
-            .write_file(path)
-            .map_err(llm_error)?;
+fn summarize(value: &serde_json::Value) -> String {
+    let text = value.to_string();
+    let mut end = text.len().min(80);
+    while !text.is_char_boundary(end) {
+        end -= 1;
     }
-
-    let text = text_of(&output.content);
-    if args.json {
-        let payload = serde_json::json!({
-            "session_id": session.header.id.as_str(),
-            "provider": provider.name(),
-            "model": provider.model(),
-            "text": text,
-            "usage": output.usage,
-            "stop_reason": output.stop_reason,
-        });
-        let encoded = serde_json::to_string_pretty(&payload)
-            .map_err(|err| DshrError::config(format!("serialize result: {err}")))?;
-        println!("{encoded}");
-    } else {
-        println!();
-        eprintln!(
-            "session {} · {} in / {} out",
-            session.header.id, output.usage.input_tokens, output.usage.output_tokens
-        );
-    }
-
-    Ok(0)
+    format!("{}{}", &text[..end], if text.len() > 80 { "…" } else { "" })
 }
 
 fn build_provider(args: &RunArgs, config: &Config) -> Result<Arc<dyn LlmProvider>> {
@@ -235,57 +259,12 @@ fn build_provider(args: &RunArgs, config: &Config) -> Result<Arc<dyn LlmProvider
     }
 }
 
-fn append_attempt(
-    store: &SessionStore,
-    session: &mut dshr_session::Session,
-    turn: &TurnId,
-    error: &str,
-) -> Result<()> {
-    let seq = session.next_seq();
-    store.append(
-        session,
-        SessionEvent::AssistantAttempt {
-            seq,
-            at: now_rfc3339(),
-            turn: turn.clone(),
-            error: error.to_owned(),
-        },
-    )
-}
-
-fn append_turn_end(
-    store: &SessionStore,
-    session: &mut dshr_session::Session,
-    turn: &TurnId,
-    reason: TurnEndReason,
-) -> Result<()> {
-    let seq = session.next_seq();
-    store.append(
-        session,
-        SessionEvent::TurnEnd {
-            seq,
-            at: now_rfc3339(),
-            turn: turn.clone(),
-            reason,
-        },
-    )
-}
-
 fn system_prompt(cwd: &str) -> String {
     format!(
-        "You are dshr, a terminal coding agent. Working directory: {cwd}. Be concise and precise."
+        "You are dshr, a terminal coding agent. Working directory: {cwd}. \
+Use the available tools to inspect and modify files. Prefer small, verifiable steps. \
+Be concise and precise."
     )
-}
-
-fn text_of(content: &[ContentBlock]) -> String {
-    content
-        .iter()
-        .filter_map(|block| match block {
-            ContentBlock::Text { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("")
 }
 
 fn llm_error(error: LlmError) -> DshrError {

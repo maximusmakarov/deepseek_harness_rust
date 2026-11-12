@@ -72,6 +72,33 @@ impl Session {
                         content: content.clone(),
                     });
                 }
+                SessionEvent::ToolResult {
+                    tool_call_id,
+                    content,
+                    is_error,
+                    ..
+                } => {
+                    let block = dshr_llm::ContentBlock::ToolResult {
+                        tool_use_id: tool_call_id.clone(),
+                        content: content.clone(),
+                        is_error: *is_error,
+                    };
+                    match messages.last_mut() {
+                        Some(Message {
+                            role: Role::User,
+                            content: blocks,
+                        }) if blocks.iter().any(|block| {
+                            matches!(block, dshr_llm::ContentBlock::ToolResult { .. })
+                        }) =>
+                        {
+                            blocks.push(block);
+                        }
+                        _ => messages.push(Message {
+                            role: Role::User,
+                            content: vec![block],
+                        }),
+                    }
+                }
                 _ => {}
             }
         }
@@ -163,6 +190,47 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, Role::User);
         assert_eq!(messages[1].role, Role::Assistant);
+    }
+
+    #[test]
+    fn groups_tool_results_into_one_user_message() {
+        use dshr_llm::ContentBlock;
+        let mut session = session();
+        let turn = TurnId::new();
+        session.events.push(SessionEvent::AssistantMessage {
+            seq: 1,
+            at: now_rfc3339(),
+            turn: turn.clone(),
+            content: vec![ContentBlock::ToolUse {
+                id: "call_1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "a"}),
+            }],
+            usage: dshr_llm::Usage::default(),
+            stop_reason: None,
+        });
+        for (seq, id) in [(2, "call_1"), (3, "call_2")] {
+            session.events.push(SessionEvent::ToolResult {
+                seq,
+                at: now_rfc3339(),
+                turn: turn.clone(),
+                tool_call_id: id.into(),
+                name: "read".into(),
+                content: "ok".into(),
+                is_error: false,
+            });
+        }
+
+        let messages = session.derive_messages();
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert_eq!(messages[1].role, Role::User);
+        assert_eq!(messages[1].content.len(), 2);
+        assert!(
+            messages[1]
+                .content
+                .iter()
+                .all(|block| matches!(block, ContentBlock::ToolResult { .. }))
+        );
     }
 
     #[test]

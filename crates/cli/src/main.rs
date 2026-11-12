@@ -4,6 +4,7 @@ mod config_cmd;
 mod doctor;
 mod run_cmd;
 mod sessions;
+mod tui_cmd;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -52,6 +53,8 @@ enum Command {
     Run(run_cmd::RunArgs),
     /// List, show, or export sessions
     Sessions(sessions::SessionsArgs),
+    /// Interactive terminal UI
+    Tui(tui_cmd::TuiArgs),
 }
 
 #[tokio::main]
@@ -77,6 +80,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Config(args) => config_cmd::run(&loader, &args),
         Command::Run(args) => run_cmd::execute(&loader, &args).await,
         Command::Sessions(args) => sessions::execute(&loader, &args),
+        Command::Tui(args) => tui_cmd::execute(&loader, &args),
     }
 }
 

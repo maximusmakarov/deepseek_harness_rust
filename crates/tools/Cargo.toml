@@ -1,0 +1,24 @@
+[package]
+name = "dshr-tools"
+description = "Tool registry and built-in filesystem, search, shell, and planning tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+dshr-core.workspace = true
+dshr-llm.workspace = true
+globset.workspace = true
+ignore.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

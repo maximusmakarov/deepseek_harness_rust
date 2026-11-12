@@ -287,6 +287,8 @@ pub async fn run_turn(&self, inputs: Vec<Input>) -> Result<TurnOutcome> {
 
 ## 7. Инструменты
 
+Реализация — `dshr-tools` + `dshr-agent`; принятое решение и границы — [ADR-014](adr/014-tool-approvals.md).
+
 ### 7.1. Контракт
 
 ```rust

@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v1.2 · 12.11.2026 · **M0 и M1 выполнены**
+**Статус:** план v1.3 · 12.11.2026 · **M0–M2 (ядро) выполнены**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,14 +10,16 @@
 
 ## 1. Статус
 
-M0 и M1 завершены 12.11.2026.
+M0–M2 (ядро) завершены 12.11.2026.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
 - **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume.
-- **CLI:** `dshr run` (стрим, JSON, `--cassette`, `--record`), `dshr sessions list|show|export`.
+- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, spill больших выводов.
+- **Агент:** цикл turn/step с tool-calls, approvals (read-only / workspace-write / danger), отмена, лимит шагов.
+- **TUI:** потоковый текст, карточки инструментов, модалка approval; PTY-тест.
 
-70 тестов; живой прогон DeepSeek проверен. Текущий фокус — M2: инструменты, агентный цикл, approvals, TUI. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+112 тестов; живой tool-loop DeepSeek проверен. Текущий фокус — M3: системный промпт, fork/rewind, FTS-поиск, compaction, skills. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -136,6 +138,12 @@ cargo build
 # живой прогон: нужен DSH_DEEPSEEK_TOKEN или DEEPSEEK_API_KEY
 ./target/debug/dshr run "Explain the repository layout"
 
+# с инструментами и авто-approval (осторожно: разрешает bash)
+./target/debug/dshr run --danger "Create hello.txt and read it back"
+
+# интерактивный TUI
+./target/debug/dshr tui
+
 # офлайн-прогон по кассете
 ./target/debug/dshr run --cassette cassette.json "hi"
 
@@ -156,17 +164,20 @@ crates/llm-openai     OpenAI-compatible (RouterAI и др.)
 crates/llm-mock       cassette replay + mock SSE server
 crates/session        события, derive_messages, проекции
 crates/session-jsonl  append-only JSONL, repair, export
-crates/cli            run, sessions, doctor, config show
+crates/tools          registry + read/write/edit/glob/grep/bash/todo/present
+crates/agent          turn/step loop, approvals, observers
+crates/tui            ratatui terminal UI
+crates/cli            run, tui, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–013
+docs/adr              001–014
 ```
 
 ## 9. Что дальше
 
-**M2 — инструменты, агентный цикл, TUI:**
-1. Реестр инструментов и пайплайн выполнения с approvals.
-2. `read`/`write`/`edit`/`patch`, `glob`/`grep`, `bash`, `todo`, `ask_user`, `present`.
-3. Цикл turn/step с tool-calls, отменой и лимитами.
-4. TUI на ratatui.
+**M3 — промпт, сессии, compaction, skills:**
+1. Сборка системного промпта, `AGENTS.md`, допуск схем инструментов.
+2. Fork/rewind, заголовки сессий, SQLite FTS-поиск.
+3. Compaction с порогами и суммаризацией.
+4. Skills: discovery, каталог, загрузка по требованию.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

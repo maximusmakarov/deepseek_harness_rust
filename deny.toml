@@ -1,5 +1,8 @@
 [advisories]
 yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2026-0441", reason = "pin-utils is pulled only by the dev-only expectrl/nix TUI test harness; it is not linked into the shipped dshr binary" },
+]
 
 [licenses]
 confidence-threshold = 0.9
