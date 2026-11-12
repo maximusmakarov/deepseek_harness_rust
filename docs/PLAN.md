@@ -142,6 +142,8 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M1 — LLM + журнал + headless (10–16 дней)
 
+**Статус:** выполнен 12.11.2026.
+
 **Содержание**
 - `dshr-llm`: `Message`, `ContentBlock` (text/thinking/tool_use/tool_result/image), `StreamChunk`, `Request`, `Usage`, `Capabilities`.
 - Адаптеры: DeepSeek **Anthropic Messages** (`/anthropic/v1/messages`, auth `x-dsh-auth-token` для account-режима и API-key), OpenAI-совместимый (RouterAI/шлюзы); retry/backoff, таймауты, отмена, классификация ошибок.

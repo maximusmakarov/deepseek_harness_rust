@@ -1,0 +1,116 @@
+use clap::{Args, Subcommand};
+use dshr_config::ConfigLoader;
+use dshr_core::{DshrError, Result};
+use dshr_llm::ContentBlock;
+use dshr_session_jsonl::SessionStore;
+
+#[derive(Debug, Args)]
+pub struct SessionsArgs {
+    #[command(subcommand)]
+    pub action: SessionsAction,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SessionsAction {
+    /// List sessions in the store
+    List {
+        /// Emit JSON instead of a table
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one session's header and messages
+    Show {
+        /// Session id
+        id: String,
+    },
+    /// Export one session
+    Export {
+        /// Session id
+        id: String,
+        /// Output format: markdown or json
+        #[arg(long, default_value = "markdown")]
+        format: String,
+    },
+}
+
+pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
+    let config = loader.load()?.config;
+    let dir = config
+        .session
+        .dir
+        .clone()
+        .ok_or_else(|| DshrError::config("session.dir is not resolved"))?;
+    let store = SessionStore::new(dir);
+
+    match &args.action {
+        SessionsAction::List { json } => list(&store, *json),
+        SessionsAction::Show { id } => show(&store, id),
+        SessionsAction::Export { id, format } => export(&store, id, format),
+    }
+}
+
+fn list(store: &SessionStore, json: bool) -> Result<u8> {
+    let summaries = store.list()?;
+    if json {
+        let encoded = serde_json::to_string_pretty(&summaries)
+            .map_err(|err| DshrError::config(format!("serialize sessions: {err}")))?;
+        println!("{encoded}");
+        return Ok(0);
+    }
+
+    println!("{:<40} {:<26} {:<20} TURNS", "ID", "CREATED", "MODEL");
+    for summary in summaries {
+        println!(
+            "{:<40} {:<26} {:<20} {}",
+            summary.id, summary.created_at, summary.model, summary.turns
+        );
+    }
+    Ok(0)
+}
+
+fn show(store: &SessionStore, id: &str) -> Result<u8> {
+    let session = store.open(id)?;
+    println!("# {}", session.header.id);
+    println!("created:  {}", session.header.created_at);
+    println!("provider: {}", session.header.provider);
+    println!("model:    {}", session.header.model);
+    println!("cwd:      {}", session.header.cwd);
+    println!();
+
+    for message in session.derive_messages() {
+        println!("## {:?}", message.role);
+        println!();
+        println!("{}", text_of(&message.content));
+        println!();
+    }
+    Ok(0)
+}
+
+fn export(store: &SessionStore, id: &str, format: &str) -> Result<u8> {
+    let session = store.open(id)?;
+    let text = match format {
+        "json" => store.export_json(&session)?,
+        "markdown" | "md" => store.export_markdown(&session)?,
+        other => {
+            return Err(DshrError::invalid_input(format!(
+                "unknown export format '{other}'; expected markdown or json"
+            )));
+        }
+    };
+    print!("{text}");
+    if !text.ends_with('\n') {
+        println!();
+    }
+    Ok(0)
+}
+
+fn text_of(content: &[ContentBlock]) -> String {
+    content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}

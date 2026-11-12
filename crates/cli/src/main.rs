@@ -2,6 +2,8 @@
 
 mod config_cmd;
 mod doctor;
+mod run_cmd;
+mod sessions;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -46,13 +48,18 @@ enum Command {
     Doctor(doctor::DoctorArgs),
     /// Inspect the resolved configuration
     Config(config_cmd::ConfigArgs),
+    /// Send one prompt and print the streamed answer
+    Run(run_cmd::RunArgs),
+    /// List, show, or export sessions
+    Sessions(sessions::SessionsArgs),
 }
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let cli = Cli::parse();
     init_logging(cli.log_level.as_deref());
 
-    match run(cli) {
+    match run(cli).await {
         Ok(code) => ExitCode::from(code),
         Err(err) => {
             eprintln!("error[{}]: {err}", err.code());
@@ -61,13 +68,15 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<u8> {
+async fn run(cli: Cli) -> Result<u8> {
     let home = ConfigLoader::resolve_home(cli.home)?;
     let loader = ConfigLoader::new(home, cli.profile).with_patches(cli.patch);
 
     match cli.command {
         Command::Doctor(args) => doctor::run(&loader, &args),
         Command::Config(args) => config_cmd::run(&loader, &args),
+        Command::Run(args) => run_cmd::execute(&loader, &args).await,
+        Command::Sessions(args) => sessions::execute(&loader, &args),
     }
 }
 

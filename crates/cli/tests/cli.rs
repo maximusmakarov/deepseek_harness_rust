@@ -143,3 +143,211 @@ fn config_show_yaml_by_default() {
         .stdout(predicate::str::contains("version: 1"))
         .stdout(predicate::str::contains("provider: deepseek-account"));
 }
+
+fn write_cassette(dir: &std::path::Path) -> std::path::PathBuf {
+    let path = dir.join("cassette.json");
+    std::fs::write(
+        &path,
+        r#"{"model":"deepseek-flash","chunks":[
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"pong"},
+            {"type":"usage","usage":{"input_tokens":5,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},
+            {"type":"done","stop_reason":"end_turn"}]}"#,
+    )
+    .expect("write cassette");
+    path
+}
+
+#[test]
+fn run_replays_cassette_and_persists_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hi",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pong"));
+
+    let output = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list sessions");
+    let sessions: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    assert_eq!(sessions.as_array().expect("array").len(), 1);
+    assert_eq!(sessions[0]["turns"], 1);
+    assert_eq!(sessions[0]["model"], "deepseek-flash");
+}
+
+#[test]
+fn run_json_mode_returns_structured_result() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+
+    let output = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--json",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hi",
+        ])
+        .output()
+        .expect("run");
+
+    assert!(output.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    assert_eq!(result["text"], "pong");
+    assert_eq!(result["usage"]["input_tokens"], 5);
+    assert!(
+        result["session_id"]
+            .as_str()
+            .expect("id")
+            .starts_with("ses_")
+    );
+}
+
+#[test]
+fn sessions_export_markdown_contains_turn() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hi",
+        ])
+        .assert()
+        .success();
+
+    let listed = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    let id = sessions[0]["id"].as_str().expect("id");
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "export",
+            id,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## User"))
+        .stdout(predicate::str::contains("pong"));
+}
+
+#[test]
+fn run_records_a_replayable_cassette() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+    let recorded = dir.path().join("recorded.json");
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--record",
+            recorded.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hi",
+        ])
+        .assert()
+        .success();
+
+    let text = std::fs::read_to_string(&recorded).expect("recorded cassette");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("json");
+    assert_eq!(value["model"], "deepseek-flash");
+    assert!(value["chunks"].as_array().expect("chunks").len() >= 2);
+}
+
+#[test]
+fn run_resumes_existing_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "first",
+        ])
+        .assert()
+        .success();
+
+    let listed = dshr()
+        .args(["--home", home, "sessions", "list", "--json"])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    let id = sessions[0]["id"].as_str().expect("id");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "run",
+            "--session",
+            id,
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "second",
+        ])
+        .assert()
+        .success();
+
+    let shown = dshr()
+        .args(["--home", home, "sessions", "show", id])
+        .output()
+        .expect("show");
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert_eq!(text.matches("## User").count(), 2, "{text}");
+    assert_eq!(text.matches("## Assistant").count(), 2, "{text}");
+}

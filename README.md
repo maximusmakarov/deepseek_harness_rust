@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v1.1 · 12.11.2026 · **M0 выполнен**
+**Статус:** план v1.2 · 12.11.2026 · **M0 и M1 выполнены**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,9 +10,14 @@
 
 ## 1. Статус
 
-M0 завершён 12.11.2026: workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013, 28 тестов.
+M0 и M1 завершены 12.11.2026.
 
-Текущий фокус — M1: LLM-слой (Anthropic Messages для DeepSeek и OpenAI-совместимый транспорт), журнал сессий, headless-чат. План и критерии выхода — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы проекта — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+- **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
+- **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
+- **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume.
+- **CLI:** `dshr run` (стрим, JSON, `--cassette`, `--record`), `dshr sessions list|show|export`.
+
+70 тестов; живой прогон DeepSeek проверен. Текущий фокус — M2: инструменты, агентный цикл, approvals, TUI. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -122,31 +127,46 @@ DSH — это **не модель**, а обвязка вокруг модел�
 
 ## 8. Быстрый старт
 
-M0 выполнен 12.11.2026: workspace, `dshr-core`/`dshr-config`/`dshr-cli`, слои конфигурации, `dshr doctor`, CI, ADR, 28 тестов; release-бинарь 2,7 МБ.
-
 ```sh
 cargo build
 ./target/debug/dshr --version
 ./target/debug/dshr doctor
 ./target/debug/dshr config show --schema
+
+# живой прогон: нужен DSH_DEEPSEEK_TOKEN или DEEPSEEK_API_KEY
+./target/debug/dshr run "Explain the repository layout"
+
+# офлайн-прогон по кассете
+./target/debug/dshr run --cassette cassette.json "hi"
+
+# сессии
+./target/debug/dshr sessions list
+./target/debug/dshr sessions show <session-id>
+./target/debug/dshr sessions export <session-id> --format markdown
 ```
 
 Дерево:
 
 ```text
-Cargo.toml            workspace (edition 2024, resolver 3)
-crates/core           ids, DshrError, redaction (12 тестов)
-crates/config         слои defaults < profile < user < patch (8 тестов)
-crates/cli            dshr: doctor, config show (8 интеграционных)
+crates/core           ids, DshrError, redaction
+crates/config         слои defaults < profile < user < patch
+crates/llm            Message/StreamChunk/SSE/assembler/provider trait
+crates/llm-deepseek   Anthropic Messages (DeepSeek)
+crates/llm-openai     OpenAI-compatible (RouterAI и др.)
+crates/llm-mock       cassette replay + mock SSE server
+crates/session        события, derive_messages, проекции
+crates/session-jsonl  append-only JSONL, repair, export
+crates/cli            run, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–012
+docs/adr              001–013
 ```
 
 ## 9. Что дальше
 
-M1 — LLM-слой и headless:
-1. `dshr-llm`: Anthropic Messages (DeepSeek) + OpenAI-совместимый транспорт.
-2. `dshr-session`: события, `derive_messages()`, JSONL + repair.
-3. `dshr run "…"` на кассете, resume после `kill -9`, живой smoke по `DSH_DEEPSEEK_TOKEN`.
+**M2 — инструменты, агентный цикл, TUI:**
+1. Реестр инструментов и пайплайн выполнения с approvals.
+2. `read`/`write`/`edit`/`patch`, `glob`/`grep`, `bash`, `todo`, `ask_user`, `present`.
+3. Цикл turn/step с tool-calls, отменой и лимитами.
+4. TUI на ratatui.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).
