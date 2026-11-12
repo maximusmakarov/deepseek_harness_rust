@@ -1,0 +1,26 @@
+[package]
+name = "dshr-cli"
+description = "dshr command-line interface"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dshr"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+dshr-config.workspace = true
+dshr-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-saphyr.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true

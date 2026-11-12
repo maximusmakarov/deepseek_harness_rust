@@ -1,0 +1,15 @@
+# build
+/target/
+
+# reference clone (nested git repository, 36 MB); note lives in reference/REFERENCE.md
+/reference/dsh-desktop/
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+.credentials*
+*.token
+
+# macOS
+.DS_Store
