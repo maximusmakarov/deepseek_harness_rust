@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use clap::Args;
 use dshr_agent::{
     Agent, AgentConfig, AgentObserver, ApprovalPolicy, AutoApprover, DenyApprover, PermissionMode,
-    SubagentTool, ToolCallInfo,
+    SubagentRunner, SubagentTool, ToolCallInfo,
 };
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
@@ -160,14 +160,22 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
     let base_tools = Arc::new(tools);
     let child_tools = Arc::clone(&base_tools);
     let mut parent_tools = (*base_tools).clone();
-    let runner = Arc::new(crate::subagent_runner::AgentSubagentRunner::new(
-        Arc::clone(&provider),
-        child_tools,
-        Arc::clone(&store),
-        policy.clone(),
-        agent_config.clone(),
+    let runner: Arc<dyn SubagentRunner> =
+        Arc::new(crate::subagent_runner::AgentSubagentRunner::new(
+            Arc::clone(&provider),
+            child_tools,
+            Arc::clone(&store),
+            policy.clone(),
+            agent_config.clone(),
+        ));
+    parent_tools.register(SubagentTool::new(Arc::clone(&runner)));
+    parent_tools.register(dshr_workflow::WorkflowTool::new(
+        runner,
+        vec![
+            loader.home().join("workflows"),
+            std::path::PathBuf::from(&cwd).join(".dshr/workflows"),
+        ],
     ));
-    parent_tools.register(SubagentTool::new(runner));
 
     let mut agent = Agent::new(
         provider,

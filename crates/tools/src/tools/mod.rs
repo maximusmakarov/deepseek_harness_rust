@@ -4,6 +4,7 @@ mod plan;
 mod read;
 mod search;
 mod web;
+mod worktree;
 mod write;
 
 pub use bash::BashTool;
@@ -12,4 +13,5 @@ pub use plan::{PresentTool, TodoTool};
 pub use read::ReadTool;
 pub use search::{GlobTool, GrepTool};
 pub use web::{WebFetchTool, WebSearchTool};
+pub use worktree::{WorktreeCreateTool, WorktreeListTool, WorktreeRemoveTool};
 pub use write::WriteTool;

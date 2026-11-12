@@ -704,6 +704,7 @@ dependencies = [
  "dshr-skills",
  "dshr-tools",
  "dshr-tui",
+ "dshr-workflow",
  "expectrl",
  "futures-util",
  "predicates",
@@ -969,6 +970,23 @@ dependencies = [
  "dshr-tools",
  "ratatui",
  "serde_json",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "dshr-workflow"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dshr-agent",
+ "dshr-core",
+ "dshr-tools",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
 ]

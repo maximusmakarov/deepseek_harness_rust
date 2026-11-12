@@ -96,6 +96,9 @@ impl ToolRegistry {
         registry.register(crate::tools::WebFetchTool::default());
         registry.register(crate::tools::WebSearchTool::from_env());
         registry.register(crate::tools::TodoTool::default());
+        registry.register(crate::tools::WorktreeCreateTool);
+        registry.register(crate::tools::WorktreeListTool);
+        registry.register(crate::tools::WorktreeRemoveTool);
         registry.register(crate::tools::PresentTool);
         registry
     }

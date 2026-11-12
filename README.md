@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v1.7 · 12.11.2026 · **M0–M6 (ядро) выполнены**
+**Статус:** план v1.8 · 12.11.2026 · **M0–M6 выполнены; M7 — первый срез**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,7 +10,7 @@
 
 ## 1. Статус
 
-M0–M6 (ядро) завершены 12.11.2026.
+M0–M6 (ядро) завершены 12.11.2026; M7 — workflows и worktrees.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
@@ -77,6 +77,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/IMPROVEMENTS.md](docs/IMPROVEMENTS.md) | Чем улучшенная реализация отличается от DSH Desktop: 10 улучшений, целевые метрики, компромиссы | Перед выбором scope |
 | [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) | Живая проверка DeepSeek: Anthropic Messages wire, auth, streaming, tool round-trip | Перед M1 |
 | [docs/API.md](docs/API.md) | HTTP API, SSE, JSON-RPC, Web UI | Для интеграций и SDK |
+| [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | YAML-DAG шагов, шаблоны, запуск | Для мультиагентных сценариев |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
 | [docs/adr/](docs/adr/README.md) | Architecture Decision Records 001–012 | При изменении контрактов |
 
@@ -146,6 +147,9 @@ cargo build
 ./target/debug/dshr tui
 ./target/debug/dshr prompt
 
+# workflow из .dshr/workflows
+./target/debug/dshr run --danger "use workflow review with input '.'"
+
 # сервер + Web UI
 ./target/debug/dshr serve --port 55678
 # открыть http://127.0.0.1:55678 и вставить токен из вывода
@@ -188,18 +192,19 @@ crates/mcp            MCP stdio-клиент и адаптеры инструм�
 crates/jobs           фоновые процессы и job_* инструменты
 crates/sandbox        политика и Seatbelt-бэкенд
 crates/server         HTTP/SSE API, JSON-RPC и встроенный UI
+crates/workflow       YAML-DAG шагов через субагентов
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–019
+docs/adr              001–020
 ```
 
 ## 9. Что дальше
 
-**M7 — паритет:**
-1. Workflows, расписания, agent teams, worktrees.
+**M7 — оставшиеся эпики:**
+1. Расписания (cron) и agent teams.
 2. LSP, Office, CUA/browser.
-3. Desktop-оболочка (Tauri) и OTel.
-4. i18n, упаковка, ACP.
+3. Desktop-оболочка (Tauri), OTel, ACP.
+4. i18n, упаковка, plugin market.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

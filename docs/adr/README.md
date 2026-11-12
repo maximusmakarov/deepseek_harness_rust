@@ -23,5 +23,6 @@
 | [017](017-external-tools.md) | MCP, web, jobs и субагенты: границы M4 | Accepted |
 | [018](018-sandbox-plugins.md) | Песочница и плагины: границы M5 | Accepted |
 | [019](019-server-ui.md) | Сервер, Web UI и SDK: границы M6 | Accepted |
+| [020](020-workflows-worktrees.md) | Workflows и worktrees: первый срез M7 | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

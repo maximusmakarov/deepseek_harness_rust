@@ -31,6 +31,7 @@ dshr-skills.workspace = true
 dshr-session-jsonl.workspace = true
 dshr-tools.workspace = true
 dshr-tui.workspace = true
+dshr-workflow.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
