@@ -8,7 +8,9 @@ use dshr_llm::{LlmError, LlmProvider};
 use dshr_llm_deepseek::DeepSeekProvider;
 use dshr_llm_mock::ReplayProvider;
 use dshr_llm_openai::OpenAiProvider;
+use dshr_prompt::PromptContext;
 use dshr_session_jsonl::SessionStore;
+use dshr_skills::SkillRegistry;
 use dshr_tools::ToolRegistry;
 
 #[derive(Debug, Args)]
@@ -62,23 +64,39 @@ pub fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
         None => store.create(provider.name(), provider.model(), &cwd_string)?,
     };
 
-    let tools = if args.no_tools {
+    let mut tools = if args.no_tools {
         ToolRegistry::new()
     } else {
         ToolRegistry::with_builtin()
     };
+    let skills = Arc::new(SkillRegistry::discover(&[
+        loader.home().join("skills"),
+        cwd.join(".dshr/skills"),
+    ]));
+    if !skills.is_empty() {
+        tools.register_arc(Arc::new(skills.tool()));
+    }
     let mode = if args.danger {
         PermissionMode::DangerFull
     } else {
         PermissionMode::WorkspaceWrite
     };
 
+    let system_prompt = build_system_prompt(
+        loader.home(),
+        &cwd_string,
+        provider.name(),
+        provider.model(),
+        &tools,
+        &skills,
+    );
+
     dshr_tui::run(dshr_tui::TuiOptions {
         provider,
         tools: Arc::new(tools),
         store,
         session,
-        system_prompt: system_prompt(&cwd_string),
+        system_prompt,
         max_steps: args.max_steps.max(1),
         max_tokens: args.max_tokens,
         output_limit: config.tools.output_limit_chars,
@@ -115,12 +133,24 @@ fn build_provider(args: &TuiArgs, config: &Config) -> Result<Arc<dyn LlmProvider
     }
 }
 
-fn system_prompt(cwd: &str) -> String {
-    format!(
-        "You are dshr, a terminal coding agent. Working directory: {cwd}. \
-Use the available tools to inspect and modify files. Prefer small, verifiable steps. \
-Be concise and precise."
-    )
+fn build_system_prompt(
+    home: &std::path::Path,
+    cwd: &str,
+    provider: &str,
+    model: &str,
+    tools: &ToolRegistry,
+    skills: &SkillRegistry,
+) -> String {
+    let today = dshr_session::now_rfc3339();
+    dshr_prompt::build(&PromptContext {
+        cwd: std::path::PathBuf::from(cwd),
+        home: home.to_path_buf(),
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        date: today.get(..10).unwrap_or(&today).to_owned(),
+        tools: tools.names(),
+        skills: skills.catalog(),
+    })
 }
 
 fn llm_error(error: LlmError) -> DshrError {

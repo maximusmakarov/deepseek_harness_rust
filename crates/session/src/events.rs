@@ -14,6 +14,8 @@ pub struct SessionHeader {
     pub provider: String,
     pub model: String,
     pub cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,6 +73,12 @@ pub enum SessionEvent {
         content: String,
         is_error: bool,
     },
+    Compaction {
+        seq: u64,
+        at: String,
+        summary: String,
+        replaced_until_seq: u64,
+    },
     TurnEnd {
         seq: u64,
         at: String,
@@ -89,6 +97,7 @@ impl SessionEvent {
             | Self::AssistantMessage { seq, .. }
             | Self::AssistantAttempt { seq, .. }
             | Self::ToolResult { seq, .. }
+            | Self::Compaction { seq, .. }
             | Self::TurnEnd { seq, .. } => *seq,
         }
     }
@@ -102,6 +111,7 @@ impl SessionEvent {
             | Self::AssistantMessage { at, .. }
             | Self::AssistantAttempt { at, .. }
             | Self::ToolResult { at, .. }
+            | Self::Compaction { at, .. }
             | Self::TurnEnd { at, .. } => at,
         }
     }
@@ -115,6 +125,7 @@ impl SessionEvent {
             Self::AssistantMessage { .. } => "assistant_message",
             Self::AssistantAttempt { .. } => "assistant_attempt",
             Self::ToolResult { .. } => "tool_result",
+            Self::Compaction { .. } => "compaction",
             Self::TurnEnd { .. } => "turn_end",
         }
     }

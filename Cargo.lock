@@ -612,6 +612,7 @@ name = "dshr-agent"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "dshr-compaction",
  "dshr-core",
  "dshr-llm",
  "dshr-llm-mock",
@@ -634,14 +635,17 @@ dependencies = [
  "async-trait",
  "clap",
  "dshr-agent",
+ "dshr-compaction",
  "dshr-config",
  "dshr-core",
  "dshr-llm",
  "dshr-llm-deepseek",
  "dshr-llm-mock",
  "dshr-llm-openai",
+ "dshr-prompt",
  "dshr-session",
  "dshr-session-jsonl",
+ "dshr-skills",
  "dshr-tools",
  "dshr-tui",
  "expectrl",
@@ -655,6 +659,22 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "dshr-compaction"
+version = "0.1.0"
+dependencies = [
+ "dshr-core",
+ "dshr-llm",
+ "dshr-llm-mock",
+ "dshr-session",
+ "dshr-session-jsonl",
+ "futures-util",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -741,6 +761,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dshr-prompt"
+version = "0.1.0"
+dependencies = [
+ "dshr-core",
+ "tempfile",
+]
+
+[[package]]
 name = "dshr-session"
 version = "0.1.0"
 dependencies = [
@@ -763,6 +791,19 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "dshr-skills"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dshr-core",
+ "dshr-tools",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -791,6 +832,7 @@ dependencies = [
  "async-trait",
  "crossterm",
  "dshr-agent",
+ "dshr-compaction",
  "dshr-core",
  "dshr-llm",
  "dshr-session",

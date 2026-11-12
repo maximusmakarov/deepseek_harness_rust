@@ -18,5 +18,6 @@
 | [012](012-yaml-parser.md) | YAML-парсер: serde-saphyr | Accepted |
 | [013](013-cordis-compat.md) | Совместимость с npm/Cordis-плагинами рядом с WASM | Accepted |
 | [014](014-tool-approvals.md) | Инструменты, approvals и агентный цикл | Accepted |
+| [015](015-context-management.md) | Промпт, AGENTS.md, skills и compaction | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

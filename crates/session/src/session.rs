@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use dshr_core::{SessionId, TurnId};
-use dshr_llm::{Message, Role};
+use dshr_llm::{ContentBlock, Message, Role};
 use serde::{Deserialize, Serialize};
 
 use crate::events::{SESSION_FORMAT_VERSION, SessionEvent, SessionHeader, TurnEndReason};
@@ -57,50 +57,46 @@ impl Session {
     /// Projects the durable log into the exact history the model receives.
     #[must_use]
     pub fn derive_messages(&self) -> Vec<Message> {
+        let compaction = self.events.iter().rev().find_map(|event| match event {
+            SessionEvent::Compaction {
+                summary,
+                replaced_until_seq,
+                ..
+            } => Some((*replaced_until_seq, summary.clone())),
+            _ => None,
+        });
+
+        let (cutoff, summary) = compaction.unwrap_or((0, String::new()));
         let mut messages = Vec::new();
         for event in &self.events {
-            match event {
-                SessionEvent::UserMessage { content, .. } if !content.is_empty() => {
-                    messages.push(Message {
-                        role: Role::User,
-                        content: content.clone(),
-                    });
-                }
-                SessionEvent::AssistantMessage { content, .. } if !content.is_empty() => {
-                    messages.push(Message {
-                        role: Role::Assistant,
-                        content: content.clone(),
-                    });
-                }
-                SessionEvent::ToolResult {
-                    tool_call_id,
-                    content,
-                    is_error,
-                    ..
-                } => {
-                    let block = dshr_llm::ContentBlock::ToolResult {
-                        tool_use_id: tool_call_id.clone(),
-                        content: content.clone(),
-                        is_error: *is_error,
-                    };
-                    match messages.last_mut() {
-                        Some(Message {
-                            role: Role::User,
-                            content: blocks,
-                        }) if blocks.iter().any(|block| {
-                            matches!(block, dshr_llm::ContentBlock::ToolResult { .. })
-                        }) =>
-                        {
-                            blocks.push(block);
-                        }
-                        _ => messages.push(Message {
-                            role: Role::User,
-                            content: vec![block],
-                        }),
-                    }
-                }
-                _ => {}
+            if event.seq() <= cutoff {
+                continue;
             }
+            push_message(&mut messages, event);
+        }
+        if !summary.is_empty() {
+            messages.insert(
+                0,
+                Message {
+                    role: Role::User,
+                    content: vec![ContentBlock::text(format!(
+                        "[Summary of earlier conversation]\n{summary}"
+                    ))],
+                },
+            );
+        }
+        messages
+    }
+
+    /// Projects only events up to `cutoff` (used by compaction to summarize).
+    #[must_use]
+    pub fn derive_messages_until(&self, cutoff: u64) -> Vec<Message> {
+        let mut messages = Vec::new();
+        for event in &self.events {
+            if event.seq() > cutoff {
+                break;
+            }
+            push_message(&mut messages, event);
         }
         messages
     }
@@ -138,6 +134,51 @@ impl Session {
     }
 }
 
+fn push_message(messages: &mut Vec<Message>, event: &SessionEvent) {
+    match event {
+        SessionEvent::UserMessage { content, .. } if !content.is_empty() => {
+            messages.push(Message {
+                role: Role::User,
+                content: content.clone(),
+            });
+        }
+        SessionEvent::AssistantMessage { content, .. } if !content.is_empty() => {
+            messages.push(Message {
+                role: Role::Assistant,
+                content: content.clone(),
+            });
+        }
+        SessionEvent::ToolResult {
+            tool_call_id,
+            content,
+            is_error,
+            ..
+        } => {
+            let block = ContentBlock::ToolResult {
+                tool_use_id: tool_call_id.clone(),
+                content: content.clone(),
+                is_error: *is_error,
+            };
+            match messages.last_mut() {
+                Some(Message {
+                    role: Role::User,
+                    content: blocks,
+                }) if blocks
+                    .iter()
+                    .any(|block| matches!(block, ContentBlock::ToolResult { .. })) =>
+                {
+                    blocks.push(block);
+                }
+                _ => messages.push(Message {
+                    role: Role::User,
+                    content: vec![block],
+                }),
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,6 +193,7 @@ mod tests {
             provider: "deepseek-account".into(),
             model: "deepseek-flash".into(),
             cwd: "/tmp".into(),
+            title: None,
         };
         Session::empty(header, PathBuf::from("/tmp/session"))
     }

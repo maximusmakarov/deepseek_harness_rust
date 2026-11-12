@@ -342,6 +342,8 @@ pub struct PermissionPolicy {
 
 ## 8. Промпт и контекст
 
+Реализация — `dshr-prompt` + `dshr-skills`; решение — [ADR-015](adr/015-context-management.md).
+
 Сборка секций (стабильный префикс → кэш провайдера):
 
 1. Идентичность и правила поведения.
@@ -359,6 +361,8 @@ pub struct PermissionPolicy {
 ---
 
 ## 9. Compaction
+
+Реализация — `dshr-compaction`; событие журнала и cutoff — [ADR-015](adr/015-context-management.md).
 
 - Триггер: `usage > threshold` (по умолчанию 80 % окна) или число сообщений.
 - Счётчик токенов: `usage` провайдера после ответа + локальная оценка до запроса (`tiktoken-rs`/`tokenizers`); выбор — ADR-008.

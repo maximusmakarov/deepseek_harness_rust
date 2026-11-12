@@ -1,0 +1,13 @@
+[package]
+name = "dshr-prompt"
+description = "Deterministic system prompt assembly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+dshr-core.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -214,6 +214,7 @@ pub struct AgentConfig {
     pub max_steps: usize,
     pub max_tokens: u32,
     pub output_limit: usize,
+    pub compaction: Option<dshr_compaction::CompactionConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -291,6 +292,18 @@ impl Agent {
             if cancel.is_cancelled() {
                 self.end_turn(&turn, TurnEndReason::Cancelled)?;
                 return Err(AgentError::Cancelled);
+            }
+
+            if let Some(compaction) = self.config.compaction.clone() {
+                dshr_compaction::maybe_compact(
+                    self.provider.as_ref(),
+                    &mut self.session,
+                    &self.store,
+                    &compaction,
+                    cancel.clone(),
+                )
+                .await
+                .map_err(|error| AgentError::Llm(error.to_string()))?;
             }
 
             let request = Request {
@@ -528,6 +541,7 @@ mod tests {
                 max_steps,
                 max_tokens: 64,
                 output_limit: 30_000,
+                compaction: None,
             },
         )
     }

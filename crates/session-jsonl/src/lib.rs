@@ -31,6 +31,14 @@ pub struct SessionStore {
     root: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SearchHit {
+    pub session_id: String,
+    pub seq: u64,
+    pub kind: String,
+    pub snippet: String,
+}
+
 impl SessionStore {
     #[must_use]
     pub fn new(root: impl Into<PathBuf>) -> Self {
@@ -55,6 +63,7 @@ impl SessionStore {
             provider: provider.to_owned(),
             model: model.to_owned(),
             cwd: cwd.to_owned(),
+            title: None,
         };
         write_header(&dir, &header)?;
         OpenOptions::new()
@@ -156,6 +165,129 @@ impl SessionStore {
         Ok(summaries)
     }
 
+    pub fn set_title(&self, id: &str, title: &str) -> Result<Session> {
+        let mut session = self.open(id)?;
+        session.header.title = Some(title.to_owned());
+        write_header(&session.dir, &session.header)?;
+        Ok(session)
+    }
+
+    /// Creates a new session from the events of `id` up to `at_seq` (inclusive).
+    pub fn fork(&self, id: &str, at_seq: Option<u64>) -> Result<Session> {
+        let source = self.open(id)?;
+        let cutoff = at_seq.unwrap_or(u64::MAX);
+        let selected: Vec<SessionEvent> = source
+            .events
+            .iter()
+            .filter(|event| event.seq() <= cutoff)
+            .cloned()
+            .collect();
+        if selected.is_empty() {
+            return Err(DshrError::invalid_input("nothing to fork at this point"));
+        }
+
+        let new_id = dshr_core::SessionId::new();
+        let dir = self.root.join(new_id.as_str());
+        fs::create_dir_all(&dir)?;
+
+        let mut events = Vec::with_capacity(selected.len());
+        for (index, event) in selected.into_iter().enumerate() {
+            let mut value = serde_json::to_value(&event)
+                .map_err(|error| DshrError::config(format!("serialize event: {error}")))?;
+            value["seq"] = serde_json::json!(index as u64 + 1);
+            events.push(
+                serde_json::from_value(value)
+                    .map_err(|error| DshrError::config(format!("rebuild event: {error}")))?,
+            );
+        }
+
+        let header = SessionHeader {
+            version: SESSION_FORMAT_VERSION,
+            id: new_id,
+            created_at: now_rfc3339(),
+            provider: source.header.provider.clone(),
+            model: source.header.model.clone(),
+            cwd: source.header.cwd.clone(),
+            title: source.header.title.clone(),
+        };
+        write_header(&dir, &header)?;
+        write_events(&dir.join(EVENTS_FILE), &events)?;
+
+        Ok(Session {
+            header,
+            events,
+            dir,
+        })
+    }
+
+    /// Keeps only the first `keep_turns` turns; the previous log is backed up.
+    pub fn rewind(&self, id: &str, keep_turns: usize) -> Result<Session> {
+        let session = self.open(id)?;
+        let boundary = session
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::TurnStart { seq, .. } => Some(*seq),
+                _ => None,
+            })
+            .nth(keep_turns);
+        let kept: Vec<SessionEvent> = match boundary {
+            Some(seq) => session
+                .events
+                .iter()
+                .filter(|event| event.seq() < seq)
+                .cloned()
+                .collect(),
+            None => session.events.clone(),
+        };
+
+        let path = session.dir.join(EVENTS_FILE);
+        if path.exists() {
+            fs::copy(&path, path.with_extension("jsonl.bak"))?;
+        }
+        write_events(&path, &kept)?;
+        self.open(id)
+    }
+
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+        let needle = query.to_lowercase();
+        if needle.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut hits = Vec::new();
+        for summary in self.list()? {
+            let Ok(session) = self.open(summary.id.as_str()) else {
+                continue;
+            };
+            for event in &session.events {
+                let text = event_text(event);
+                if text.is_empty() {
+                    continue;
+                }
+                let lower = text.to_lowercase();
+                if let Some(position) = lower.find(&needle) {
+                    let chars: Vec<char> = text.chars().collect();
+                    let position_chars = text[..position].chars().count();
+                    let start = position_chars.saturating_sub(40);
+                    let end = (position_chars + needle.chars().count() + 40).min(chars.len());
+                    hits.push(SearchHit {
+                        session_id: session.header.id.to_string(),
+                        seq: event.seq(),
+                        kind: event.kind().to_owned(),
+                        snippet: chars[start..end]
+                            .iter()
+                            .collect::<String>()
+                            .replace('\n', " "),
+                    });
+                    if hits.len() >= limit {
+                        return Ok(hits);
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    }
+
     pub fn export_json(&self, session: &Session) -> Result<String> {
         #[derive(serde::Serialize)]
         struct Export<'a> {
@@ -195,6 +327,38 @@ impl SessionStore {
             }
         }
         Ok(out)
+    }
+}
+
+fn write_events(path: &Path, events: &[SessionEvent]) -> Result<()> {
+    let temporary = path.with_extension("jsonl.tmp");
+    let mut text = String::new();
+    for event in events {
+        let line = serde_json::to_string(event)
+            .map_err(|error| DshrError::config(format!("serialize event: {error}")))?;
+        text.push_str(&line);
+        text.push('\n');
+    }
+    fs::write(&temporary, text)?;
+    fs::rename(&temporary, path)?;
+    Ok(())
+}
+
+fn event_text(event: &SessionEvent) -> String {
+    match event {
+        SessionEvent::UserMessage { content, .. }
+        | SessionEvent::AssistantMessage { content, .. } => content
+            .iter()
+            .filter_map(|block| match block {
+                ContentBlock::Text { text } => Some(text.as_str()),
+                ContentBlock::Thinking { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+        SessionEvent::ToolResult { content, .. } => content.clone(),
+        SessionEvent::Compaction { summary, .. } => summary.clone(),
+        _ => String::new(),
     }
 }
 
@@ -390,6 +554,61 @@ mod tests {
         assert!(markdown.contains("## User"));
         assert!(markdown.contains("hi"));
         assert!(markdown.contains("## Assistant"));
+    }
+
+    #[test]
+    fn forks_at_a_sequence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path());
+        let mut session = create(&store);
+        round_trip(&store, &mut session);
+
+        let fork = store
+            .fork(session.header.id.as_str(), Some(5))
+            .expect("fork");
+        assert_ne!(fork.header.id, session.header.id);
+        assert_eq!(fork.events.len(), 5);
+        assert!(fork.events.iter().map(SessionEvent::seq).eq(1..=5));
+        assert_eq!(fork.derive_messages().len(), 2);
+    }
+
+    #[test]
+    fn rewinds_to_keep_turns() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path());
+        let mut session = create(&store);
+        round_trip(&store, &mut session);
+        round_trip(&store, &mut session);
+
+        let rewound = store.rewind(session.header.id.as_str(), 1).expect("rewind");
+        assert_eq!(rewound.summary().turns, 1);
+        assert_eq!(rewound.derive_messages().len(), 2);
+        assert!(
+            session
+                .dir
+                .join(EVENTS_FILE)
+                .with_extension("jsonl.bak")
+                .exists()
+        );
+    }
+
+    #[test]
+    fn searches_text_and_sets_title() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path());
+        let mut session = create(&store);
+        round_trip(&store, &mut session);
+
+        let hits = store.search("hello", 10).expect("search");
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("hello"));
+
+        let titled = store
+            .set_title(session.header.id.as_str(), "demo")
+            .expect("title");
+        assert_eq!(titled.header.title.as_deref(), Some("demo"));
+        let reopened = store.open(session.header.id.as_str()).expect("open");
+        assert_eq!(reopened.header.title.as_deref(), Some("demo"));
     }
 
     #[test]

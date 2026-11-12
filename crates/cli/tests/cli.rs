@@ -419,3 +419,95 @@ fn run_executes_tool_loop_from_cassette() {
     let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
     assert_eq!(sessions[0]["turns"], 1);
 }
+
+#[test]
+fn sessions_support_title_search_fork_and_rewind() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+    let home = dir.path().to_str().expect("utf8");
+
+    for prompt in ["first", "second"] {
+        dshr()
+            .args([
+                "--home",
+                home,
+                "run",
+                "--cassette",
+                cassette.to_str().expect("utf8"),
+                "--model",
+                "deepseek-flash",
+                prompt,
+            ])
+            .assert()
+            .success();
+    }
+
+    let listed = dshr()
+        .args(["--home", home, "sessions", "list", "--json"])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    let id = sessions[0]["id"].as_str().expect("id");
+
+    dshr()
+        .args(["--home", home, "sessions", "title", id, "demo"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("demo"));
+
+    let searched = dshr()
+        .args(["--home", home, "sessions", "search", "pong", "--json"])
+        .output()
+        .expect("search");
+    let hits: serde_json::Value = serde_json::from_slice(&searched.stdout).expect("json");
+    assert!(hits.as_array().expect("hits").len() >= 2);
+
+    let forked = dshr()
+        .args(["--home", home, "sessions", "fork", id, "--at", "5"])
+        .output()
+        .expect("fork");
+    let fork_id = String::from_utf8_lossy(&forked.stdout).trim().to_owned();
+    assert!(fork_id.starts_with("ses_"));
+
+    dshr()
+        .args(["--home", home, "sessions", "rewind", id, "--turn", "1"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 turn(s)"));
+
+    let shown = dshr()
+        .args(["--home", home, "sessions", "show", id])
+        .output()
+        .expect("show");
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert_eq!(text.matches("## User").count(), 1, "{text}");
+}
+
+#[test]
+fn prompt_includes_agents_md_and_skills() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("home");
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&home).expect("home");
+    std::fs::create_dir_all(&project).expect("project");
+    std::fs::write(project.join("AGENTS.md"), "PROJECT RULES").expect("agents");
+    let skill = home.join("skills/rust");
+    std::fs::create_dir_all(&skill).expect("skill dir");
+    std::fs::write(
+        skill.join("SKILL.md"),
+        "---\nname: rust\ndescription: Rust guidelines\n---\nUse cargo fmt.\n",
+    )
+    .expect("skill");
+
+    let output = dshr()
+        .current_dir(&project)
+        .args(["--home", home.to_str().expect("utf8"), "prompt"])
+        .output()
+        .expect("prompt");
+    assert!(output.status.success());
+    let prompt = String::from_utf8_lossy(&output.stdout);
+    assert!(prompt.contains("PROJECT RULES"), "{prompt}");
+    assert!(prompt.contains("rust: Rust guidelines"), "{prompt}");
+    assert!(prompt.contains("- read"), "{prompt}");
+    assert!(prompt.contains("- skill"), "{prompt}");
+}

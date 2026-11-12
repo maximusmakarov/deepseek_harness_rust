@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v1.3 · 12.11.2026 · **M0–M2 (ядро) выполнены**
+**Статус:** план v1.4 · 12.11.2026 · **M0–M3 (ядро) выполнены**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,7 +10,7 @@
 
 ## 1. Статус
 
-M0–M2 (ядро) завершены 12.11.2026.
+M0–M3 (ядро) завершены 12.11.2026.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
@@ -143,6 +143,12 @@ cargo build
 
 # интерактивный TUI
 ./target/debug/dshr tui
+./target/debug/dshr prompt
+
+# сессии
+./target/debug/dshr sessions fork <id> --at 5
+./target/debug/dshr sessions rewind <id> --turn 1
+./target/debug/dshr sessions search "hello" --json
 
 # офлайн-прогон по кассете
 ./target/debug/dshr run --cassette cassette.json "hi"
@@ -166,18 +172,21 @@ crates/session        события, derive_messages, проекции
 crates/session-jsonl  append-only JSONL, repair, export
 crates/tools          registry + read/write/edit/glob/grep/bash/todo/present
 crates/agent          turn/step loop, approvals, observers
+crates/prompt         секции промпта, AGENTS.md, детерминизм
+crates/skills         discovery, каталог, skill tool
+crates/compaction     оценка токенов и суммаризация
 crates/tui            ratatui terminal UI
-crates/cli            run, tui, sessions, doctor, config show
+crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–014
+docs/adr              001–015
 ```
 
 ## 9. Что дальше
 
-**M3 — промпт, сессии, compaction, skills:**
-1. Сборка системного промпта, `AGENTS.md`, допуск схем инструментов.
-2. Fork/rewind, заголовки сессий, SQLite FTS-поиск.
-3. Compaction с порогами и суммаризацией.
-4. Skills: discovery, каталог, загрузка по требованию.
+**M4 — MCP, web, jobs, субагенты:**
+1. MCP-клиент (stdio + HTTP), ресурсы и scoping.
+2. `web_search`/`web_fetch` с SSRF-защитой.
+3. Фоновые jobs и управление ими.
+4. Субагенты: spawn/fork, дерево, бюджеты.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

@@ -10,6 +10,9 @@ members = [
     "crates/session",
     "crates/session-jsonl",
     "crates/tools",
+    "crates/prompt",
+    "crates/skills",
+    "crates/compaction",
     "crates/agent",
     "crates/tui",
     "crates/cli",
@@ -31,6 +34,9 @@ dshr-llm-mock = { path = "crates/llm-mock" }
 dshr-session = { path = "crates/session" }
 dshr-session-jsonl = { path = "crates/session-jsonl" }
 dshr-tools = { path = "crates/tools" }
+dshr-prompt = { path = "crates/prompt" }
+dshr-skills = { path = "crates/skills" }
+dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }
 

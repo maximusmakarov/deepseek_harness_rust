@@ -10,6 +10,7 @@ license.workspace = true
 async-trait.workspace = true
 crossterm = "0.29"
 dshr-agent.workspace = true
+dshr-compaction.workspace = true
 dshr-core.workspace = true
 dshr-llm.workspace = true
 dshr-session.workspace = true

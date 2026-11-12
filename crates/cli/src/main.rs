@@ -2,6 +2,7 @@
 
 mod config_cmd;
 mod doctor;
+mod prompt_cmd;
 mod run_cmd;
 mod sessions;
 mod tui_cmd;
@@ -55,6 +56,8 @@ enum Command {
     Sessions(sessions::SessionsArgs),
     /// Interactive terminal UI
     Tui(tui_cmd::TuiArgs),
+    /// Print the assembled system prompt
+    Prompt(prompt_cmd::PromptArgs),
 }
 
 #[tokio::main]
@@ -81,6 +84,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Run(args) => run_cmd::execute(&loader, &args).await,
         Command::Sessions(args) => sessions::execute(&loader, &args),
         Command::Tui(args) => tui_cmd::execute(&loader, &args),
+        Command::Prompt(args) => prompt_cmd::execute(&loader, &args),
     }
 }
 

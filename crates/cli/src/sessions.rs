@@ -31,6 +31,40 @@ pub enum SessionsAction {
         #[arg(long, default_value = "markdown")]
         format: String,
     },
+    /// Fork a session at a sequence number
+    Fork {
+        /// Source session id
+        id: String,
+        /// Last sequence number to copy
+        #[arg(long)]
+        at: Option<u64>,
+    },
+    /// Drop turns after the first N
+    Rewind {
+        /// Session id
+        id: String,
+        /// Number of turns to keep
+        #[arg(long, default_value_t = 0)]
+        turn: usize,
+    },
+    /// Set a session title
+    Title {
+        /// Session id
+        id: String,
+        /// New title
+        title: String,
+    },
+    /// Full-text search across sessions
+    Search {
+        /// Query string
+        query: String,
+        /// Maximum number of hits
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Emit JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
@@ -46,7 +80,55 @@ pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
         SessionsAction::List { json } => list(&store, *json),
         SessionsAction::Show { id } => show(&store, id),
         SessionsAction::Export { id, format } => export(&store, id, format),
+        SessionsAction::Fork { id, at } => fork(&store, id, *at),
+        SessionsAction::Rewind { id, turn } => rewind(&store, id, *turn),
+        SessionsAction::Title { id, title } => set_title(&store, id, title),
+        SessionsAction::Search { query, limit, json } => search(&store, query, *limit, *json),
     }
+}
+
+fn fork(store: &SessionStore, id: &str, at: Option<u64>) -> Result<u8> {
+    let session = store.fork(id, at)?;
+    println!("{}", session.header.id);
+    Ok(0)
+}
+
+fn rewind(store: &SessionStore, id: &str, turn: usize) -> Result<u8> {
+    let session = store.rewind(id, turn)?;
+    println!(
+        "{}: {} turn(s), {} event(s)",
+        session.header.id,
+        session.summary().turns,
+        session.events.len()
+    );
+    Ok(0)
+}
+
+fn set_title(store: &SessionStore, id: &str, title: &str) -> Result<u8> {
+    let session = store.set_title(id, title)?;
+    println!(
+        "{}: {}",
+        session.header.id,
+        session.header.title.as_deref().unwrap_or("(untitled)")
+    );
+    Ok(0)
+}
+
+fn search(store: &SessionStore, query: &str, limit: usize, json: bool) -> Result<u8> {
+    let hits = store.search(query, limit)?;
+    if json {
+        let encoded = serde_json::to_string_pretty(&hits)
+            .map_err(|error| DshrError::config(format!("serialize hits: {error}")))?;
+        println!("{encoded}");
+    } else {
+        for hit in hits {
+            println!(
+                "{} {} {} · {}",
+                hit.session_id, hit.seq, hit.kind, hit.snippet
+            );
+        }
+    }
+    Ok(0)
 }
 
 fn list(store: &SessionStore, json: bool) -> Result<u8> {
