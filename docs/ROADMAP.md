@@ -160,6 +160,8 @@
 
 ## M6 — Server + Web UI + SDK (15–25 ИД)
 
+**Статус:** ядро выполнено 12.11.2026 — 149 тестов; REST/SSE, auth, approvals, JSON-RPC подмножество, vanilla Web UI, Dockerfile. Отложено: Leptos, полный SDK, rate-limit, cargo-dist/brew, браузерный e2e.
+
 | № | Задача | ИД | DoD |
 |---|---|---|---|
 | 6.1 | `axum`-сервер: сессии, turns, events (SSE) | 3 | OpenAPI, контрактные тесты |
@@ -206,7 +208,7 @@
 | G3 | конец M3 | ✅ ядро: compaction unit-тест; live-гейт 100k отложен |
 | G4 | конец M4 | ✅ MCP mock-сервер + субагент из кассеты; HTTP/resources отложены |
 | G5 | конец M5 | ✅ macOS escape-тест (запись вне workspace); Linux/Windows fail-closed |
-| G6 | конец M6 | браузерный e2e |
+| G6 | конец M6 | ✅ HTTP/SSE + встроенный UI; Playwright e2e отложен |
 | G7 | M7 | матрица возможностей заполнена |
 
 ---

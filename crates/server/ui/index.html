@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dshr</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <strong>dshr</strong>
+    <input id="token" placeholder="API token" autocomplete="off">
+    <button id="connect">Connect</button>
+    <button id="new-session">New session</button>
+    <span id="status"></span>
+  </header>
+  <main>
+    <aside id="sessions"></aside>
+    <section id="chat">
+      <div id="messages"></div>
+      <form id="prompt-form">
+        <textarea id="prompt" rows="3" placeholder="Ask dshr…"></textarea>
+        <div class="row">
+          <button type="submit">Send</button>
+          <button type="button" id="cancel">Cancel</button>
+        </div>
+      </form>
+    </section>
+  </main>
+  <dialog id="approval">
+    <h3>Approval required</h3>
+    <p id="approval-text"></p>
+    <div class="row">
+      <button id="approve">Allow</button>
+      <button id="deny">Deny</button>
+    </div>
+  </dialog>
+  <script src="/app.js"></script>
+</body>
+</html>

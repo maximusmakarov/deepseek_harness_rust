@@ -247,6 +247,8 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M6 — Server + Web UI + SDK (15–25 дней)
 
+**Статус:** ядро выполнено 12.11.2026; Leptos, полный SDK, rate-limit и дистрибутивы перенесены.
+
 **Содержание**
 - `dshr-server` (`axum`): REST + WS/SSE, аутентификация bearer-токеном, CORS, статика, OpenAPI.
 - Web UI: чат со стримом, карточки инструментов, diff, approvals, список сессий, настройки. Стек: Leptos (ADR-003).

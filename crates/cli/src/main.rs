@@ -6,6 +6,7 @@ mod mcp_setup;
 mod plugin_cmd;
 mod prompt_cmd;
 mod run_cmd;
+mod serve_cmd;
 mod sessions;
 mod subagent_runner;
 mod tui_cmd;
@@ -63,6 +64,8 @@ enum Command {
     Prompt(prompt_cmd::PromptArgs),
     /// Manage MCP plugins
     Plugin(plugin_cmd::PluginArgs),
+    /// Run the HTTP/SSE server and embedded web UI
+    Serve(serve_cmd::ServeArgs),
 }
 
 #[tokio::main]
@@ -91,6 +94,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Tui(args) => tui_cmd::execute(&loader, &args).await,
         Command::Prompt(args) => prompt_cmd::execute(&loader, &args).await,
         Command::Plugin(args) => plugin_cmd::execute(&loader, &args),
+        Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
     }
 }
 

@@ -22,5 +22,6 @@
 | [016](016-search-backend.md) | Поиск: скан сейчас, индекс по гейту | Accepted |
 | [017](017-external-tools.md) | MCP, web, jobs и субагенты: границы M4 | Accepted |
 | [018](018-sandbox-plugins.md) | Песочница и плагины: границы M5 | Accepted |
+| [019](019-server-ui.md) | Сервер, Web UI и SDK: границы M6 | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

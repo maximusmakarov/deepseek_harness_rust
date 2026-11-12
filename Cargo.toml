@@ -15,6 +15,7 @@ members = [
     "crates/mcp",
     "crates/jobs",
     "crates/sandbox",
+    "crates/server",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -42,6 +43,7 @@ dshr-skills = { path = "crates/skills" }
 dshr-mcp = { path = "crates/mcp" }
 dshr-jobs = { path = "crates/jobs" }
 dshr-sandbox = { path = "crates/sandbox" }
+dshr-server = { path = "crates/server" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }
@@ -55,7 +57,7 @@ serde-saphyr = "2.1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-uuid = { version = "1", features = ["serde", "v7"] }
+uuid = { version = "1", features = ["serde", "v4", "v7"] }
 async-trait = "0.1"
 async-stream = "0.3"
 futures-util = "0.3"

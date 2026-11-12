@@ -561,6 +561,8 @@ defaults → profile (набор бандлов) → user config.yaml → --patc
 
 ## 15. Сервер и SDK
 
+Реализация — `dshr-server`; границы M6 — [ADR-019](adr/019-server-ui.md).
+
 ### 15.1. API
 
 | Метод | Путь | Назначение |
@@ -586,6 +588,8 @@ JSON-RPC 2.0 поверх stdio (для встраивания) и HTTP-клие
 ---
 
 ## 16. UI
+
+Web UI в M6 — встроенный vanilla JS; Leptos/Tauri отложены — [ADR-019](adr/019-server-ui.md).
 
 ### 16.1. TUI (T1)
 

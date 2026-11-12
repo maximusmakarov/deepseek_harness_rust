@@ -1,0 +1,31 @@
+[package]
+name = "dshr-server"
+description = "HTTP/SSE server and embedded web UI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-stream.workspace = true
+async-trait.workspace = true
+axum = "0.8"
+dshr-agent.workspace = true
+dshr-compaction.workspace = true
+dshr-core.workspace = true
+dshr-llm.workspace = true
+dshr-session.workspace = true
+dshr-session-jsonl.workspace = true
+dshr-tools.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower-http = { version = "0.7", features = ["cors", "trace"] }
+tracing.workspace = true
+
+[dev-dependencies]
+dshr-llm-mock.workspace = true
+tempfile.workspace = true
+tower = "0.5"
