@@ -119,6 +119,8 @@
 
 ## M5 — Песочница + плагины + композиция (15–25 ИД)
 
+**Статус:** ядро выполнено 12.11.2026 — 145 тестов; sandbox policy + macOS Seatbelt + fail-closed, MCP plugin manager. Отложено: Linux Landlock/seccomp, Windows ACL, WASM/sidecar, hot reload, capability audit.
+
 | № | Задача | ИД | DoD |
 |---|---|---|---|
 | 5.1 | Модель политики + `ConfinedArgv` | 1.5 | Типизированные отказы |
@@ -203,7 +205,7 @@
 | G2 | конец M2 | ✅ ядро: tool-loop + approvals + TUI e2e; eval-набор отложен |
 | G3 | конец M3 | ✅ ядро: compaction unit-тест; live-гейт 100k отложен |
 | G4 | конец M4 | ✅ MCP mock-сервер + субагент из кассеты; HTTP/resources отложены |
-| G5 | конец M5 | escape suite зелёный для документированного уровня; partial-кейсы перечислены |
+| G5 | конец M5 | ✅ macOS escape-тест (запись вне workspace); Linux/Windows fail-closed |
 | G6 | конец M6 | браузерный e2e |
 | G7 | M7 | матрица возможностей заполнена |
 

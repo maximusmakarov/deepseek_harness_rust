@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 dshr-core.workspace = true
+dshr-sandbox.workspace = true
 dshr-tools.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "dshr-sandbox"
+description = "Process sandbox policy and platform confinement backends"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

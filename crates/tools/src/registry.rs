@@ -92,7 +92,7 @@ impl ToolRegistry {
         registry.register(crate::tools::EditTool);
         registry.register(crate::tools::GlobTool);
         registry.register(crate::tools::GrepTool);
-        registry.register(crate::tools::BashTool);
+        registry.register(crate::tools::BashTool::default());
         registry.register(crate::tools::WebFetchTool::default());
         registry.register(crate::tools::WebSearchTool::from_env());
         registry.register(crate::tools::TodoTool::default());

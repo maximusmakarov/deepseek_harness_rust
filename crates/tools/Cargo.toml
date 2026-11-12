@@ -10,6 +10,7 @@ license.workspace = true
 async-trait.workspace = true
 dshr-core.workspace = true
 dshr-llm.workspace = true
+dshr-sandbox.workspace = true
 globset.workspace = true
 html2text = "0.17"
 reqwest.workspace = true

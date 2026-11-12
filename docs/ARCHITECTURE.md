@@ -408,6 +408,8 @@ pub trait SubagentProvider: Send + Sync {
 
 ## 12. Песочница
 
+Реализация — `dshr-sandbox`; границы M5 — [ADR-018](adr/018-sandbox-plugins.md).
+
 ### 12.1. Политика
 
 ```rust

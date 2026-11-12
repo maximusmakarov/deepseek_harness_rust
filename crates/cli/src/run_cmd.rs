@@ -15,9 +15,10 @@ use dshr_llm_deepseek::DeepSeekProvider;
 use dshr_llm_mock::{RecordingProvider, ReplayProvider};
 use dshr_llm_openai::OpenAiProvider;
 use dshr_prompt::PromptContext;
+use dshr_sandbox::{NetworkMode as SandboxNetwork, Sandbox, SandboxMode, SandboxPolicy};
 use dshr_session_jsonl::SessionStore;
 use dshr_skills::SkillRegistry;
-use dshr_tools::{ToolOutcome, ToolRegistry};
+use dshr_tools::{BashTool, ToolOutcome, ToolRegistry};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Args)]
@@ -112,7 +113,17 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         tools.register_arc(Arc::new(skills.tool()));
     }
     crate::mcp_setup::register(&mut tools, &config).await;
-    let jobs = Arc::new(dshr_jobs::JobManager::new());
+    let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
+        mode: if args.danger {
+            SandboxMode::DangerFull
+        } else {
+            SandboxMode::WorkspaceWrite
+        },
+        workspace: std::path::PathBuf::from(&cwd),
+        network: SandboxNetwork::Deny,
+    }));
+    tools.register(BashTool::new(Some(Arc::clone(&sandbox))));
+    let jobs = Arc::new(dshr_jobs::JobManager::with_sandbox(Some(sandbox)));
     dshr_jobs::register_tools(&mut tools, jobs);
 
     let mode = if args.danger {

@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use dshr_core::JobId;
+use dshr_sandbox::Sandbox;
 use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -70,9 +71,18 @@ struct Job {
     child: Arc<Mutex<Child>>,
 }
 
-#[derive(Default)]
 pub struct JobManager {
     jobs: Mutex<BTreeMap<String, Arc<Job>>>,
+    sandbox: Option<Arc<Sandbox>>,
+}
+
+impl Default for JobManager {
+    fn default() -> Self {
+        Self {
+            jobs: Mutex::new(BTreeMap::new()),
+            sandbox: None,
+        }
+    }
 }
 
 impl JobManager {
@@ -81,18 +91,32 @@ impl JobManager {
         Self::default()
     }
 
+    #[must_use]
+    pub fn with_sandbox(sandbox: Option<Arc<Sandbox>>) -> Self {
+        Self {
+            jobs: Mutex::new(BTreeMap::new()),
+            sandbox,
+        }
+    }
+
     pub async fn start(&self, command: &str, cwd: &std::path::Path) -> Result<JobId, JobError> {
-        let mut shell = if cfg!(windows) {
-            let mut shell = Command::new("cmd");
-            shell.arg("/C");
-            shell
+        let (program, args) = if cfg!(windows) {
+            ("cmd".to_owned(), vec!["/C".to_owned(), command.to_owned()])
         } else {
-            let mut shell = Command::new("sh");
-            shell.arg("-c");
-            shell
+            ("sh".to_owned(), vec!["-c".to_owned(), command.to_owned()])
         };
+        let (program, args) = if let Some(sandbox) = &self.sandbox {
+            let confined = sandbox
+                .confine(&program, &args)
+                .map_err(|error| JobError::Failed(error.to_string()))?;
+            (confined.program, confined.args)
+        } else {
+            (program, args)
+        };
+
+        let mut shell = Command::new(program);
         shell
-            .arg(command)
+            .args(args)
             .current_dir(cwd)
             .kill_on_drop(true)
             .stdout(Stdio::piped())

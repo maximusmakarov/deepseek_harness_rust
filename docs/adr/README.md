@@ -21,5 +21,6 @@
 | [015](015-context-management.md) | Промпт, AGENTS.md, skills и compaction | Accepted |
 | [016](016-search-backend.md) | Поиск: скан сейчас, индекс по гейту | Accepted |
 | [017](017-external-tools.md) | MCP, web, jobs и субагенты: границы M4 | Accepted |
+| [018](018-sandbox-plugins.md) | Песочница и плагины: границы M5 | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

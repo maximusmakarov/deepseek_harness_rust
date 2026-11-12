@@ -3,6 +3,7 @@
 mod config_cmd;
 mod doctor;
 mod mcp_setup;
+mod plugin_cmd;
 mod prompt_cmd;
 mod run_cmd;
 mod sessions;
@@ -60,6 +61,8 @@ enum Command {
     Tui(tui_cmd::TuiArgs),
     /// Print the assembled system prompt
     Prompt(prompt_cmd::PromptArgs),
+    /// Manage MCP plugins
+    Plugin(plugin_cmd::PluginArgs),
 }
 
 #[tokio::main]
@@ -87,6 +90,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Sessions(args) => sessions::execute(&loader, &args),
         Command::Tui(args) => tui_cmd::execute(&loader, &args).await,
         Command::Prompt(args) => prompt_cmd::execute(&loader, &args).await,
+        Command::Plugin(args) => plugin_cmd::execute(&loader, &args),
     }
 }
 

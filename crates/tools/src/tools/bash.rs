@@ -5,8 +5,20 @@ use serde_json::{Value, json};
 use tokio::process::Command;
 
 use crate::registry::{Tool, ToolCtx, ToolError, ToolOutcome};
+use dshr_sandbox::Sandbox;
+use std::sync::Arc;
 
-pub struct BashTool;
+#[derive(Default)]
+pub struct BashTool {
+    sandbox: Option<Arc<Sandbox>>,
+}
+
+impl BashTool {
+    #[must_use]
+    pub fn new(sandbox: Option<Arc<Sandbox>>) -> Self {
+        Self { sandbox }
+    }
+}
 
 #[async_trait]
 impl Tool for BashTool {
@@ -37,17 +49,23 @@ impl Tool for BashTool {
         let timeout =
             Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(60).clamp(1, 600));
 
-        let mut shell = if cfg!(windows) {
-            let mut shell = Command::new("cmd");
-            shell.arg("/C");
-            shell
+        let (program, args) = if cfg!(windows) {
+            ("cmd".to_owned(), vec!["/C".to_owned(), command.to_owned()])
         } else {
-            let mut shell = Command::new("sh");
-            shell.arg("-c");
-            shell
+            ("sh".to_owned(), vec!["-c".to_owned(), command.to_owned()])
         };
+        let (program, args) = if let Some(sandbox) = &self.sandbox {
+            let confined = sandbox
+                .confine(&program, &args)
+                .map_err(|error| ToolError::Denied(error.to_string()))?;
+            (confined.program, confined.args)
+        } else {
+            (program, args)
+        };
+
+        let mut shell = Command::new(program);
         shell
-            .arg(command)
+            .args(args)
             .current_dir(&ctx.cwd)
             .kill_on_drop(true)
             .stdout(std::process::Stdio::piped())
@@ -98,7 +116,7 @@ mod tests {
     #[tokio::test]
     async fn runs_command_and_captures_output() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let outcome = BashTool
+        let outcome = BashTool::default()
             .execute(&ctx(dir.path()), json!({"command": "printf hello"}))
             .await
             .expect("bash");
@@ -109,7 +127,7 @@ mod tests {
     #[tokio::test]
     async fn reports_non_zero_exit() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let outcome = BashTool
+        let outcome = BashTool::default()
             .execute(&ctx(dir.path()), json!({"command": "exit 3"}))
             .await
             .expect("bash");
@@ -120,7 +138,7 @@ mod tests {
     #[tokio::test]
     async fn honours_timeout() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let error = BashTool
+        let error = BashTool::default()
             .execute(
                 &ctx(dir.path()),
                 json!({"command": "sleep 5", "timeout_secs": 1}),

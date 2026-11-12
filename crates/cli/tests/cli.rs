@@ -598,3 +598,91 @@ fn run_delegates_to_subagent_from_cassette() {
     let hits: serde_json::Value = serde_json::from_slice(&searched.stdout).expect("json");
     assert!(!hits.as_array().expect("hits").is_empty());
 }
+
+#[test]
+fn plugin_manager_adds_lists_and_removes_mcp_servers() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "plugin",
+            "add",
+            "fs",
+            "--command",
+            "npx",
+            "--arg",
+            "-y",
+            "--arg",
+            "@modelcontextprotocol/server-filesystem",
+            "--arg",
+            ".",
+        ])
+        .assert()
+        .success();
+
+    let listed = dshr()
+        .args(["--home", home, "plugin", "list", "--json"])
+        .output()
+        .expect("list");
+    let servers: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(servers[0]["name"], "fs");
+    assert_eq!(servers[0]["command"], "npx");
+
+    dshr()
+        .args(["--home", home, "plugin", "remove", "fs"])
+        .assert()
+        .success();
+
+    dshr()
+        .args(["--home", home, "plugin", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(no plugins)"));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn sandbox_blocks_writes_outside_workspace() {
+    let home = tempfile::tempdir().expect("home");
+    let project = tempfile::tempdir().expect("project");
+    let cassette = home.path().join("sandbox.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"tool_use_start","index":0,"id":"call_1","name":"bash"},
+            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"printf no > ../outside-sandbox.txt\"}"},
+            {"type":"done","stop_reason":"tool_use"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"done"},
+            {"type":"done","stop_reason":"end_turn"}
+          ]
+        ]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .current_dir(project.path())
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "run",
+            "--yes",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "try escape",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("done"));
+
+    assert!(!home.path().join("outside-sandbox.txt").exists());
+}

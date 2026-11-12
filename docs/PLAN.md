@@ -210,6 +210,8 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M5 — Песочница + плагины + композиция (15–25 дней)
 
+**Статус:** ядро выполнено 12.11.2026; Linux/Windows бэкенды, WASM/sidecar и hot reload перенесены.
+
 **Содержание**
 - `dshr-sandbox`: модель политики (fs-режимы, сеть, exec), провайдеры: macOS seatbelt (`sandbox-exec` / профиль), Linux landlock+seccomp (через `landlock`/`seccompiler`), Windows — Job Objects + restricted token (best effort).
 - Обёртка argv (`ConfinedArgv`), fail-closed при недоступном backend, диагностика.

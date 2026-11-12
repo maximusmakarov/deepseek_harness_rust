@@ -645,6 +645,7 @@ dependencies = [
  "dshr-llm-openai",
  "dshr-mcp",
  "dshr-prompt",
+ "dshr-sandbox",
  "dshr-session",
  "dshr-session-jsonl",
  "dshr-skills",
@@ -709,6 +710,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "dshr-core",
+ "dshr-sandbox",
  "dshr-tools",
  "serde_json",
  "tempfile",
@@ -801,6 +803,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dshr-sandbox"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "dshr-session"
 version = "0.1.0"
 dependencies = [
@@ -846,6 +858,7 @@ dependencies = [
  "dshr-core",
  "dshr-llm",
  "dshr-llm-mock",
+ "dshr-sandbox",
  "globset",
  "html2text",
  "ignore",

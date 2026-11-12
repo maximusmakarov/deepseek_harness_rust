@@ -14,6 +14,7 @@ members = [
     "crates/skills",
     "crates/mcp",
     "crates/jobs",
+    "crates/sandbox",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -40,6 +41,7 @@ dshr-prompt = { path = "crates/prompt" }
 dshr-skills = { path = "crates/skills" }
 dshr-mcp = { path = "crates/mcp" }
 dshr-jobs = { path = "crates/jobs" }
+dshr-sandbox = { path = "crates/sandbox" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }
