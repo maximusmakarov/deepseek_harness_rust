@@ -27,5 +27,6 @@
 | [021](021-agent-teams.md) | Agent teams: доска, владение, зависимости | Accepted |
 | [022](022-schedules.md) | Расписания: durable cron и автономный запуск | Accepted |
 | [023](023-lsp.md) | LSP: минимальный клиент и инструменты | Accepted |
+| [024](024-linux-landlock.md) | Linux Landlock: helper и границы изоляции | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

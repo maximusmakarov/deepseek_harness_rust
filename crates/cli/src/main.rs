@@ -7,6 +7,8 @@ mod mcp_setup;
 mod plugin_cmd;
 mod prompt_cmd;
 mod run_cmd;
+#[cfg(target_os = "linux")]
+mod sandbox_exec;
 mod schedule_cmd;
 mod serve_cmd;
 mod sessions;
@@ -74,6 +76,10 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    #[cfg(target_os = "linux")]
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("__sandbox-exec")) {
+        return sandbox_exec::run();
+    }
     let cli = Cli::parse();
     init_logging(cli.log_level.as_deref());
 

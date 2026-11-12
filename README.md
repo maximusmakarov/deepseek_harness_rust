@@ -10,16 +10,20 @@
 
 ## 1. Статус
 
-M0–M6 (ядро) завершены 12.11.2026; M7 — workflows, agent teams, worktrees, schedules, LSP.
+M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees, schedules, LSP. Linux Landlock закрывает shell-пробел M5.
 
-- **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
+- **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…024.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
-- **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume.
-- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, spill больших выводов.
-- **Агент:** цикл turn/step с tool-calls, approvals (read-only / workspace-write / danger), отмена, лимит шагов.
-- **TUI:** потоковый текст, карточки инструментов, модалка approval; PTY-тест.
+- **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search.
+- **Контекст:** детерминированный промпт, `AGENTS.md`, skills, compaction с событием журнала.
+- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, web, worktrees, LSP.
+- **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты.
+- **Внешние:** MCP stdio, `web_fetch`/`web_search`, фоновые jobs.
+- **Автономность:** YAML-workflows, agent teams с доской задач, durable cron-расписания.
+- **Песочница:** macOS Seatbelt и Linux Landlock; Windows — fail-closed.
+- **Интерфейсы:** TUI, HTTP/SSE + встроенный Web UI, JSON-RPC.
 
-112 тестов; живой tool-loop DeepSeek проверен. Текущий фокус — M3: системный промпт, fork/rewind, FTS-поиск, compaction, skills. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+169 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -198,7 +202,7 @@ crates/skills         discovery, каталог, skill tool
 crates/compaction     оценка токенов и суммаризация
 crates/mcp            MCP stdio-клиент и адаптеры инструментов
 crates/jobs           фоновые процессы и job_* инструменты
-crates/sandbox        политика и Seatbelt-бэкенд
+crates/sandbox        политика, Seatbelt и Landlock
 crates/server         HTTP/SSE API, JSON-RPC и встроенный UI
 crates/workflow       YAML-DAG шагов через субагентов
 crates/team           общая доска задач и конкурентные воркеры
@@ -207,7 +211,7 @@ crates/lsp            LSP-клиент и инструменты навигац�
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–023
+docs/adr              001–024
 ```
 
 ## 9. Что дальше

@@ -643,7 +643,7 @@ fn plugin_manager_adds_lists_and_removes_mcp_servers() {
         .stdout(predicate::str::contains("(no plugins)"));
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn sandbox_blocks_writes_outside_workspace() {
     let home = tempfile::tempdir().expect("home");
@@ -932,4 +932,48 @@ fn schedule_run_due_executes_and_advances() {
     let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
     assert_eq!(sessions.as_array().expect("sessions").len(), 1);
     assert_eq!(sessions[0]["title"], "schedule: sch_test");
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn sandbox_allows_workspace_write() {
+    let home = tempfile::tempdir().expect("home");
+    let project = tempfile::tempdir().expect("project");
+    let cassette = home.path().join("sandbox-inside.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"tool_use_start","index":0,"id":"call_1","name":"bash"},
+            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"printf ok > inside-sandbox.txt\"}"},
+            {"type":"done","stop_reason":"tool_use"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"done"},
+            {"type":"done","stop_reason":"end_turn"}
+          ]
+        ]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .current_dir(project.path())
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "run",
+            "--yes",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "write inside",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("done"));
+
+    assert!(project.path().join("inside-sandbox.txt").exists());
 }

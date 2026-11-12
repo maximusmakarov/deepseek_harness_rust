@@ -46,6 +46,9 @@ serde-saphyr.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+
 [dev-dependencies]
 assert_cmd.workspace = true
 predicates.workspace = true

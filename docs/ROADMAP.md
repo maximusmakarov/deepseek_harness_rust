@@ -119,7 +119,7 @@
 
 ## M5 — Песочница + плагины + композиция (15–25 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 145 тестов; sandbox policy + macOS Seatbelt + fail-closed, MCP plugin manager. Отложено: Linux Landlock/seccomp, Windows ACL, WASM/sidecar, hot reload, capability audit.
+**Статус:** ядро выполнено; 13.11.2026 добавлен Linux Landlock. Отложено: seccomp, Windows ACL, WASM/sidecar, hot reload, capability audit.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP (168 тестов). Остальные эпики (Office, CUA, OTel, desktop, ACP, i18n) не начаты.
+**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP (169 тестов). Остальные эпики (Office, CUA, OTel, desktop, ACP, i18n) не начаты.
 
 | Эпик | Содержание | ИД |
 |---|---|---|
@@ -209,7 +209,7 @@
 | G2 | конец M2 | ✅ ядро: tool-loop + approvals + TUI e2e; eval-набор отложен |
 | G3 | конец M3 | ✅ ядро: compaction unit-тест; live-гейт 100k отложен |
 | G4 | конец M4 | ✅ MCP mock-сервер + субагент из кассеты; HTTP/resources отложены |
-| G5 | конец M5 | ✅ macOS escape-тест (запись вне workspace); Linux/Windows fail-closed |
+| G5 | конец M5 | ✅ macOS Seatbelt и Linux Landlock: escape + workspace-write; Windows fail-closed |
 | G6 | конец M6 | ✅ HTTP/SSE + встроенный UI; Playwright e2e отложен |
 | G7 | M7 | матрица возможностей заполнена |
 

@@ -416,6 +416,8 @@ pub trait SubagentProvider: Send + Sync {
 
 ## 12. Песочница
 
+Linux Landlock — [ADR-024](adr/024-linux-landlock.md).
+
 Реализация — `dshr-sandbox`; границы M5 — [ADR-018](adr/018-sandbox-plugins.md).
 
 ### 12.1. Политика
