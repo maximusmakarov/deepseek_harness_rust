@@ -820,3 +820,116 @@ fn run_executes_agent_team_from_cassette() {
     let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
     assert_eq!(sessions.as_array().expect("sessions").len(), 2);
 }
+
+#[test]
+fn schedule_add_list_disable_and_remove() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "schedule",
+            "add",
+            "--name",
+            "sch_demo",
+            "--cron",
+            "0 */5 * * * *",
+            "--prompt",
+            "hello",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("added sch_demo"));
+
+    dshr()
+        .args(["--home", home, "schedule", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("sch_demo").and(predicate::str::contains("enabled")));
+
+    dshr()
+        .args(["--home", home, "schedule", "disable", "sch_demo"])
+        .assert()
+        .success();
+
+    dshr()
+        .args(["--home", home, "schedule", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("disabled"));
+
+    dshr()
+        .args(["--home", home, "schedule", "remove", "sch_demo"])
+        .assert()
+        .success();
+
+    dshr()
+        .args(["--home", home, "schedule", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(no schedules)"));
+}
+
+#[test]
+fn schedule_run_due_executes_and_advances() {
+    let home = tempfile::tempdir().expect("home");
+    std::fs::write(home.path().join("schedules.yaml"), "[]").expect("schedules");
+
+    let cassette = home.path().join("schedule.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[[
+          {"type":"start","model":"deepseek-flash"},
+          {"type":"text_delta","text":"scheduled ok"},
+          {"type":"done","stop_reason":"end_turn"}
+        ]]}"#,
+    )
+    .expect("cassette");
+
+    std::fs::write(home.path().join("schedules.yaml"), "[]").expect("schedules");
+    // Insert a due entry after the store has a valid file.
+    std::fs::write(
+        home.path().join("schedules.yaml"),
+        r#"- id: sch_test
+  cron: "0 */5 * * * *"
+  prompt: hello
+  enabled: true
+  next_run: "2020-01-01T00:00:00Z"
+"#,
+    )
+    .expect("due schedule");
+
+    dshr()
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "schedule",
+            "run-due",
+            "--now",
+            "2030-01-01T00:00:00Z",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ran sch_test: scheduled ok"));
+
+    let stored = std::fs::read_to_string(home.path().join("schedules.yaml")).expect("read");
+    assert!(stored.contains("2030-01-01T00:05:00Z"), "{stored}");
+
+    let listed = dshr()
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(sessions.as_array().expect("sessions").len(), 1);
+    assert_eq!(sessions[0]["title"], "schedule: sch_test");
+}

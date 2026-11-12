@@ -6,6 +6,7 @@ mod mcp_setup;
 mod plugin_cmd;
 mod prompt_cmd;
 mod run_cmd;
+mod schedule_cmd;
 mod serve_cmd;
 mod sessions;
 mod subagent_runner;
@@ -66,6 +67,8 @@ enum Command {
     Plugin(plugin_cmd::PluginArgs),
     /// Run the HTTP/SSE server and embedded web UI
     Serve(serve_cmd::ServeArgs),
+    /// Manage and run cron schedules
+    Schedule(schedule_cmd::ScheduleArgs),
 }
 
 #[tokio::main]
@@ -95,6 +98,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Prompt(args) => prompt_cmd::execute(&loader, &args).await,
         Command::Plugin(args) => plugin_cmd::execute(&loader, &args),
         Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
+        Command::Schedule(args) => schedule_cmd::execute(&loader, &args).await,
     }
 }
 

@@ -18,6 +18,7 @@ members = [
     "crates/server",
     "crates/workflow",
     "crates/team",
+    "crates/schedule",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -48,6 +49,7 @@ dshr-sandbox = { path = "crates/sandbox" }
 dshr-server = { path = "crates/server" }
 dshr-workflow = { path = "crates/workflow" }
 dshr-team = { path = "crates/team" }
+dshr-schedule = { path = "crates/schedule" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }
@@ -70,6 +72,7 @@ ignore = "0.4"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 time = { version = "0.3", features = ["formatting"] }
+chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs", "io-util", "net", "process"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 

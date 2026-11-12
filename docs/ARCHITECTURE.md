@@ -239,6 +239,8 @@ Wire-имена событий — `snake_case` (`turn_start`, `tool_result`); �
 
 ## 6. Агентный цикл
 
+Автономные запуски по cron — [ADR-022](adr/022-schedules.md).
+
 ### 6.1. Состояния
 
 ```text

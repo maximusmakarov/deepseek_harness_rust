@@ -1,0 +1,18 @@
+[package]
+name = "dshr-schedule"
+description = "Durable cron schedules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+cron = "0.17"
+serde.workspace = true
+serde-saphyr.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -19,6 +19,7 @@ pub struct SessionSummary {
     pub created_at: String,
     pub provider: String,
     pub model: String,
+    pub title: Option<String>,
     pub turns: usize,
     pub events: usize,
 }
@@ -108,6 +109,7 @@ impl Session {
             created_at: self.header.created_at.clone(),
             provider: self.header.provider.clone(),
             model: self.header.model.clone(),
+            title: self.header.title.clone(),
             turns: self.turn_count(),
             events: self.events.len(),
         }
