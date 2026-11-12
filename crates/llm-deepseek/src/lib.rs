@@ -724,8 +724,8 @@ mod tests {
 
             let request = Request {
                 model: provider.model().to_owned(),
-                messages: vec![Message::user("Reply with the single word: pong")],
-                max_tokens: 16,
+                messages: vec![Message::user("Answer with exactly one word: pong")],
+                max_tokens: 64,
                 ..Request::default()
             };
             let mut chunks = provider
@@ -741,6 +741,39 @@ mod tests {
                 }
             }
             assert!(!text.trim().is_empty(), "no text in live response");
+
+            let tool_request = Request {
+                model: provider.model().to_owned(),
+                messages: vec![Message::user("Use the get_weather tool for Paris.")],
+                max_tokens: 128,
+                tools: vec![ToolDef {
+                    name: "get_weather".into(),
+                    description: "Get current weather for a city".into(),
+                    input_schema: json!({
+                        "type": "object",
+                        "properties": {"city": {"type": "string"}},
+                        "required": ["city"]
+                    }),
+                }],
+                ..Request::default()
+            };
+            let mut chunks = provider
+                .stream(tool_request, CancellationToken::new())
+                .await
+                .expect("tool stream");
+            let mut assembler = BlockAssembler::new();
+            while let Some(chunk) = chunks.next().await {
+                assembler.push(chunk.expect("tool chunk"));
+            }
+            let output = assembler.finish().expect("tool assemble");
+            assert!(
+                output.content.iter().any(|block| matches!(
+                    block,
+                    ContentBlock::ToolUse { name, .. } if name == "get_weather"
+                )),
+                "no tool_use in live response: {:?}",
+                output.content
+            );
         });
     }
 }
