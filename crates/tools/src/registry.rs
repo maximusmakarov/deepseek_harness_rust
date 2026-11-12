@@ -67,13 +67,13 @@ impl ToolOutcome {
 
 #[async_trait]
 pub trait Tool: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
     fn schema(&self) -> Value;
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError>;
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ToolRegistry {
     tools: BTreeMap<String, Arc<dyn Tool>>,
 }
@@ -93,6 +93,8 @@ impl ToolRegistry {
         registry.register(crate::tools::GlobTool);
         registry.register(crate::tools::GrepTool);
         registry.register(crate::tools::BashTool);
+        registry.register(crate::tools::WebFetchTool::default());
+        registry.register(crate::tools::WebSearchTool::from_env());
         registry.register(crate::tools::TodoTool::default());
         registry.register(crate::tools::PresentTool);
         registry

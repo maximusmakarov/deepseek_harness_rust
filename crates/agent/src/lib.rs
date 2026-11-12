@@ -77,6 +77,7 @@ impl Approver for DenyApprover {
     }
 }
 
+#[derive(Clone)]
 pub struct ApprovalPolicy {
     pub mode: PermissionMode,
     pub workspace: PathBuf,
@@ -204,6 +205,66 @@ pub trait AgentObserver: Send + Sync {
 }
 
 pub struct NullObserver;
+
+/// Runs one delegated subagent turn and returns its final text.
+#[async_trait]
+pub trait SubagentRunner: Send + Sync {
+    async fn run(&self, prompt: String, cancel: CancellationToken) -> Result<String, String>;
+}
+
+/// Tool that delegates a prompt to a fresh child agent.
+pub struct SubagentTool {
+    runner: Arc<dyn SubagentRunner>,
+}
+
+impl SubagentTool {
+    #[must_use]
+    pub fn new(runner: Arc<dyn SubagentRunner>) -> Self {
+        Self { runner }
+    }
+}
+
+#[async_trait]
+impl dshr_tools::Tool for SubagentTool {
+    fn name(&self) -> &str {
+        "subagent"
+    }
+
+    fn description(&self) -> &str {
+        "Delegate a self-contained task to a child agent and return its result."
+    }
+
+    fn schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "required": ["prompt"],
+            "additionalProperties": false,
+            "properties": {
+                "prompt": {"type": "string", "minLength": 1}
+            }
+        })
+    }
+
+    async fn execute(
+        &self,
+        _ctx: &dshr_tools::ToolCtx,
+        args: serde_json::Value,
+    ) -> Result<dshr_tools::ToolOutcome, dshr_tools::ToolError> {
+        let prompt = args["prompt"]
+            .as_str()
+            .ok_or_else(|| dshr_tools::ToolError::InvalidArgs("prompt is required".into()))?;
+        match self
+            .runner
+            .run(prompt.to_owned(), _ctx.cancel.clone())
+            .await
+        {
+            Ok(text) => Ok(dshr_tools::ToolOutcome::text(text)),
+            Err(error) => Ok(dshr_tools::ToolOutcome::error(format!(
+                "subagent failed: {error}"
+            ))),
+        }
+    }
+}
 
 #[async_trait]
 impl AgentObserver for NullObserver {}
@@ -801,6 +862,34 @@ mod tests {
             panic!("expected denial");
         };
         assert!(reason.contains("user denied"), "{reason}");
+    }
+
+    struct MockRunner;
+
+    #[async_trait]
+    impl SubagentRunner for MockRunner {
+        async fn run(&self, prompt: String, _cancel: CancellationToken) -> Result<String, String> {
+            Ok(format!("child:{prompt}"))
+        }
+    }
+
+    #[tokio::test]
+    async fn subagent_tool_returns_child_text() {
+        use dshr_tools::Tool;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let tool = SubagentTool::new(Arc::new(MockRunner));
+        let ctx = dshr_tools::ToolCtx {
+            cwd: dir.path().to_path_buf(),
+            session_id: dshr_core::SessionId::new(),
+            output_limit: 10_000,
+            spill_dir: dir.path().join("spills"),
+            cancel: CancellationToken::new(),
+        };
+        let outcome = tool
+            .execute(&ctx, json!({"prompt": "task"}))
+            .await
+            .expect("subagent");
+        assert_eq!(outcome.content, "child:task");
     }
 
     #[tokio::test]

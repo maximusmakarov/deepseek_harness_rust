@@ -183,6 +183,8 @@ pub trait LlmAdapter: Send + Sync {
 
 ## 5. Журнал сессий
 
+Поиск: скан сейчас, индекс по бенчмарк-гейту — [ADR-016](adr/016-search-backend.md).
+
 ### 5.1. События
 
 ```rust
@@ -375,6 +377,8 @@ pub struct PermissionPolicy {
 
 ## 10. MCP
 
+Реализация — `dshr-mcp`; границы M4 — [ADR-017](adr/017-external-tools.md).
+
 - Клиент на базе `rmcp` (официальный Rust SDK): stdio и Streamable HTTP.
 - Namespacing: `mcp__<server>__<tool>`; конфликты — ошибка конфигурации.
 - Область: сервер может быть доступен всем сессиям или одной (scoped).
@@ -385,6 +389,8 @@ pub struct PermissionPolicy {
 ---
 
 ## 11. Субагенты
+
+Реализация — `SubagentTool` + дочерний `Agent`; границы M4 — [ADR-017](adr/017-external-tools.md).
 
 ```rust
 pub trait SubagentProvider: Send + Sync {

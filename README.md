@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v1.4 · 12.11.2026 · **M0–M3 (ядро) выполнены**
+**Статус:** план v1.5 · 12.11.2026 · **M0–M4 (ядро) выполнены**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,7 +10,7 @@
 
 ## 1. Статус
 
-M0–M3 (ядро) завершены 12.11.2026.
+M0–M4 (ядро) завершены 12.11.2026.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
@@ -175,18 +175,20 @@ crates/agent          turn/step loop, approvals, observers
 crates/prompt         секции промпта, AGENTS.md, детерминизм
 crates/skills         discovery, каталог, skill tool
 crates/compaction     оценка токенов и суммаризация
+crates/mcp            MCP stdio-клиент и адаптеры инструментов
+crates/jobs           фоновые процессы и job_* инструменты
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–015
+docs/adr              001–017
 ```
 
 ## 9. Что дальше
 
-**M4 — MCP, web, jobs, субагенты:**
-1. MCP-клиент (stdio + HTTP), ресурсы и scoping.
-2. `web_search`/`web_fetch` с SSRF-защитой.
-3. Фоновые jobs и управление ими.
-4. Субагенты: spawn/fork, дерево, бюджеты.
+**M5 — песочница и плагины:**
+1. Политика песочницы и нативные бэкенды (Seatbelt, Landlock, ACL).
+2. WASM-плагины с capability-grants и hot reload.
+3. Композиция профилей/бандлов, `plugin add/list`.
+4. Escape suite и подписанные артефакты.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

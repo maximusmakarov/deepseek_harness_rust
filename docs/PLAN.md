@@ -194,6 +194,8 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M4 — MCP, web, jobs, субагенты (10–15 дней)
 
+**Статус:** ядро выполнено 12.11.2026; MCP HTTP/resources, бюджеты субагентов и durable jobs перенесены.
+
 **Содержание**
 - MCP-клиент: stdio + Streamable HTTP, discovery tools/resources/prompts, namespacing, таймауты, reconnect, scoped-доступ.
 - `web_search`/`web_fetch`: провайдеры, readability-извлечение, SSRF-guard, лимиты размера.

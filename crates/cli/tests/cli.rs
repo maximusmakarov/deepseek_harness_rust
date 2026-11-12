@@ -511,3 +511,90 @@ fn prompt_includes_agents_md_and_skills() {
     assert!(prompt.contains("- read"), "{prompt}");
     assert!(prompt.contains("- skill"), "{prompt}");
 }
+
+#[test]
+fn mcp_failure_does_not_block_prompt() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("config.yaml"),
+        "mcp:\n  servers:\n    - name: broken\n      command: dshr-no-such-command\n",
+    )
+    .expect("config");
+
+    dshr()
+        .args(["--home", dir.path().to_str().expect("utf8"), "prompt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("## Tools"));
+}
+
+#[test]
+fn run_delegates_to_subagent_from_cassette() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = dir.path().join("subagent.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"tool_use_start","index":0,"id":"call_1","name":"subagent"},
+            {"type":"tool_input_delta","index":0,"json":"{\"prompt\":\"child task\"}"},
+            {"type":"done","stop_reason":"tool_use"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"child result"},
+            {"type":"done","stop_reason":"end_turn"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"done"},
+            {"type":"done","stop_reason":"end_turn"}
+          ]
+        ]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--danger",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "delegate",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("done"));
+
+    let listed = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(sessions.as_array().expect("sessions").len(), 2);
+
+    let searched = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "search",
+            "child result",
+            "--json",
+        ])
+        .output()
+        .expect("search");
+    let hits: serde_json::Value = serde_json::from_slice(&searched.stdout).expect("json");
+    assert!(!hits.as_array().expect("hits").is_empty());
+}

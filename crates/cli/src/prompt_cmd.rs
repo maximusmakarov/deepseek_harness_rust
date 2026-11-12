@@ -11,7 +11,7 @@ pub struct PromptArgs {
     pub quiet: bool,
 }
 
-pub fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
+pub async fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
     let config = loader.load()?.config;
     let cwd = std::env::current_dir().map_err(DshrError::Io)?;
     let cwd_string = cwd.display().to_string();
@@ -24,6 +24,7 @@ pub fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
     if !skills.is_empty() {
         tools.register_arc(std::sync::Arc::new(skills.tool()));
     }
+    crate::mcp_setup::register(&mut tools, &config).await;
 
     let prompt = crate::run_cmd::build_system_prompt(
         loader.home(),

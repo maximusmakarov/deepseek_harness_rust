@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use clap::Args;
 use dshr_agent::{
     Agent, AgentConfig, AgentObserver, ApprovalPolicy, AutoApprover, DenyApprover, PermissionMode,
-    ToolCallInfo,
+    SubagentTool, ToolCallInfo,
 };
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
@@ -111,6 +111,9 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
     if !skills.is_empty() {
         tools.register_arc(Arc::new(skills.tool()));
     }
+    crate::mcp_setup::register(&mut tools, &config).await;
+    let jobs = Arc::new(dshr_jobs::JobManager::new());
+    dshr_jobs::register_tools(&mut tools, jobs);
 
     let mode = if args.danger {
         PermissionMode::DangerFull
@@ -136,19 +139,32 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         &tools,
         &skills,
     );
+    let agent_config = AgentConfig {
+        system_prompt,
+        max_steps: args.max_steps.max(1),
+        max_tokens: args.max_tokens,
+        output_limit: config.tools.output_limit_chars,
+        compaction: Some(dshr_compaction::CompactionConfig::default()),
+    };
+    let base_tools = Arc::new(tools);
+    let child_tools = Arc::clone(&base_tools);
+    let mut parent_tools = (*base_tools).clone();
+    let runner = Arc::new(crate::subagent_runner::AgentSubagentRunner::new(
+        Arc::clone(&provider),
+        child_tools,
+        Arc::clone(&store),
+        policy.clone(),
+        agent_config.clone(),
+    ));
+    parent_tools.register(SubagentTool::new(runner));
+
     let mut agent = Agent::new(
         provider,
-        Arc::new(tools),
+        Arc::new(parent_tools),
         store,
         session,
         policy,
-        AgentConfig {
-            system_prompt,
-            max_steps: args.max_steps.max(1),
-            max_tokens: args.max_tokens,
-            output_limit: config.tools.output_limit_chars,
-            compaction: Some(dshr_compaction::CompactionConfig::default()),
-        },
+        agent_config,
     );
 
     let cancel = CancellationToken::new();

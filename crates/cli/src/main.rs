@@ -2,9 +2,11 @@
 
 mod config_cmd;
 mod doctor;
+mod mcp_setup;
 mod prompt_cmd;
 mod run_cmd;
 mod sessions;
+mod subagent_runner;
 mod tui_cmd;
 
 use std::path::PathBuf;
@@ -83,8 +85,8 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Config(args) => config_cmd::run(&loader, &args),
         Command::Run(args) => run_cmd::execute(&loader, &args).await,
         Command::Sessions(args) => sessions::execute(&loader, &args),
-        Command::Tui(args) => tui_cmd::execute(&loader, &args),
-        Command::Prompt(args) => prompt_cmd::execute(&loader, &args),
+        Command::Tui(args) => tui_cmd::execute(&loader, &args).await,
+        Command::Prompt(args) => prompt_cmd::execute(&loader, &args).await,
     }
 }
 

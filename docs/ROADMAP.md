@@ -80,7 +80,7 @@
 
 ## M3 — Промпт, сессии, compaction, skills (10–15 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 127 тестов; prompt/AGENTS, skills, fork/rewind/title/search, compaction. Отложено: SQLite FTS5, авто-заголовки через LLM, импорт DSH, allowlist схем, live-гейт 100k.
+**Статус:** ядро выполнено 12.11.2026 — 127 тестов; prompt/AGENTS, skills, fork/rewind/title/search, compaction. Отложено: SQLite FTS5 (условный этап после бенчмарка — [ADR-016](adr/016-search-backend.md)), авто-заголовки через LLM, импорт DSH, allowlist схем, live-гейт 100k.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -99,6 +99,8 @@
 ---
 
 ## M4 — MCP, web, jobs, субагенты (10–15 ИД)
+
+**Статус:** ядро выполнено 12.11.2026 — 139 тестов; MCP stdio, web_fetch/web_search, jobs, субагенты. Отложено: MCP HTTP/resources, бюджеты субагентов, durable jobs.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -200,7 +202,7 @@
 | G1 | конец M1 | ✅ пройдена 12.11.2026: cassette replay, живой smoke DeepSeek |
 | G2 | конец M2 | ✅ ядро: tool-loop + approvals + TUI e2e; eval-набор отложен |
 | G3 | конец M3 | ✅ ядро: compaction unit-тест; live-гейт 100k отложен |
-| G4 | конец M4 | MCP + субагент в одном сценарии |
+| G4 | конец M4 | ✅ MCP mock-сервер + субагент из кассеты; HTTP/resources отложены |
 | G5 | конец M5 | escape suite зелёный для документированного уровня; partial-кейсы перечислены |
 | G6 | конец M6 | браузерный e2e |
 | G7 | M7 | матрица возможностей заполнена |

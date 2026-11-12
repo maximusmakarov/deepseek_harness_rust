@@ -12,6 +12,8 @@ members = [
     "crates/tools",
     "crates/prompt",
     "crates/skills",
+    "crates/mcp",
+    "crates/jobs",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -36,6 +38,8 @@ dshr-session-jsonl = { path = "crates/session-jsonl" }
 dshr-tools = { path = "crates/tools" }
 dshr-prompt = { path = "crates/prompt" }
 dshr-skills = { path = "crates/skills" }
+dshr-mcp = { path = "crates/mcp" }
+dshr-jobs = { path = "crates/jobs" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }

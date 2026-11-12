@@ -11,6 +11,7 @@
 //! Maps merge recursively; scalars and arrays are replaced. Unknown keys are
 //! rejected so that typos fail loudly instead of being silently ignored.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use dshr_core::{DshrError, Result};
@@ -32,6 +33,7 @@ pub struct Config {
     pub session: SessionConfig,
     pub logging: LoggingConfig,
     pub tools: ToolsConfig,
+    pub mcp: McpConfig,
 }
 
 impl Default for Config {
@@ -43,6 +45,7 @@ impl Default for Config {
             session: SessionConfig::default(),
             logging: LoggingConfig::default(),
             tools: ToolsConfig::default(),
+            mcp: McpConfig::default(),
         }
     }
 }
@@ -118,6 +121,36 @@ impl Default for ToolsConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpConfig {
+    pub servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpServerConfig {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub cwd: Option<PathBuf>,
+    pub enabled: bool,
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: None,
+            enabled: true,
+        }
+    }
+}
+
 impl Config {
     /// Validates invariants that cannot be expressed by serde alone.
     pub fn validate(&self) -> Result<()> {
@@ -150,6 +183,17 @@ impl Config {
             return Err(DshrError::config(
                 "logging.level must be one of trace, debug, info, warn, error",
             ));
+        }
+        for server in self.mcp.servers.iter().filter(|server| server.enabled) {
+            if server.name.trim().is_empty() {
+                return Err(DshrError::config("mcp server name must not be empty"));
+            }
+            if server.command.trim().is_empty() {
+                return Err(DshrError::config(format!(
+                    "mcp server '{}' has an empty command",
+                    server.name
+                )));
+            }
         }
         Ok(())
     }

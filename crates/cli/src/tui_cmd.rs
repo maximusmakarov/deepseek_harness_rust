@@ -48,7 +48,7 @@ pub struct TuiArgs {
     pub max_tokens: u32,
 }
 
-pub fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
+pub async fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
     let config = loader.load()?.config;
     let provider = build_provider(args, &config)?;
     let session_dir = config
@@ -76,6 +76,9 @@ pub fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
     if !skills.is_empty() {
         tools.register_arc(Arc::new(skills.tool()));
     }
+    crate::mcp_setup::register(&mut tools, &config).await;
+    let jobs = Arc::new(dshr_jobs::JobManager::new());
+    dshr_jobs::register_tools(&mut tools, jobs);
     let mode = if args.danger {
         PermissionMode::DangerFull
     } else {

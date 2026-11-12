@@ -19,5 +19,7 @@
 | [013](013-cordis-compat.md) | Совместимость с npm/Cordis-плагинами рядом с WASM | Accepted |
 | [014](014-tool-approvals.md) | Инструменты, approvals и агентный цикл | Accepted |
 | [015](015-context-management.md) | Промпт, AGENTS.md, skills и compaction | Accepted |
+| [016](016-search-backend.md) | Поиск: скан сейчас, индекс по гейту | Accepted |
+| [017](017-external-tools.md) | MCP, web, jobs и субагенты: границы M4 | Accepted |
 
 Шаблон: [000-template.md](000-template.md).
