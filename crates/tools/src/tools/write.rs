@@ -68,7 +68,11 @@ mod tests {
             )
             .await
             .expect("write");
-        assert!(outcome.files[0].ends_with("nested/file.txt"));
+        assert!(
+            std::path::Path::new(&outcome.files[0]).ends_with("nested/file.txt"),
+            "{:?}",
+            outcome.files
+        );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("nested/file.txt")).expect("read"),
             "hello"

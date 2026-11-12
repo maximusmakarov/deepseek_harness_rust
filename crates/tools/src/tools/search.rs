@@ -50,8 +50,9 @@ impl Tool for GlobTool {
             }
             let path = entry.path();
             let relative = path.strip_prefix(&root).unwrap_or(path);
-            if matcher.is_match(relative) {
-                matches.push(relative.display().to_string());
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            if matcher.is_match(&relative) {
+                matches.push(relative);
                 if matches.len() >= 500 {
                     break;
                 }
@@ -119,8 +120,9 @@ impl Tool for GrepTool {
             }
             let path = entry.path();
             let relative = path.strip_prefix(&root).unwrap_or(path);
+            let relative = relative.to_string_lossy().replace('\\', "/");
             if let Some(glob) = &glob
-                && !glob.is_match(relative)
+                && !glob.is_match(&relative)
             {
                 continue;
             }
@@ -139,12 +141,7 @@ impl Tool for GrepTool {
             let text = String::from_utf8_lossy(&bytes);
             for (index, line) in text.lines().enumerate() {
                 if regex.is_match(line) {
-                    matches.push(format!(
-                        "{}:{}:{}",
-                        relative.display(),
-                        index + 1,
-                        line.trim_end()
-                    ));
+                    matches.push(format!("{relative}:{}:{}", index + 1, line.trim_end()));
                     if matches.len() >= 200 {
                         break;
                     }

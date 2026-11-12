@@ -35,6 +35,8 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true
-expectrl = "0.9"
 predicates.workspace = true
 tempfile.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+expectrl = "0.9"

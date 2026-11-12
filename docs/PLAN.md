@@ -209,7 +209,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 **Содержание**
 - `dshr-sandbox`: модель политики (fs-режимы, сеть, exec), провайдеры: macOS seatbelt (`sandbox-exec` / профиль), Linux landlock+seccomp (через `landlock`/`seccompiler`), Windows — Job Objects + restricted token (best effort).
 - Обёртка argv (`ConfinedArgv`), fail-closed при недоступном backend, диагностика.
-- `dshr-plugin`: единый шов `PluginRuntime` (native / wasm / external), WASM-компоненты (wasmtime, component model, WIT), манифест, capability grants, лимиты (fuel/epoch/память), горячая замена; sidecar-плагины по JSON-RPC.
+- `dshr-plugin`: единый шов `PluginRuntime` (native / wasm / external), WASM-компоненты (wasmtime, component model, WIT, один диспетчерский импорт `host.call`), манифест с `api_version`, capability grants и кэш грантов, лимиты (fuel/epoch/память), integrity-check, горячая замена; sidecar-плагины по JSON-RPC.
 - Композиция: профили/бандлы/патчи, `dshr --dump-config`, `dshr plugin add|remove|list`, lock-файл.
 - Тесты побега: попытки записи вне workspace, чтения `~/.ssh`, сети, fork-бомбы.
 

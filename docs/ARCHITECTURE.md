@@ -451,20 +451,35 @@ pub trait PluginRuntime: Send + Sync {
 
 ### 13.1. WASM-компоненты
 
-- `wasmtime` + Component Model, WIT-интерфейсы, `wasmtime-wasi` с урезанными правами.
-- Манифест `plugin.toml`: имя, версия, capabilities (`fs.read`, `fs.write`, `net`, `exec`), точки расширения.
-- Лимиты: fuel/epoch (таймаут), память, размер вывода; изоляция паник.
-- Горячая замена: загрузка новой версии рядом, переключение после health-check, откат.
+- `wasmtime` + Component Model, WIT; `wasmtime-wasi` с урезанными правами: preopens только `/data`, `/cache`, `/tmp` (с TTL), сеть не пробрасывается.
+- Один host-импорт — диспетчер `call(op, payload)`: новая возможность добавляется операцией, а не новым импортом (обоснование — §13.4).
+- Манифест `plugin.toml`: имя, версия, `api_version`, capabilities (`fs.read`, `fs.write`, `net`, `exec`), точки расширения.
+- Лимиты по умолчанию: 64 МиБ памяти на инстанс (конфигурируемо), fuel/epoch на вызов, ограничение размера входа/выхода; изоляция паник.
+- Проверка целостности при загрузке: хеш/подпись не сошлись — плагин не активируется.
+- Горячая замена: загрузка новой версии рядом, health-check, переключение, откат.
 - Хуки: `on_session_start`, `on_tool_call`, `on_prompt`, `command`.
 
 ```wit
-package dshr:plugin@0.1.0;
-interface types { record outcome { content: string, is-error: bool } }
+package dshr:plugin@1.0.0;
+
+interface types {
+  record outcome { content: string, is-error: bool }
+}
+
+interface host {
+  /// Единственный импорт: операция + payload, ответ — JSON-строка.
+  call: func(op: string, payload: string) -> result<string, string>;
+}
+
 interface tool {
   use types.{outcome};
   execute: func(args-json: string) -> result<outcome, string>;
 }
-world tool-plugin { export tool; }
+
+world tool-plugin {
+  import host;
+  export tool;
+}
 ```
 
 ### 13.2. Cordis-совместимость (JS-рантайм)
@@ -479,7 +494,37 @@ world tool-plugin { export tool; }
 
 Для плагинов, которым нужен произвольный рантайм: процесс + JSON-RPC 2.0 (stdio), тот же манифест и capability-модель. Процесс живёт в песочнице, общение — по протоколу. Используется и как обходной путь для плагинов с нативными зависимостями.
 
-### 13.4. Чего не делаем
+### 13.4. Соседние проекты: что перенимаем
+
+Сверка модели с production-примерами: у каждого берём только то, что усиливает нас, и отдельно фиксируем, чего не копируем.
+
+| Проект | Что там плагин | ABI / рантайм | Что перенимаем |
+|---|---|---|---|
+| [Zellij](https://github.com/zellij-org/zellij) | панели и статус внутри терминального мультиплексора | `wasm32-wasip1`, wasmi + WASI | один диспетчерский импорт `host.call`, `PermissionType` с кэшем грантов, preopens `/data`+`/cache`+`/tmp`, лимит памяти на инстанс (в 0.44 — 16 МиБ) |
+| [Zed](https://github.com/zed-industries/zed) | языки, темы, LSP-адаптеры | `wasm32-wasip2`, `zed_extension_api` | `api_version` в манифесте, матрица совместимости, SDK-крейт с semver |
+| [dprint](https://github.com/dprint/dprint) | форматтеры | wasm-тир + process-тир | явное разделение «песочница» и «нужен свой рантайм» вместо попытки всё загнать в wasm |
+| [swc](https://github.com/swc-project/swc) | трансформеры AST | wasm, wasmer/[wasmtime](https://github.com/swc-project/swc/pull/10958) | раннер как сменный бэкенд, а не часть ядра |
+| [Envoy](https://github.com/envoyproxy/envoy)/[Kong](https://konghq.com/blog/product-releases/webassembly-in-kong-gateway-3-4)/[APISIX](https://github.com/apache/apisix)/[NGINX](https://github.com/GetPageSpeed/ngx_wasm_module) | HTTP-фильтры | [proxy-wasm](https://github.com/proxy-wasm/spec) | «один ABI — много хостов»: нужен шов адаптеров, чтобы чужой ABI можно было подключить без правки ядра |
+| [Traefik](https://github.com/traefik/plugindemowasm) | middlewares | http-wasm | проверка целостности при загрузке: не прошёл валидацию — плагин не стартует |
+| [Redpanda](https://docs.redpanda.com/current/develop/data-transforms/run-transforms/)/[Benthos](https://github.com/redpanda-data/benthos) | обработка потока сообщений | wasm + wazero, PDK | PDK-подход для языков, где WIT-биндингов ещё нет |
+| [Shopify Functions](https://github.com/Shopify/shopify-function-wasm-api) | логика checkout | собственный wasm API + trampoline | явная сериализация границ входа/выхода, без разделяемой памяти |
+| [Wassette](https://github.com/microsoft/wassette)/[hyper-mcp](https://github.com/cicero-im/hyper-mcp) | MCP-инструменты | Wasmtime/Extism + OCI | `oci://` как первоклассная ссылка на артефакт, deny-by-default права |
+| [Extism](https://github.com/extism/extism) | фреймворк плагинных систем | PDK на 10+ языках | host-controlled HTTP без WASI, лимитеры и таймеры как часть контракта, а не рантайма |
+
+**Что из этого становится нашим решением:**
+
+1. **Один импорт вместо N.** WIT-мир получает единственный host-импорт `call(op, payload)`; новая возможность — это новая операция в типизированном enum, а не новый импорт. Экспорт инструмента остаётся типизированным (§13.1).
+2. **Кэш грантов.** `PermissionGrant { capability, scope, decided_at, source }` хранится в профиле; каждое использование гранта — событие аудита. Встроенные плагины проходят проверку так же, как сторонние — в отличие от Zellij, где builtin её обходит.
+3. **Лимиты по умолчанию, а не «настроим потом».** Память, fuel/epoch на вызов, потолок входа/выхода, preopens только `/data` и `/cache`.
+4. **Версия API в манифесте.** `api_version` + матрица «плагин × версия хоста» + SDK-крейт с semver; ломающее изменение = новая мажорная версия мира.
+5. **Сменный рантайм-бэкенд.** `wasmtime` по умолчанию, `wasmi` — опция для холодного старта и слабых машин. Zellij прошёл wasmer → wasmtime → wasmi и заплатил за это миграциями; у нас бэкенд выбирается конфигом.
+6. **`oci://` наравне с локальным путём.** CAS, подпись и откат остаются, меняется только адресация.
+7. **Шов для чужих ABI.** Host-функции спрятаны за `host_api`; адаптеры proxy-wasm / http-wasm / Extism PDK возможны без правки ядра. Сейчас не делаем — но архитектура это допускает.
+8. **PDK — опция, не основа.** Первым идёт свой Rust SDK на WIT; языки без готовых биндингов идут в process-тир (как у dprint), PDK-слой — если появится спрос.
+
+**Чего не копируем:** наследование env в WASI-контексте; единственный синхронный диспетчер как обязательный путь (у нас async и батчинг); protobuf поверх пайпов (у нас WIT/canonical ABI); загрузку плагинов только на старте (нам нужна горячая замена — берём только integrity-check); дистрибуцию через Git-репозитории (у нас CAS/OCI); собственный нестандартный ABI с trampoline.
+
+### 13.5. Чего не делаем
 
 - Не грузим нативные `.so`/`.dylib` (ABI Rust нестабилен, безопасность нулевая).
 - Не даём плагинам ambient authority: только через host-функции — включая Cordis-тир, где `fs`/`net`/`exec` опосредованы, а не отданы как в Node.
