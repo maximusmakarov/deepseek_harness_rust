@@ -90,7 +90,7 @@ impl Tool for BashTool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::test_support::ctx;
