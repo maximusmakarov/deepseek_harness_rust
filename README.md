@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v2.1 · 13.11.2026 · **M0–M6 выполнены; M7 — workflows, teams, worktrees, schedules, LSP**
+**Статус:** план v2.2 · 13.11.2026 · **M0–M6 выполнены; M7 — workflows, teams, schedules, LSP; hardening**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,20 +10,20 @@
 
 ## 1. Статус
 
-M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees, schedules, LSP. Linux Landlock закрывает shell-пробел M5.
+M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees, schedules, LSP. Linux Landlock и guardrails закрывают критичный техдолг.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…024.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
 - **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search.
 - **Контекст:** детерминированный промпт, `AGENTS.md`, skills, compaction с событием журнала.
 - **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, web, worktrees, LSP.
-- **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты.
+- **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты, общий бюджет токенов, allowlist инструментов.
 - **Внешние:** MCP stdio, `web_fetch`/`web_search`, фоновые jobs.
-- **Автономность:** YAML-workflows, agent teams с доской задач, durable cron-расписания.
+- **Автономность:** YAML-workflows, agent teams с доской задач, durable cron-расписания с lock.
 - **Песочница:** macOS Seatbelt и Linux Landlock; Windows — fail-closed.
 - **Интерфейсы:** TUI, HTTP/SSE + встроенный Web UI, JSON-RPC.
 
-169 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+175 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -85,6 +85,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/TEAMS.md](docs/TEAMS.md) | Доска задач, claim, зависимости, воркеры | Для параллельных команд |
 | [docs/SCHEDULES.md](docs/SCHEDULES.md) | Cron, run-due, daemon, автономные сессии | Для регулярных задач |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
+| [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
 | [docs/adr/](docs/adr/README.md) | Architecture Decision Records 001–012 | При изменении контрактов |
 
@@ -211,15 +212,15 @@ crates/lsp            LSP-клиент и инструменты навигац�
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–024
+docs/adr              001–025
 ```
 
 ## 9. Что дальше
 
 **M7 — оставшиеся эпики:**
-1. Durable-доска команд и бюджеты воркеров.
-2. Office (docx/xlsx/pptx), CUA/browser.
-3. Desktop-оболочка (Tauri), OTel, ACP.
-4. i18n, упаковка, plugin market.
+1. Windows sandbox и Linux seccomp/network.
+2. MCP HTTP/resources, durable teams, workflow retries.
+3. Office (docx/xlsx/pptx), CUA/browser.
+4. Desktop-оболочка (Tauri), OTel, ACP, i18n.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

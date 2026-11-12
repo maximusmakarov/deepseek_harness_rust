@@ -111,6 +111,22 @@ impl ToolRegistry {
         self.tools.insert(tool.name().to_owned(), tool);
     }
 
+    /// Returns a registry filtered by an allowlist and a denylist.
+    #[must_use]
+    pub fn filtered(&self, allowed: &[String], denied: &[String]) -> Self {
+        let mut filtered = Self::default();
+        for (name, tool) in &self.tools {
+            if !allowed.is_empty() && !allowed.iter().any(|candidate| candidate == name) {
+                continue;
+            }
+            if denied.iter().any(|candidate| candidate == name) {
+                continue;
+            }
+            filtered.tools.insert(name.clone(), Arc::clone(tool));
+        }
+        filtered
+    }
+
     #[must_use]
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
@@ -187,5 +203,21 @@ pub fn resolve_path(cwd: &std::path::Path, path: &str) -> PathBuf {
         candidate.to_path_buf()
     } else {
         cwd.join(candidate)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filters_tools_by_allow_and_deny_lists() {
+        let registry = ToolRegistry::with_builtin();
+        let allowed = registry.filtered(&["read".into()], &[]);
+        assert_eq!(allowed.names(), vec!["read".to_owned()]);
+
+        let denied = registry.filtered(&[], &["bash".into()]);
+        assert!(denied.names().iter().any(|name| name == "read"));
+        assert!(!denied.names().iter().any(|name| name == "bash"));
     }
 }

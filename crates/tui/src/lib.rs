@@ -177,6 +177,7 @@ fn spawn_agent(
                     max_tokens: options.max_tokens,
                     output_limit: options.output_limit,
                     compaction: Some(dshr_compaction::CompactionConfig::default()),
+                    budget: None,
                 },
             );
 

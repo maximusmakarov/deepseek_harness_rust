@@ -322,6 +322,7 @@ async fn start_turn(
         max_tokens: state.config.max_tokens,
         output_limit: state.config.output_limit,
         compaction: Some(dshr_compaction::CompactionConfig::default()),
+        budget: None,
     };
     let mut agent = Agent::new(
         Arc::clone(&state.provider),

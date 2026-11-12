@@ -97,6 +97,7 @@ pub async fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
         PermissionMode::WorkspaceWrite
     };
 
+    let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let system_prompt = build_system_prompt(
         loader.home(),
         &cwd_string,

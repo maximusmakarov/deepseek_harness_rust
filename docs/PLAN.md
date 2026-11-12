@@ -262,7 +262,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M7 — Паритет (84–145 дней, итеративно)
 
-**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP; остальное в работе.
+**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP, guardrails; остальное в работе.
 
 Workflows (скриптовый движок + мультиагентные сценарии), расписания, agent teams, worktrees/forge, LSP, Office, CUA/browser, OTel, i18n, упаковка (cargo-dist, brew, Docker), desktop (Tauri), ACP, plugin market.
 

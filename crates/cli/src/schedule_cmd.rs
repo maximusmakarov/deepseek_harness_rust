@@ -13,7 +13,7 @@ use dshr_llm_mock::ReplayProvider;
 use dshr_llm_openai::OpenAiProvider;
 use dshr_prompt::PromptContext;
 use dshr_sandbox::{NetworkMode as SandboxNetwork, Sandbox, SandboxMode, SandboxPolicy};
-use dshr_schedule::{ScheduleEntry, ScheduleStore, format_time, parse_time};
+use dshr_schedule::{ScheduleEntry, ScheduleLock, ScheduleStore, format_time, parse_time};
 use dshr_session_jsonl::SessionStore;
 use dshr_tools::{BashTool, ToolRegistry};
 use tokio_util::sync::CancellationToken;
@@ -164,6 +164,8 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
             Ok(0)
         }
         ScheduleAction::Daemon { interval_secs, run } => {
+            let _lock = ScheduleLock::acquire(loader.home().join("schedules.lock"))
+                .map_err(schedule_error)?;
             let interval = Duration::from_secs((*interval_secs).max(1));
             loop {
                 let mut store = ScheduleStore::open(&path).map_err(schedule_error)?;
@@ -252,6 +254,7 @@ async fn run_due(
                 max_tokens: 2048,
                 output_limit: config.tools.output_limit_chars,
                 compaction: Some(dshr_compaction::CompactionConfig::default()),
+                budget: None,
             },
         );
 

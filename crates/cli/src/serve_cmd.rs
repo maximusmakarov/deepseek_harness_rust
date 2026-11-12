@@ -97,6 +97,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
     let jobs = Arc::new(dshr_jobs::JobManager::with_sandbox(Some(sandbox)));
     dshr_jobs::register_tools(&mut tools, jobs);
 
+    let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let system_prompt = build_system_prompt(
         loader.home(),
         &cwd_string,

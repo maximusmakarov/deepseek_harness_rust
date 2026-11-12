@@ -4,6 +4,7 @@
 //! Schedules are stored as YAML and evaluated in UTC. `run-due` executes
 //! entries whose `next_run` is in the past and advances `next_run`.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -178,6 +179,41 @@ impl ScheduleStore {
     }
 }
 
+/// Prevents two schedulers from running the same store concurrently.
+pub struct ScheduleLock {
+    path: PathBuf,
+}
+
+impl ScheduleLock {
+    pub fn acquire(path: impl Into<PathBuf>) -> Result<Self, ScheduleError> {
+        let path = path.into();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|error| ScheduleError::Io(error.to_string()))?;
+        }
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                let _ = writeln!(file, "{}", std::process::id());
+                Ok(Self { path })
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(
+                ScheduleError::Invalid(format!("another scheduler holds {}", path.display())),
+            ),
+            Err(error) => Err(ScheduleError::Io(error.to_string())),
+        }
+    }
+}
+
+impl Drop for ScheduleLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
 pub fn parse_time(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .ok()
@@ -250,6 +286,16 @@ mod tests {
                 .as_deref()
                 .is_some_and(|value| parse_time(value).is_some_and(|next| next > later))
         );
+    }
+
+    #[test]
+    fn lock_is_exclusive_and_released() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("schedules.lock");
+        let lock = ScheduleLock::acquire(&path).expect("lock");
+        assert!(ScheduleLock::acquire(&path).is_err());
+        drop(lock);
+        assert!(ScheduleLock::acquire(&path).is_ok());
     }
 
     #[test]

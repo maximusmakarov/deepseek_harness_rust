@@ -5,8 +5,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use clap::Args;
 use dshr_agent::{
-    Agent, AgentConfig, AgentObserver, ApprovalPolicy, AutoApprover, DenyApprover, PermissionMode,
-    SubagentRunner, SubagentTool, ToolCallInfo,
+    Agent, AgentConfig, AgentObserver, ApprovalPolicy, AutoApprover, Budget, DenyApprover,
+    PermissionMode, SubagentRunner, SubagentTool, ToolCallInfo,
 };
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
@@ -59,6 +59,10 @@ pub struct RunArgs {
     #[arg(long, default_value_t = 8)]
     pub max_steps: usize,
 
+    /// Maximum tokens across this turn and delegated agents (0 = unlimited)
+    #[arg(long, default_value_t = 0)]
+    pub max_total_tokens: u64,
+
     /// Allow shell commands and writes outside the workspace
     #[arg(long)]
     pub danger: bool,
@@ -97,7 +101,23 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
 
     let session = match &args.session {
         Some(id) => store.open(id)?,
-        None => store.create(provider.name(), provider.model(), &cwd)?,
+        None => {
+            let created = store.create(provider.name(), provider.model(), &cwd)?;
+            let title = args
+                .prompt
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .chars()
+                .take(60)
+                .collect::<String>();
+            if title.is_empty() {
+                created
+            } else {
+                store.set_title(created.header.id.as_str(), &title)?
+            }
+        }
     };
 
     let mut tools = if args.no_tools {
@@ -143,6 +163,7 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         approver,
     };
 
+    let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let system_prompt = build_system_prompt(
         loader.home(),
         &cwd,
@@ -157,6 +178,7 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         max_tokens: args.max_tokens,
         output_limit: config.tools.output_limit_chars,
         compaction: Some(dshr_compaction::CompactionConfig::default()),
+        budget: (args.max_total_tokens > 0).then(|| Arc::new(Budget::new(args.max_total_tokens))),
     };
     let base_tools = Arc::new(tools);
     let child_tools = Arc::clone(&base_tools);
@@ -184,6 +206,7 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
             std::path::PathBuf::from(&cwd).join(".dshr/teams"),
         ],
     ));
+    let parent_tools = parent_tools.filtered(&config.tools.allowed, &config.tools.denied);
 
     let mut agent = Agent::new(
         provider,

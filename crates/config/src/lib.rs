@@ -112,6 +112,10 @@ pub struct ToolsConfig {
     pub max_parallel: usize,
     /// Largest tool output kept in model context before spilling to a file.
     pub output_limit_chars: usize,
+    /// If non-empty, only these tools are exposed.
+    pub allowed: Vec<String>,
+    /// Tools removed even when allowed.
+    pub denied: Vec<String>,
 }
 
 impl Default for ToolsConfig {
@@ -119,6 +123,8 @@ impl Default for ToolsConfig {
         Self {
             max_parallel: 8,
             output_limit_chars: 30_000,
+            allowed: Vec::new(),
+            denied: Vec::new(),
         }
     }
 }

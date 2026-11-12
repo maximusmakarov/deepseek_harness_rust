@@ -28,5 +28,6 @@
 | [022](022-schedules.md) | Расписания: durable cron и автономный запуск | Accepted |
 | [023](023-lsp.md) | LSP: минимальный клиент и инструменты | Accepted |
 | [024](024-linux-landlock.md) | Linux Landlock: helper и границы изоляции | Accepted |
+| [025](025-guardrails.md) | Бюджет дерева, allowlist инструментов, scheduler lock | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

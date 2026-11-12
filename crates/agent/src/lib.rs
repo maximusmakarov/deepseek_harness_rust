@@ -6,6 +6,7 @@
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use dshr_core::{DshrError, TurnId};
@@ -28,6 +29,9 @@ pub enum AgentError {
 
     #[error("maximum steps reached")]
     MaxSteps,
+
+    #[error("token budget exhausted")]
+    BudgetExceeded,
 
     #[error("llm: {0}")]
     Llm(String),
@@ -276,6 +280,54 @@ pub struct AgentConfig {
     pub max_tokens: u32,
     pub output_limit: usize,
     pub compaction: Option<dshr_compaction::CompactionConfig>,
+    pub budget: Option<Arc<Budget>>,
+}
+
+/// Shared token budget for an agent tree (parent + subagents + workers).
+#[derive(Debug)]
+pub struct Budget {
+    max_tokens: u64,
+    used_tokens: AtomicU64,
+}
+
+impl Budget {
+    #[must_use]
+    pub fn new(max_tokens: u64) -> Self {
+        Self {
+            max_tokens,
+            used_tokens: AtomicU64::new(0),
+        }
+    }
+
+    #[must_use]
+    pub fn remaining(&self) -> u64 {
+        self.max_tokens
+            .saturating_sub(self.used_tokens.load(Ordering::Relaxed))
+    }
+
+    /// Reserves tokens; returns false and saturates when the budget is exceeded.
+    pub fn try_consume(&self, tokens: u64) -> bool {
+        let mut current = self.used_tokens.load(Ordering::Relaxed);
+        loop {
+            if current >= self.max_tokens {
+                return false;
+            }
+            let next = current.saturating_add(tokens);
+            if next > self.max_tokens {
+                self.used_tokens.store(self.max_tokens, Ordering::Relaxed);
+                return false;
+            }
+            match self.used_tokens.compare_exchange_weak(
+                current,
+                next,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return true,
+                Err(actual) => current = actual,
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -367,6 +419,16 @@ impl Agent {
                 .map_err(|error| AgentError::Llm(error.to_string()))?;
             }
 
+            if self
+                .config
+                .budget
+                .as_ref()
+                .is_some_and(|budget| budget.remaining() == 0)
+            {
+                self.end_turn(&turn, TurnEndReason::Error)?;
+                return Err(AgentError::BudgetExceeded);
+            }
+
             let request = Request {
                 model: self.provider.model().to_owned(),
                 system: Some(self.config.system_prompt.clone()),
@@ -431,6 +493,17 @@ impl Agent {
                 usage: output.usage,
                 stop_reason: output.stop_reason,
             })?;
+
+            if let Some(budget) = &self.config.budget {
+                let spent = output
+                    .usage
+                    .input_tokens
+                    .saturating_add(output.usage.output_tokens);
+                if !budget.try_consume(spent) {
+                    self.end_turn(&turn, TurnEndReason::Error)?;
+                    return Err(AgentError::BudgetExceeded);
+                }
+            }
 
             if calls.is_empty() {
                 self.end_turn(&turn, TurnEndReason::Completed)?;
@@ -603,6 +676,7 @@ mod tests {
                 max_tokens: 64,
                 output_limit: 30_000,
                 compaction: None,
+                budget: None,
             },
         )
     }
@@ -916,5 +990,61 @@ mod tests {
                 ..
             }
         )));
+    }
+    #[test]
+    fn budget_saturates_and_refuses() {
+        let budget = Budget::new(10);
+        assert!(budget.try_consume(4));
+        assert!(budget.try_consume(6));
+        assert!(!budget.try_consume(1));
+        assert_eq!(budget.remaining(), 0);
+    }
+
+    #[tokio::test]
+    async fn budget_exhaustion_stops_turn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = Arc::new(SessionStore::new(dir.path().join("sessions")));
+        let session = session(&store);
+        let provider = Arc::new(ScriptedProvider::new(
+            "test-model",
+            vec![vec![
+                StreamChunk::Start {
+                    model: "test-model".into(),
+                },
+                StreamChunk::Usage {
+                    usage: Usage {
+                        input_tokens: 4,
+                        output_tokens: 4,
+                        ..Usage::default()
+                    },
+                },
+                StreamChunk::TextDelta {
+                    text: "hello".into(),
+                },
+                StreamChunk::Done {
+                    stop_reason: StopReason::EndTurn,
+                },
+            ]],
+        ));
+        let mut agent = Agent::new(
+            provider,
+            Arc::new(ToolRegistry::new()),
+            store,
+            session,
+            policy(&dir, PermissionMode::DangerFull, Arc::new(AutoApprover)),
+            AgentConfig {
+                system_prompt: "test".into(),
+                max_steps: 2,
+                max_tokens: 64,
+                output_limit: 10_000,
+                compaction: None,
+                budget: Some(Arc::new(Budget::new(5))),
+            },
+        );
+        let error = agent
+            .run_turn("hi", CancellationToken::new(), &NullObserver)
+            .await
+            .expect_err("budget");
+        assert!(matches!(error, AgentError::BudgetExceeded));
     }
 }

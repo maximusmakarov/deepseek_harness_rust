@@ -977,3 +977,62 @@ fn sandbox_allows_workspace_write() {
 
     assert!(project.path().join("inside-sandbox.txt").exists());
 }
+
+#[test]
+fn prompt_respects_tool_allowlist() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("config.yaml"),
+        "tools:\n  allowed: [read]\n",
+    )
+    .expect("config");
+
+    dshr()
+        .args(["--home", dir.path().to_str().expect("utf8"), "prompt"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("- read"))
+        .stdout(predicate::str::contains("- bash").not());
+}
+
+#[test]
+fn run_sets_title_from_first_prompt() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = dir.path().join("title.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[[
+          {"type":"start","model":"deepseek-flash"},
+          {"type":"text_delta","text":"ok"},
+          {"type":"done","stop_reason":"end_turn"}
+        ]]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "title me",
+        ])
+        .assert()
+        .success();
+
+    let listed = dshr()
+        .args([
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "sessions",
+            "list",
+            "--json",
+        ])
+        .output()
+        .expect("list");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(sessions[0]["title"], "title me");
+}

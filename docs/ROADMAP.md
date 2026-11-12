@@ -100,7 +100,7 @@
 
 ## M4 — MCP, web, jobs, субагенты (10–15 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 139 тестов; MCP stdio, web_fetch/web_search, jobs, субагенты. Отложено: MCP HTTP/resources, бюджеты субагентов, durable jobs.
+**Статус:** ядро выполнено; бюджеты дерева добавлены 13.11.2026. Отложено: MCP HTTP/resources, durable jobs.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP (169 тестов). Остальные эпики (Office, CUA, OTel, desktop, ACP, i18n) не начаты.
+**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP, guardrails (175 тестов). Остальные эпики (Office, CUA, OTel, desktop, ACP, i18n) не начаты.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

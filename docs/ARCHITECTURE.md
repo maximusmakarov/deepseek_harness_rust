@@ -239,6 +239,8 @@ Wire-имена событий — `snake_case` (`turn_start`, `tool_result`); �
 
 ## 6. Агентный цикл
 
+Бюджет дерева — [ADR-025](adr/025-guardrails.md).
+
 Автономные запуски по cron — [ADR-022](adr/022-schedules.md).
 
 ### 6.1. Состояния
@@ -555,6 +557,8 @@ world tool-plugin {
 ---
 
 ## 14. Конфигурация и композиция
+
+Allowlist инструментов — [ADR-025](adr/025-guardrails.md).
 
 Слои (снизу вверх):
 
