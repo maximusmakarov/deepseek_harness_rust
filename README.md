@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v2.0 · 12.11.2026 · **M0–M6 выполнены; M7 — workflows, teams, worktrees, schedules**
+**Статус:** план v2.1 · 13.11.2026 · **M0–M6 выполнены; M7 — workflows, teams, worktrees, schedules, LSP**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,7 +10,7 @@
 
 ## 1. Статус
 
-M0–M6 (ядро) завершены 12.11.2026; M7 — workflows, agent teams, worktrees, schedules.
+M0–M6 (ядро) завершены 12.11.2026; M7 — workflows, agent teams, worktrees, schedules, LSP.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…013.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
@@ -80,6 +80,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/WORKFLOWS.md](docs/WORKFLOWS.md) | YAML-DAG шагов, шаблоны, запуск | Для мультиагентных сценариев |
 | [docs/TEAMS.md](docs/TEAMS.md) | Доска задач, claim, зависимости, воркеры | Для параллельных команд |
 | [docs/SCHEDULES.md](docs/SCHEDULES.md) | Cron, run-due, daemon, автономные сессии | Для регулярных задач |
+| [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
 | [docs/adr/](docs/adr/README.md) | Architecture Decision Records 001–012 | При изменении контрактов |
 
@@ -202,17 +203,18 @@ crates/server         HTTP/SSE API, JSON-RPC и встроенный UI
 crates/workflow       YAML-DAG шагов через субагентов
 crates/team           общая доска задач и конкурентные воркеры
 crates/schedule       durable cron-расписания
+crates/lsp            LSP-клиент и инструменты навигации
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–022
+docs/adr              001–023
 ```
 
 ## 9. Что дальше
 
 **M7 — оставшиеся эпики:**
 1. Durable-доска команд и бюджеты воркеров.
-2. LSP, Office, CUA/browser.
+2. Office (docx/xlsx/pptx), CUA/browser.
 3. Desktop-оболочка (Tauri), OTel, ACP.
 4. i18n, упаковка, plugin market.
 

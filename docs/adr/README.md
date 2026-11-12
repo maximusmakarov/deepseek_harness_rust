@@ -26,5 +26,6 @@
 | [020](020-workflows-worktrees.md) | Workflows и worktrees: первый срез M7 | Accepted |
 | [021](021-agent-teams.md) | Agent teams: доска, владение, зависимости | Accepted |
 | [022](022-schedules.md) | Расписания: durable cron и автономный запуск | Accepted |
+| [023](023-lsp.md) | LSP: минимальный клиент и инструменты | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

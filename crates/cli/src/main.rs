@@ -2,6 +2,7 @@
 
 mod config_cmd;
 mod doctor;
+mod lsp_setup;
 mod mcp_setup;
 mod plugin_cmd;
 mod prompt_cmd;

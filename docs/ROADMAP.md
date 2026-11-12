@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 12.11.2026 — workflows, agent teams, worktrees, schedules (167 тестов). Остальные эпики (LSP, Office, CUA, OTel, desktop, ACP, i18n) не начаты.
+**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP (168 тестов). Остальные эпики (Office, CUA, OTel, desktop, ACP, i18n) не начаты.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

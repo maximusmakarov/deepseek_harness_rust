@@ -34,6 +34,7 @@ pub struct Config {
     pub logging: LoggingConfig,
     pub tools: ToolsConfig,
     pub mcp: McpConfig,
+    pub lsp: LspConfig,
 }
 
 impl Default for Config {
@@ -46,6 +47,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             tools: ToolsConfig::default(),
             mcp: McpConfig::default(),
+            lsp: LspConfig::default(),
         }
     }
 }
@@ -127,6 +129,34 @@ pub struct McpConfig {
     pub servers: Vec<McpServerConfig>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct LspConfig {
+    pub servers: Vec<LspServerConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct LspServerConfig {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub extensions: Vec<String>,
+    pub enabled: bool,
+}
+
+impl Default for LspServerConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            command: String::new(),
+            args: Vec::new(),
+            extensions: Vec::new(),
+            enabled: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct McpServerConfig {
@@ -183,6 +213,23 @@ impl Config {
             return Err(DshrError::config(
                 "logging.level must be one of trace, debug, info, warn, error",
             ));
+        }
+        for server in self.lsp.servers.iter().filter(|server| server.enabled) {
+            if server.name.trim().is_empty() {
+                return Err(DshrError::config("lsp server name must not be empty"));
+            }
+            if server.command.trim().is_empty() {
+                return Err(DshrError::config(format!(
+                    "lsp server '{}' has an empty command",
+                    server.name
+                )));
+            }
+            if server.extensions.is_empty() {
+                return Err(DshrError::config(format!(
+                    "lsp server '{}' has no extensions",
+                    server.name
+                )));
+            }
         }
         for server in self.mcp.servers.iter().filter(|server| server.enabled) {
             if server.name.trim().is_empty() {

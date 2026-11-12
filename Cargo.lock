@@ -737,6 +737,7 @@ dependencies = [
  "dshr-llm-deepseek",
  "dshr-llm-mock",
  "dshr-llm-openai",
+ "dshr-lsp",
  "dshr-mcp",
  "dshr-prompt",
  "dshr-sandbox",
@@ -875,6 +876,22 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "dshr-lsp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dshr-core",
+ "dshr-tools",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "url",
 ]
 
 [[package]]
