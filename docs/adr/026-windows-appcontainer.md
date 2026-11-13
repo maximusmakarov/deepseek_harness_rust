@@ -5,7 +5,7 @@
 
 ## Статус: experimental / opt-in
 
-AppContainer реализован, но setup зависает на GitHub Windows runner; по умолчанию Windows остаётся fail-closed, включение — `DSHR_WINDOWS_SANDBOX=1`. Setup ограничен таймаутом и падает fail-closed; диагностический тест исключён из CI, чтобы не блокировать job.
+AppContainer реализован, но setup зависает на GitHub Windows runner; по умолчанию Windows остаётся fail-closed, включение — `DSHR_WINDOWS_SANDBOX=1`. Проверены: таймаут, отказ от `CreateAppContainerProfile` (производный SID), pipe-stdio. Зависание остаётся внутри setup/spawn; `cageforge` и `zagens` требуют UAC-провижининга и helper-бинарников. Решение: fail-closed, тест исключён из CI.
 
 ## Контекст
 
