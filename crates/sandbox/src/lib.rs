@@ -409,6 +409,7 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
+    #[ignore = "AppContainer is opt-in via DSHR_WINDOWS_SANDBOX"]
     fn appcontainer_wraps_command() {
         let dir = tempfile::tempdir().expect("tempdir");
         let sandbox = Sandbox::platform(SandboxPolicy::workspace_write(dir.path()));
