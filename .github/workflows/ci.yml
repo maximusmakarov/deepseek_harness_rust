@@ -39,6 +39,9 @@ jobs:
               grep -a -E "FAIL|failures:|panicked|error\[|Error:" nextest.log | tail -120
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            grep -a -E "FAIL|panicked|assertion|Error:" nextest.log | head -30 | while IFS= read -r line; do
+              echo "::error title=nextest::${line}"
+            done
           fi
           exit "$status"
       - run: cargo test --workspace --doc
