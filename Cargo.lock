@@ -1477,6 +1477,7 @@ dependencies = [
  "dshr-core",
  "dshr-llm",
  "dshr-tools",
+ "ring",
  "serde",
  "serde-saphyr",
  "serde_json",

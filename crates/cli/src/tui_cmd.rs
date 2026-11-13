@@ -80,7 +80,12 @@ pub async fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
     crate::mcp_setup::register(&mut tools, &config, Some(Arc::clone(&provider))).await;
     dshr_office::register_tools(&mut tools);
     dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
-    crate::wasm_setup::register(&mut tools, loader.home(), std::path::Path::new(&cwd));
+    crate::wasm_setup::register(
+        &mut tools,
+        loader.home(),
+        std::path::Path::new(&cwd),
+        &config.plugins,
+    )?;
     crate::lsp_setup::register(&mut tools, &config, cwd.clone());
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {

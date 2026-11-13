@@ -143,6 +143,38 @@ impl Lang {
     }
 
     #[must_use]
+    pub fn plugin_key_written(self, path: &str) -> String {
+        match self {
+            Self::Ru => format!("секретный ключ записан: {path}"),
+            Self::En => format!("wrote secret key: {path}"),
+        }
+    }
+
+    #[must_use]
+    pub fn plugin_public_key(self, key: &str) -> String {
+        match self {
+            Self::Ru => format!("публичный ключ: {key}"),
+            Self::En => format!("public key: {key}"),
+        }
+    }
+
+    #[must_use]
+    pub fn plugin_signed(self, manifest: &str) -> String {
+        match self {
+            Self::Ru => format!("манифест подписан: {manifest}"),
+            Self::En => format!("signed manifest: {manifest}"),
+        }
+    }
+
+    #[must_use]
+    pub fn plugin_verified(self, manifest: &str) -> String {
+        match self {
+            Self::Ru => format!("подпись верна: {manifest}"),
+            Self::En => format!("signature valid: {manifest}"),
+        }
+    }
+
+    #[must_use]
     pub fn no_schedules(self) -> &'static str {
         match self {
             Self::Ru => "(расписаний нет)",

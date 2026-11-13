@@ -14,13 +14,14 @@
 3. **Без host-импортов:** нет WASI, файлов, сети, времени; только вычисления.
 4. **Манифест** `*.yaml` с `name`, `wasm`, `enabled`; каталоги `~/.dshr/plugins` и `.dshr/plugins`.
 5. **Sidecar** — это MCP: `plugin add --command/--url`, без отдельного протокола.
-6. **Границы:** fuel 10M, memory cap 64 MiB, инстанцирование на вызов, `sha256` манифеста; криптоподписи и hot reload нет.
+6. **Границы:** fuel 10M, memory cap 64 MiB, инстанцирование на вызов, `sha256` манифеста; Ed25519-подпись (`dshr-wasm`, ключи доверия в `plugins.trusted_keys`); hot reload нет.
 
 ## Последствия
 
 - Плагины не требуют wasmtime/WASI и работают на всех целевых ОС.
 - Нет состояния между вызовами; для stateful-плагинов нужен sidecar.
-- WIT/component model и capability-grants отложены.
+- WIT/component model, hot reload и capability-grants отложены.
+- Подпись не решает отзыв ключей и доверие к источнику плагина — это следующий слой.
 
 ## Альтернативы
 

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 use dshr_config::ConfigLoader;
@@ -41,6 +42,28 @@ pub enum PluginAction {
         /// Plugin/server name
         name: String,
     },
+    /// Generate an Ed25519 key pair for signing WASM plugins
+    Keygen {
+        /// Where to write the secret key (hex). The public key is printed.
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Sign a WASM plugin manifest
+    Sign {
+        /// Path to the plugin manifest (*.yaml)
+        manifest: PathBuf,
+        /// Secret key file written by `plugin keygen`
+        #[arg(long)]
+        key: PathBuf,
+    },
+    /// Verify a WASM plugin manifest signature
+    Verify {
+        /// Path to the plugin manifest (*.yaml)
+        manifest: PathBuf,
+        /// Public key (hex); defaults to the manifest `signer` field
+        #[arg(long)]
+        key: Option<String>,
+    },
 }
 
 pub fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
@@ -54,7 +77,71 @@ pub fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
             url,
         } => add(loader, name, command.as_deref(), args, env, url.as_deref()),
         PluginAction::Remove { name } => remove(loader, name),
+        PluginAction::Keygen { out } => keygen(out),
+        PluginAction::Sign { manifest, key } => sign(manifest, key),
+        PluginAction::Verify { manifest, key } => verify(manifest, key.as_deref()),
     }
+}
+
+fn keygen(out: &Path) -> Result<u8> {
+    let (public, secret) = dshr_wasm::generate_keypair()
+        .map_err(|error| DshrError::invalid_input(error.to_string()))?;
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(out, format!("{secret}\n"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(out, std::fs::Permissions::from_mode(0o600))?;
+    }
+    println!(
+        "{}",
+        current().plugin_key_written(&out.display().to_string())
+    );
+    println!("{}", current().plugin_public_key(&public));
+    Ok(0)
+}
+
+fn sign(manifest: &Path, key_path: &Path) -> Result<u8> {
+    let secret = std::fs::read_to_string(key_path)?.trim().to_owned();
+    let public = dshr_wasm::sign_manifest(manifest, &secret)
+        .map_err(|error| DshrError::invalid_input(error.to_string()))?;
+    println!(
+        "{}",
+        current().plugin_signed(&manifest.display().to_string())
+    );
+    println!("{}", current().plugin_public_key(&public));
+    Ok(0)
+}
+
+fn verify(manifest: &Path, key: Option<&str>) -> Result<u8> {
+    let key = match key {
+        Some(key) => key.to_owned(),
+        None => {
+            let text = std::fs::read_to_string(manifest)?;
+            let value: Value = serde_saphyr::from_str(&text).map_err(|error| {
+                DshrError::config(format!("parse {}: {error}", manifest.display()))
+            })?;
+            value["signer"]
+                .as_str()
+                .ok_or_else(|| {
+                    DshrError::invalid_input(
+                        "manifest has no `signer`; pass --key with the public key",
+                    )
+                })?
+                .to_owned()
+        }
+    };
+    dshr_wasm::verify_manifest(manifest, &key)
+        .map_err(|error| DshrError::invalid_input(error.to_string()))?;
+    println!(
+        "{}",
+        current().plugin_verified(&manifest.display().to_string())
+    );
+    Ok(0)
 }
 
 fn list(loader: &ConfigLoader, json: bool) -> Result<u8> {

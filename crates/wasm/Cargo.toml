@@ -10,6 +10,7 @@ license.workspace = true
 async-trait.workspace = true
 dshr-llm.workspace = true
 dshr-tools.workspace = true
+ring.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 serde_json.workspace = true

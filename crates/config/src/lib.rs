@@ -36,6 +36,7 @@ pub struct Config {
     pub mcp: McpConfig,
     pub lsp: LspConfig,
     pub ui: UiConfig,
+    pub plugins: PluginsConfig,
 }
 
 impl Default for Config {
@@ -50,6 +51,7 @@ impl Default for Config {
             mcp: McpConfig::default(),
             lsp: LspConfig::default(),
             ui: UiConfig::default(),
+            plugins: PluginsConfig::default(),
         }
     }
 }
@@ -112,6 +114,16 @@ impl Default for UiConfig {
             language: "ru".to_owned(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct PluginsConfig {
+    /// Ed25519 public keys (32-byte hex) trusted to sign WASM plugins.
+    ///
+    /// Setting any key turns signatures on: every WASM plugin must then carry a
+    /// signature that verifies against one of these keys.
+    pub trusted_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
@@ -253,6 +265,13 @@ impl Config {
             return Err(DshrError::config(
                 "logging.level must be one of trace, debug, info, warn, error",
             ));
+        }
+        for key in &self.plugins.trusted_keys {
+            if key.len() != 64 || !key.chars().all(|character| character.is_ascii_hexdigit()) {
+                return Err(DshrError::config(format!(
+                    "plugins.trusted_keys entry '{key}' is not a 32-byte hex key"
+                )));
+            }
         }
         for server in self.lsp.servers.iter().filter(|server| server.enabled) {
             if server.name.trim().is_empty() {
@@ -612,6 +631,29 @@ mod tests {
             loaded.config.session.dir,
             Some(dir.path().join("state/sessions"))
         );
+    }
+
+    #[test]
+    fn plugin_trust_keys_are_validated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write(
+            &dir.path().join("config.yaml"),
+            "plugins:\n  trusted_keys: [not-hex]\n",
+        );
+        let err = ConfigLoader::new(dir.path(), "default")
+            .load()
+            .expect_err("bad key");
+        assert!(err.to_string().contains("32-byte hex"), "{err}");
+
+        let key = "11".repeat(32);
+        write(
+            &dir.path().join("config.yaml"),
+            &format!("plugins:\n  trusted_keys: [\"{key}\"]\n"),
+        );
+        let loaded = ConfigLoader::new(dir.path(), "default")
+            .load()
+            .expect("load");
+        assert_eq!(loaded.config.plugins.trusted_keys, vec![key]);
     }
 
     #[test]

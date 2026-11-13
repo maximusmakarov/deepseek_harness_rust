@@ -29,7 +29,12 @@ pub async fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
     crate::mcp_setup::register(&mut tools, &config, None).await;
     dshr_office::register_tools(&mut tools);
     dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
-    crate::wasm_setup::register(&mut tools, loader.home(), std::path::Path::new(&cwd));
+    crate::wasm_setup::register(
+        &mut tools,
+        loader.home(),
+        std::path::Path::new(&cwd),
+        &config.plugins,
+    )?;
 
     let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let prompt = crate::run_cmd::build_system_prompt(

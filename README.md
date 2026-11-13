@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-211 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT и подпись, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+218 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -240,7 +240,7 @@ docs/adr              001–036
 
 **Осталось:**
 1. Windows sandbox (persistent helper), сеть Windows.
-2. WASM component model/WIT, криптоподпись плагинов.
+2. WASM component model/WIT (Ed25519-подпись плагинов уже есть).
 3. Leptos UI и Tauri-оболочка (PWA уже есть).
 4. Стабильные бинарные дистрибутивы: бутылки Homebrew и подпись релизов.
 
