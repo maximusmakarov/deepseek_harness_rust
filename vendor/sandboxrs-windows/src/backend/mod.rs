@@ -20,12 +20,10 @@ pub(crate) fn select(preference: BackendPreference) -> Result<BackendKind, Sandb
 
     #[cfg(windows)]
     {
-        probe_report(preference)
-            .entries
-            .into_iter()
-            .find(|entry| entry.usable)
-            .map(|entry| entry.backend)
-            .ok_or(SandboxError::SandboxUnavailable)
+        // dshr fork: skip the real launch probe; it is too slow when a new
+        // helper process runs one command. AppContainer setup fails closed.
+        let _ = preference;
+        Ok(BackendKind::AppContainer)
     }
 }
 

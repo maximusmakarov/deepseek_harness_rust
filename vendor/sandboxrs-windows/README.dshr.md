@@ -7,3 +7,7 @@ exceeded the 60s test timeout. AppContainer already reads system binaries via
 default ACLs. Workspace/temp policy grants are unchanged.
 
 Upstream: https://github.com/TarunKurella/sandboxrs-windows (MIT).
+
+Also skips the backend probe in `backend::select`; the probe launched a
+throwaway AppContainer for every command and dominated startup. AppContainer
+setup still fails closed if the profile/ACL cannot be created.
