@@ -47,6 +47,8 @@ pub async fn execute(loader: &ConfigLoader, args: &AcpArgs) -> Result<u8> {
     let fs = Arc::new(dshr_acp::AcpFsClient::new());
     tools.register(dshr_acp::AcpReadTool::new(Arc::clone(&fs)));
     tools.register(dshr_acp::AcpWriteTool::new(Arc::clone(&fs)));
+    let terminal = Arc::new(dshr_acp::AcpTerminalClient::new());
+    tools.register(dshr_acp::AcpBashTool::new(Arc::clone(&terminal)));
     let skills = Arc::new(SkillRegistry::discover(&[
         loader.home().join("skills"),
         cwd.join(".dshr/skills"),
@@ -101,6 +103,7 @@ pub async fn execute(loader: &ConfigLoader, args: &AcpArgs) -> Result<u8> {
         },
     )
     .with_fs(fs)
+    .with_terminal(terminal)
     .serve(tokio::io::stdin(), tokio::io::stdout())
     .await
     .map_err(|error| DshrError::config(error.to_string()))?;

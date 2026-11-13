@@ -11,6 +11,10 @@ mod fs;
 pub use fs::{AcpFsClient, AcpRpc, ClientRpc};
 mod fs_tools;
 pub use fs_tools::{AcpReadTool, AcpWriteTool};
+mod terminal;
+pub use terminal::AcpTerminalClient;
+mod terminal_tool;
+pub use terminal_tool::AcpBashTool;
 
 use async_trait::async_trait;
 use dshr_agent::{
@@ -51,6 +55,7 @@ pub struct AcpServer {
     store: Arc<SessionStore>,
     config: AcpConfig,
     fs: Option<Arc<AcpFsClient>>,
+    terminal: Option<Arc<AcpTerminalClient>>,
 }
 
 impl AcpServer {
@@ -67,12 +72,19 @@ impl AcpServer {
             store,
             config,
             fs: None,
+            terminal: None,
         }
     }
 
     #[must_use]
     pub fn with_fs(mut self, fs: Arc<AcpFsClient>) -> Self {
         self.fs = Some(fs);
+        self
+    }
+
+    #[must_use]
+    pub fn with_terminal(mut self, terminal: Arc<AcpTerminalClient>) -> Self {
+        self.terminal = Some(terminal);
         self
     }
 
@@ -128,6 +140,12 @@ impl AcpServer {
                             .as_bool()
                             .unwrap_or(false);
                         fs.attach(Arc::clone(&rpc), read, write).await;
+                    }
+                    if let Some(terminal) = &self.terminal {
+                        let enabled = params["clientCapabilities"]["terminal"]
+                            .as_bool()
+                            .unwrap_or(false);
+                        terminal.attach(Arc::clone(&rpc), enabled).await;
                     }
                     if let Some(id) = id {
                         send(
