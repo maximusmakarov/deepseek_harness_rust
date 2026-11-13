@@ -8,7 +8,7 @@
 | Headless | `dshr run`, JSON output, cassettes | ✅ |
 | HTTP/SSE + Web UI | axum, bearer, approvals, JSON-RPC, rate-limit | ✅ |
 | Rust SDK | typed HTTP/SSE client | ✅ |
-| ACP v1 | initialize/new/load/resume/close/prompt/cancel, permissions, fs, terminal, image | ⚠️ без audio |
+| ACP v1 | initialize/new/load/resume/close/prompt/cancel, permissions, fs, terminal, image, HTTP MCP | ⚠️ без audio/stdio MCP |
 | Сессии | JSONL, resume, fork/rewind/title/search, FTS5 | ✅ |
 | Промпт/AGENTS/skills/compaction | deterministic, discovery, compaction | ✅ |
 | Инструменты | read/write/edit/glob/grep/bash/todo/present | ✅ |

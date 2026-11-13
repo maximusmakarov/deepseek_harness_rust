@@ -22,6 +22,7 @@ use dshr_agent::{
     PermissionMode, ToolCallInfo,
 };
 use dshr_llm::LlmProvider;
+use dshr_mcp::{McpServerSpec, connect_server};
 use dshr_session_jsonl::SessionStore;
 use dshr_tools::{ToolOutcome, ToolRegistry};
 use serde_json::{Value, json};
@@ -56,6 +57,7 @@ pub struct AcpServer {
     config: AcpConfig,
     fs: Option<Arc<AcpFsClient>>,
     terminal: Option<Arc<AcpTerminalClient>>,
+    session_mcp: Arc<Mutex<HashMap<String, Value>>>,
 }
 
 impl AcpServer {
@@ -73,6 +75,7 @@ impl AcpServer {
             config,
             fs: None,
             terminal: None,
+            session_mcp: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -195,6 +198,10 @@ impl AcpServer {
                         .create(self.provider.name(), self.provider.model(), &cwd)
                     {
                         Ok(session) => {
+                            self.session_mcp.lock().await.insert(
+                                session.header.id.to_string(),
+                                params["mcpServers"].clone(),
+                            );
                             send(
                                 &writer,
                                 json!({
@@ -289,6 +296,7 @@ impl AcpServer {
                     if let Some(cancel) = active.lock().await.remove(session_id) {
                         cancel.cancel();
                     }
+                    self.session_mcp.lock().await.remove(session_id);
                     send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}})).await?;
                 }
                 "session/prompt" => {
@@ -387,6 +395,23 @@ impl AcpServer {
             .store
             .open(session_id)
             .map_err(|error| PromptError::Failed(error.to_string()))?;
+        let mcp_servers = self
+            .session_mcp
+            .lock()
+            .await
+            .get(session_id)
+            .cloned()
+            .unwrap_or(Value::Null);
+        let mut tools = (*self.tools).clone();
+        if let Some(servers) = mcp_servers.as_array() {
+            for server in servers {
+                let adapters = connect_acp_mcp(server).await.map_err(PromptError::Failed)?;
+                for adapter in adapters {
+                    tools.register_arc(adapter);
+                }
+            }
+        }
+        let tools = Arc::new(tools);
         let observer = AcpObserver {
             session_id: session_id.to_owned(),
             writer: Arc::clone(&writer),
@@ -409,7 +434,7 @@ impl AcpServer {
         };
         let mut agent = Agent::new(
             Arc::clone(&self.provider),
-            Arc::clone(&self.tools),
+            tools,
             Arc::clone(&self.store),
             session,
             policy,
@@ -572,6 +597,39 @@ where
         }),
     )
     .await
+}
+
+async fn connect_acp_mcp(server: &Value) -> Result<Vec<Arc<dyn dshr_tools::Tool>>, String> {
+    let name = server["name"]
+        .as_str()
+        .ok_or_else(|| "mcp server name is required".to_owned())?;
+    let Some(url) = server["url"].as_str().filter(|value| !value.is_empty()) else {
+        return Err(format!(
+            "MCP server {name}: only HTTP servers are supported (url is required)"
+        ));
+    };
+    let mut headers = std::collections::BTreeMap::new();
+    if let Some(values) = server["headers"].as_array() {
+        for value in values {
+            if let (Some(key), Some(value)) = (value["name"].as_str(), value["value"].as_str()) {
+                headers.insert(key.to_owned(), value.to_owned());
+            }
+        }
+    }
+    let spec = McpServerSpec {
+        name: name.to_owned(),
+        command: String::new(),
+        args: Vec::new(),
+        env: std::collections::BTreeMap::new(),
+        cwd: None,
+        url: Some(url.to_owned()),
+        headers,
+        oauth: None,
+    };
+    let (_backend, adapters) = connect_server(spec)
+        .await
+        .map_err(|error| format!("MCP server {name}: {error}"))?;
+    Ok(adapters)
 }
 
 fn prompt_content(value: &Value) -> Vec<dshr_llm::ContentBlock> {

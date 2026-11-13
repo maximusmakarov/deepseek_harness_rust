@@ -987,11 +987,13 @@ name = "dshr-acp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "dshr-agent",
  "dshr-compaction",
  "dshr-core",
  "dshr-llm",
  "dshr-llm-mock",
+ "dshr-mcp",
  "dshr-session",
  "dshr-session-jsonl",
  "dshr-tools",

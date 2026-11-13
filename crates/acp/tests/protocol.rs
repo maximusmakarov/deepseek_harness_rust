@@ -837,3 +837,186 @@ async fn accepts_image_prompts() {
             if content.iter().any(|block| matches!(block, dshr_llm::ContentBlock::Image { .. }))
     )));
 }
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn connects_http_session_mcp_servers() {
+    use axum::http::header;
+    use axum::response::{IntoResponse, Response};
+    use axum::{Json, Router, routing::post};
+
+    async fn mcp(Json(request): Json<Value>) -> Response {
+        if request["method"] == "notifications/initialized" {
+            return axum::http::StatusCode::ACCEPTED.into_response();
+        }
+        let id = request["id"].clone();
+        let result = match request["method"].as_str().unwrap_or_default() {
+            "initialize" => json!({
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "mock", "version": "0.1"}
+            }),
+            "tools/list" => json!({
+                "tools": [{"name": "echo", "description": "echo", "inputSchema": {"type": "object"}}]
+            }),
+            "tools/call" => json!({
+                "content": [{"type": "text", "text": format!(
+                    "mcp:{}",
+                    request["params"]["arguments"]["text"].as_str().unwrap_or("")
+                )}],
+                "isError": false
+            }),
+            _ => json!({}),
+        };
+        (
+            [
+                (header::CONTENT_TYPE, "application/json"),
+                (header::HeaderName::from_static("mcp-session-id"), "test"),
+            ],
+            Json(json!({"jsonrpc": "2.0", "id": id, "result": result})),
+        )
+            .into_response()
+    }
+
+    let app = Router::new().route("/mcp", post(mcp));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("addr");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let provider = Arc::new(ScriptedProvider::new(
+        "test-model",
+        vec![
+            vec![
+                StreamChunk::Start {
+                    model: "test-model".into(),
+                },
+                StreamChunk::ToolUseStart {
+                    index: 0,
+                    id: "call-mcp".into(),
+                    name: "mcp__mock__echo".into(),
+                },
+                StreamChunk::ToolInputDelta {
+                    index: 0,
+                    json: r#"{"text":"hi"}"#.into(),
+                },
+                StreamChunk::Done {
+                    stop_reason: StopReason::ToolUse,
+                },
+            ],
+            vec![
+                StreamChunk::Start {
+                    model: "test-model".into(),
+                },
+                StreamChunk::TextDelta {
+                    text: "mcp done".into(),
+                },
+                StreamChunk::Done {
+                    stop_reason: StopReason::EndTurn,
+                },
+            ],
+        ],
+    ));
+    let server = AcpServer::new(
+        provider,
+        Arc::new(ToolRegistry::new()),
+        Arc::new(SessionStore::new(dir.path().join("sessions"))),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 3,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("initialize");
+    let _ = read_json(&mut reader).await;
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":2,"method":"session/new",
+                    "params":{
+                        "cwd":dir.path(),
+                        "mcpServers":[{
+                            "type":"http","name":"mock",
+                            "url":format!("http://{address}/mcp"),"headers":[]
+                        }]
+                    }
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("session");
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":3,"method":"session/prompt",
+                    "params":{"sessionId":session_id,"prompt":[{"type":"text","text":"use mcp"}]}
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("prompt");
+
+    let mut text = String::new();
+    let mut stop = None;
+    while stop.is_none() {
+        let message = read_json(&mut reader).await;
+        if message["method"] == "session/request_permission" {
+            let request_id = message["id"].clone();
+            client_write
+                .write_all(
+                    format!(
+                        "{}\n",
+                        json!({"jsonrpc":"2.0","id":request_id,"result":{"outcome":{"outcome":"selected","optionId":"allow-once"}}})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("permission");
+        }
+        if message["method"] == "session/update"
+            && message["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+        {
+            text.push_str(
+                message["params"]["update"]["content"]["text"]
+                    .as_str()
+                    .unwrap_or_default(),
+            );
+        }
+        if message["id"] == 3 {
+            stop = message["result"]["stopReason"]
+                .as_str()
+                .map(ToOwned::to_owned);
+        }
+    }
+    assert!(text.contains("mcp done"), "{text}");
+    assert_eq!(stop.as_deref(), Some("end_turn"));
+}

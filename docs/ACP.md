@@ -26,7 +26,9 @@ dshr acp --cassette test.json --model deepseek-flash
 Сессии: `session/load` объявлен (`loadSession: true`) и проигрывает историю `user_message_chunk`/`agent_message_chunk`; `cwd` должен совпадать с сохранённым. `session/resume` открывает сессию без replay; `session/close` отменяет активный turn и идемпотентен.
 Инструменты выполняются локально. При `workspace-write` опасные вызовы (shell, запись вне workspace) отправляют клиенту `session/request_permission`; клиент выбирает `allow-once`/`reject-once`. Без ответа через 300 с — отказ. `--danger` отключает запросы.
 
-Изображения: блоки `image` в prompt принимаются; capability `promptCapabilities.image=true`. Не поддержано: audio, MCP-серверы от клиента.
+Изображения: блоки `image` в prompt принимаются; capability `promptCapabilities.image=true`.
+
+MCP-серверы из `session/new`: поддерживаются **HTTP**-серверы (`type:http`, `url`, `headers`); их инструменты доступны в turn. Stdio MCP от клиента не поддержан. Не поддержано: audio.
 
 `session/request_permission` реализован как запрос от агента клиенту; ответ `selected` + `optionId=allow-once` разрешает вызов.
 
