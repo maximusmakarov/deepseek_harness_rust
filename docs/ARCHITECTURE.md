@@ -625,6 +625,8 @@ Web UI в M6 — встроенный vanilla JS; Leptos/Tauri отложены 
 
 ## 17. Наблюдаемость
 
+OTel traces — [ADR-033](adr/033-opentelemetry.md).
+
 - `tracing` с полями `session_id`, `turn_id`, `step_id`, `tool_call_id`, `job_id`.
 - OTLP-экспорт (traces + metrics) опционально.
 - Метрики: TTFT, длительность шага, длительность инструмента, токены, ошибки по классам, размер контекста.

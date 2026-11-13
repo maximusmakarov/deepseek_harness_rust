@@ -13,6 +13,7 @@ mod schedule_cmd;
 mod serve_cmd;
 mod sessions;
 mod subagent_runner;
+mod telemetry;
 mod tui_cmd;
 mod wasm_setup;
 
@@ -82,15 +83,17 @@ async fn main() -> ExitCode {
         return sandbox_exec::run();
     }
     let cli = Cli::parse();
-    init_logging(cli.log_level.as_deref());
+    telemetry::init(cli.log_level.as_deref());
 
-    match run(cli).await {
+    let code = match run(cli).await {
         Ok(code) => ExitCode::from(code),
         Err(err) => {
             eprintln!("error[{}]: {err}", err.code());
             ExitCode::from(2)
         }
-    }
+    };
+    telemetry::shutdown();
+    code
 }
 
 async fn run(cli: Cli) -> Result<u8> {
@@ -108,19 +111,4 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
         Command::Schedule(args) => schedule_cmd::execute(&loader, &args).await,
     }
-}
-
-fn init_logging(level: Option<&str>) {
-    let requested = std::env::var("RUST_LOG")
-        .ok()
-        .or_else(|| level.map(ToOwned::to_owned))
-        .unwrap_or_else(|| "info".to_owned());
-    let filter = tracing_subscriber::EnvFilter::try_new(requested)
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .json()
-        .with_writer(std::io::stderr)
-        .try_init();
 }

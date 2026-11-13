@@ -36,5 +36,6 @@
 | [030](030-office.md) | Office: docx, xlsx, pptx | Accepted |
 | [031](031-browser-cua.md) | Browser/CUA: headless Chrome | Accepted |
 | [032](032-wasm-plugins.md) | WASM-плагины: wasmi и JSON ABI | Accepted |
+| [033](033-opentelemetry.md) | OpenTelemetry: OTLP/HTTP traces | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

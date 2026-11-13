@@ -20,6 +20,7 @@
 | CUA/browser отсутствовал | headless Chrome tools — [ADR-031](adr/031-browser-cua.md) |
 | Поиск только сканом | FTS5-индекс по гейту — [ADR-016](adr/016-search-backend.md) |
 | Не было WASM-плагинов | wasmi + JSON ABI — [ADR-032](adr/032-wasm-plugins.md) |
+| Не было телеметрии | OTLP/HTTP traces — [ADR-033](adr/033-opentelemetry.md) |
 | MCP prompts отсутствовали | `list_prompts`/`get_prompt` — [ADR-028](adr/028-mcp-http-resources.md) |
 | MCP sampling отсутствовал | stdio `sampling/createMessage` — [ADR-028](adr/028-mcp-http-resources.md) |
 
@@ -29,6 +30,6 @@
 |---|---|---|
 | P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
 | P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |
-| P2 | OTel, desktop, ACP, i18n | Не начаты. |
+| P2 | Desktop, ACP, i18n | Не начаты. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P3 | cargo-dist/brew, подпись | Только Dockerfile. |

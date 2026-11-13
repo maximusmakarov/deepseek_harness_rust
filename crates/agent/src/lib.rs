@@ -378,6 +378,11 @@ impl Agent {
         &self.tools
     }
 
+    #[tracing::instrument(
+        name = "agent.turn",
+        skip_all,
+        fields(session_id = %self.session.header.id, provider = %self.provider.name())
+    )]
     pub async fn run_turn(
         &mut self,
         input: &str,

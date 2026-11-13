@@ -149,6 +149,7 @@ impl ToolRegistry {
             .collect()
     }
 
+    #[tracing::instrument(name = "tool.execute", skip(self, ctx, args), fields(tool = %name))]
     pub async fn execute(
         &self,
         name: &str,
