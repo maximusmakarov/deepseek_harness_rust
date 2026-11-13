@@ -80,7 +80,7 @@
 
 ## M3 — Промпт, сессии, compaction, skills (10–15 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 127 тестов; prompt/AGENTS, skills, fork/rewind/title/search, compaction. Отложено: SQLite FTS5 (условный этап после бенчмарка — [ADR-016](adr/016-search-backend.md)), авто-заголовки через LLM, импорт DSH, allowlist схем, live-гейт 100k.
+**Статус:** ядро выполнено 12.11.2026 — 127 тестов; prompt/AGENTS, skills, fork/rewind/title/search, compaction, FTS5 ([ADR-016](adr/016-search-backend.md)). Отложено: авто-заголовки через LLM, импорт DSH, allowlist схем, live-гейт 100k.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -100,7 +100,7 @@
 
 ## M4 — MCP, web, jobs, субагенты (10–15 ИД)
 
-**Статус:** ядро выполнено; добавлены MCP HTTP и resources. Отложено: MCP prompts/sampling, durable jobs.
+**Статус:** ядро выполнено; MCP HTTP, resources, prompts, sampling и OAuth refresh. Отложено: durable jobs, MCP elicitation.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -119,7 +119,7 @@
 
 ## M5 — Песочница + плагины + композиция (15–25 ИД)
 
-**Статус:** ядро выполнено; Linux Landlock + seccomp; Windows AppContainer — experimental opt-in, по умолчанию fail-closed. Отложено: Windows sandbox, WASM/sidecar, hot reload, capability audit.
+**Статус:** ядро выполнено; Linux Landlock + seccomp; Windows AppContainer — experimental opt-in, по умолчанию fail-closed. Отложено: Windows sandbox, hot reload, capability-grants/аудит, Cordis-рантайм.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -160,7 +160,7 @@
 
 ## M6 — Server + Web UI + SDK (15–25 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 149 тестов; REST/SSE, auth, approvals, JSON-RPC подмножество, vanilla Web UI, Dockerfile. Отложено: Leptos, полный SDK, rate-limit, cargo-dist/brew, браузерный e2e.
+**Статус:** ядро выполнено 12.11.2026 — 149 тестов; REST/SSE, auth, approvals, JSON-RPC подмножество, vanilla Web UI, Dockerfile. Отложено: Leptos, браузерный e2e, ghcr-бутылки и reproducible builds.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — M0–M7/P2 закрыты (221 тест); desktop = PWA; Windows отложен, остались расширенные протоколы.
+**Статус:** срез 13.11.2026 — M0–M7/P2 закрыты (224 теста); desktop = PWA; Windows отложен, остались расширенные протоколы.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

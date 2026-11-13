@@ -698,6 +698,21 @@ fn prompt_content(
                     data: data.to_owned(),
                 });
             }
+            Some("resource_link") => {
+                let uri = block["uri"]
+                    .as_str()
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "resource_link block requires uri".to_owned())?;
+                let name = block["name"].as_str().unwrap_or(uri);
+                let mut text = format!("[resource_link] {name} <{uri}>");
+                if let Some(mime) = block["mimeType"].as_str() {
+                    text.push_str(&format!(" ({mime})"));
+                }
+                if let Some(description) = block["description"].as_str() {
+                    text.push_str(&format!(" — {description}"));
+                }
+                blocks.push(dshr_llm::ContentBlock::text(text));
+            }
             Some("audio") => {
                 if !audio_supported {
                     return Err("the configured provider does not support audio prompts".to_owned());

@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-221 тест; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+224 теста; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -38,7 +38,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 - **Один статический бинарь** вместо Electron + Node + pnpm; нет обязательного GUI.
 - **TUI и headless — равноправные поверхности**, Web/Desktop — опция.
 - **WASM-плагины** с capability-моделью для недоверенного и переносимого кода.
-- **Совместимость с npm/Cordis-плагинами DSH сохранена**: настоящий `cordis` в JS-рантайме, а его `fs`/`net`/`exec` проходят через capability-шину ([ADR-013](docs/adr/013-cordis-compat.md)).
+- **Совместимость с npm/Cordis-плагинами DSH запланирована** ([ADR-013](docs/adr/013-cordis-compat.md)): настоящий `cordis` в JS-рантайме, его `fs`/`net`/`exec` — через capability-шину. В текущем срезе есть WASM-плагины и MCP-sidecar, Cordis-рантайма ещё нет.
 - **Нативная песочница** и event-sourced журнал — часть ядра, а не обёртки.
 
 ```text

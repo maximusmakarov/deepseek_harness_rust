@@ -21,6 +21,7 @@
 | Office | docx/xlsx/pptx read/create | ✅ |
 | CUA/browser | Chrome navigate/screenshot/click/type/eval | ✅ |
 | WASM-плагины | wasmi JSON ABI, fuel, 64 MiB cap, sha256, Ed25519-подпись | ✅ |
+| npm/Cordis-плагины | ADR-013 принят; JS-рантайм и capability-шина не реализованы | ❌ planned |
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |
