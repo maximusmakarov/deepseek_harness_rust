@@ -68,9 +68,32 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  desktop:
+    name: desktop (macos)
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: package app
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          scripts/package-desktop.sh "$version"
+          ditto -c -k --keepParent dist/dshr.app "dist/dshr-$version-macos.zip"
+          shasum -a 256 "dist/dshr-$version-macos.zip" > "dist/dshr-$version-macos.zip.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-desktop-macos
+          path: dist/*.zip*
+          if-no-files-found: error
+
   publish:
     name: publish release
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -112,6 +135,7 @@ jobs:
         with:
           files: |
             dist/*.tar.gz
+            dist/*.zip
             dist/SHA256SUMS
             dist/SHA256SUMS.sig
             dist/SHA256SUMS.pub

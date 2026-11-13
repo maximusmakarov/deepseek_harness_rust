@@ -15,8 +15,18 @@ cargo build -p dshr-desktop --release
 ```
 
 `DSHR_BIN` задаёт путь к `dshr`, иначе берётся соседний бинарь или `PATH`.
-Серверный процесс завершается вместе с окном. Трей, автообновление и подписанный
-`.app`/`.dmg` пока не настроены — это следующий срез desktop.
+Серверный процесс завершается вместе с окном.
+
+Сборка `.app` (macOS):
+
+```sh
+scripts/package-desktop.sh 0.1.0
+# dist/dshr.app — ad-hoc подпись, внутри оба бинаря
+./dist/dshr.app/Contents/MacOS/dshr-desktop --check
+```
+
+`--check` проверяет запуск sidecar-сервера без окна. Трей и автообновление пока не
+настроены — это следующий срез desktop.
 
 ## PWA
 

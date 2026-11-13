@@ -11,9 +11,11 @@
 | `SHA256SUMS.sig` | Ed25519-подпись `SHA256SUMS` (при наличии ключа) |
 | `SHA256SUMS.pub` | публичный ключ подписи |
 | `dshr.rb` | бинарная Homebrew-формула с закреплёнными `sha256` |
+| `dshr-<version>-macos.zip` | подписанный ad-hoc `.app` (Tauri + `dshr`) |
 
 Таргеты: `x86_64`/`aarch64-apple-darwin`, `x86_64`/`aarch64-unknown-linux-gnu`,
-`x86_64-pc-windows-msvc`. Linux `aarch64` собирается через `cross`.
+`x86_64-pc-windows-msvc`. Linux `aarch64` собирается через `cross`. macOS-джоб
+дополнительно собирает `dshr.app` (`scripts/package-desktop.sh`) и кладёт в zip.
 
 ## Проверка
 
