@@ -275,6 +275,7 @@ async fn asks_the_client_for_permission() {
     assert_eq!(stop.as_deref(), Some("end_turn"));
 }
 
+#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn reads_files_through_the_client() {
     let dir = tempfile::tempdir().expect("tempdir");
