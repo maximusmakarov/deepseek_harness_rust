@@ -1,9 +1,14 @@
 #![forbid(unsafe_code)]
-//! Sandboxed WASM plugin host.
+//! Sandboxed WASM plugin host with two ABIs.
 //!
-//! ABI `dshr.wasm.v1`: the guest exports `memory`, `list_tools() -> i64` and
-//! `call_tool(i32, i32) -> i64` (pointer/length packed as `ptr << 32 | len`).
-//! Optional `alloc(i32) -> i32` receives the JSON request. No host imports.
+//! * `dshr.wasm.v1` (legacy core module): the guest exports `memory`,
+//!   `list_tools() -> i64` and `call_tool(i32, i32) -> i64` (pointer/length
+//!   packed as `ptr << 32 | len`), optional `alloc(i32) -> i32`. Runs on wasmi.
+//! * `dshr:plugin@1.0.0` (component model/WIT): the guest exports
+//!   `list-tools() -> string` and `call-tool(name, arguments) -> string`.
+//!   Runs on wasmtime; strings cross the canonical ABI.
+//!
+//! Both ABIs exchange JSON and run without host imports.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,7 +19,23 @@ use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
-use wasmi::{Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
+use wasmi::{
+    Engine as WasmiEngine, Linker as WasmiLinker, Module as WasmiModule, Store as WasmiStore,
+    StoreLimits as WasmiLimits, StoreLimitsBuilder as WasmiLimitsBuilder,
+};
+use wasmtime::component::{Component, Linker as ComponentLinker, ResourceTable};
+use wasmtime::{
+    Engine as WasmtimeEngine, Store as WasmtimeStore, StoreLimits as WasmtimeLimits,
+    StoreLimitsBuilder as WasmtimeLimitsBuilder,
+};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+
+mod component {
+    wasmtime::component::bindgen!({
+        path: "wit",
+        world: "plugin",
+    });
+}
 
 const FUEL: u64 = 10_000_000;
 const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
@@ -83,12 +104,27 @@ fn default_true() -> bool {
     true
 }
 
+enum Backend {
+    Core {
+        engine: WasmiEngine,
+        module: WasmiModule,
+    },
+    Component {
+        engine: WasmtimeEngine,
+        component: Component,
+    },
+}
+
+enum ComponentCall<'a> {
+    ListTools,
+    CallTool { name: &'a str, arguments: &'a [u8] },
+}
+
 pub struct WasmPlugin {
     name: String,
     #[allow(dead_code)]
     description: String,
-    engine: Engine,
-    module: Module,
+    backend: Backend,
 }
 
 impl WasmPlugin {
@@ -130,16 +166,31 @@ impl WasmPlugin {
     }
 
     pub fn from_bytes(name: &str, description: &str, bytes: &[u8]) -> Result<Self, WasmError> {
+        let mut config = wasmtime::Config::new();
+        config.consume_fuel(true);
+        let component_engine =
+            WasmtimeEngine::new(&config).map_err(|error| WasmError::Parse(error.to_string()))?;
+        if let Ok(component) = Component::from_binary(&component_engine, bytes) {
+            return Ok(Self {
+                name: name.to_owned(),
+                description: description.to_owned(),
+                backend: Backend::Component {
+                    engine: component_engine,
+                    component,
+                },
+            });
+        }
+        drop(component_engine);
+
         let mut config = wasmi::Config::default();
         config.consume_fuel(true);
-        let engine = Engine::new(&config);
-        let module =
-            Module::new(&engine, bytes).map_err(|error| WasmError::Parse(error.to_string()))?;
+        let engine = WasmiEngine::new(&config);
+        let module = WasmiModule::new(&engine, bytes)
+            .map_err(|error| WasmError::Parse(error.to_string()))?;
         Ok(Self {
             name: name.to_owned(),
             description: description.to_owned(),
-            engine,
-            module,
+            backend: Backend::Core { engine, module },
         })
     }
 
@@ -149,7 +200,12 @@ impl WasmPlugin {
     }
 
     pub fn tools(&self) -> Result<Vec<ToolDef>, WasmError> {
-        let response = self.call_entry("list_tools", &[])?;
+        let response = match &self.backend {
+            Backend::Core { .. } => self.call_entry("list_tools", &[])?,
+            Backend::Component { engine, component } => {
+                self.call_component(engine, component, ComponentCall::ListTools)?
+            }
+        };
         let parsed: ToolsResponse = serde_json::from_slice(&response)
             .map_err(|error| WasmError::Parse(error.to_string()))?;
         Ok(parsed
@@ -169,7 +225,19 @@ impl WasmPlugin {
             "arguments": arguments
         }))
         .map_err(|error| WasmError::Parse(error.to_string()))?;
-        let response = self.call_entry("call_tool", &request)?;
+        let component_arguments =
+            serde_json::to_vec(arguments).map_err(|error| WasmError::Parse(error.to_string()))?;
+        let response = match &self.backend {
+            Backend::Core { .. } => self.call_entry("call_tool", &request)?,
+            Backend::Component { engine, component } => self.call_component(
+                engine,
+                component,
+                ComponentCall::CallTool {
+                    name,
+                    arguments: &component_arguments,
+                },
+            )?,
+        };
         let parsed: CallResponse = serde_json::from_slice(&response)
             .map_err(|error| WasmError::Parse(error.to_string()))?;
         Ok(ToolOutcome {
@@ -179,21 +247,83 @@ impl WasmPlugin {
         })
     }
 
+    fn call_component(
+        &self,
+        engine: &WasmtimeEngine,
+        component: &Component,
+        call: ComponentCall<'_>,
+    ) -> Result<Vec<u8>, WasmError> {
+        struct State {
+            limits: WasmtimeLimits,
+            table: ResourceTable,
+            wasi: WasiCtx,
+        }
+        impl WasiView for State {
+            fn ctx(&mut self) -> WasiCtxView<'_> {
+                WasiCtxView {
+                    ctx: &mut self.wasi,
+                    table: &mut self.table,
+                }
+            }
+        }
+        let limits = WasmtimeLimitsBuilder::new()
+            .memory_size(MEMORY_LIMIT)
+            .instances(32)
+            .memories(8)
+            .tables(32)
+            .build();
+        // WASI is linked with an empty context: no preopens, args, env or
+        // sockets. Guests built with std can start, but cannot reach the host.
+        let mut store = WasmtimeStore::new(
+            engine,
+            State {
+                limits,
+                table: ResourceTable::new(),
+                wasi: WasiCtxBuilder::new().build(),
+            },
+        );
+        store.limiter(|state| &mut state.limits);
+        store
+            .set_fuel(FUEL)
+            .map_err(|error| WasmError::Runtime(error.to_string()))?;
+        let mut linker = ComponentLinker::new(engine);
+        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
+            .map_err(|error| WasmError::Runtime(error.to_string()))?;
+        let plugin = component::Plugin::instantiate(&mut store, component, &linker)
+            .map_err(|error| WasmError::Runtime(error.to_string()))?;
+        let text = match call {
+            ComponentCall::ListTools => plugin
+                .call_list_tools(&mut store)
+                .map_err(|error| WasmError::Runtime(error.to_string()))?,
+            ComponentCall::CallTool { name, arguments } => {
+                let arguments = std::str::from_utf8(arguments)
+                    .map_err(|error| WasmError::Parse(error.to_string()))?;
+                plugin
+                    .call_call_tool(&mut store, name, arguments)
+                    .map_err(|error| WasmError::Runtime(error.to_string()))?
+            }
+        };
+        Ok(text.into_bytes())
+    }
+
     fn call_entry(&self, function: &str, request: &[u8]) -> Result<Vec<u8>, WasmError> {
-        let limits = StoreLimitsBuilder::new()
+        let Backend::Core { engine, module } = &self.backend else {
+            return Err(WasmError::Runtime("not a core module".into()));
+        };
+        let limits = WasmiLimitsBuilder::new()
             .memory_size(MEMORY_LIMIT)
             .instances(1)
             .memories(1)
             .tables(1)
             .build();
-        let mut store = Store::new(&self.engine, limits);
-        store.limiter(|limits: &mut StoreLimits| limits);
+        let mut store = WasmiStore::new(engine, limits);
+        store.limiter(|limits: &mut WasmiLimits| limits);
         store
             .set_fuel(FUEL)
             .map_err(|error| WasmError::Runtime(error.to_string()))?;
-        let linker = Linker::new(&self.engine);
+        let linker = WasmiLinker::new(engine);
         let instance = linker
-            .instantiate_and_start(&mut store, &self.module)
+            .instantiate_and_start(&mut store, module)
             .map_err(|error| WasmError::Runtime(error.to_string()))?;
 
         let (pointer, length) = if function == "call_tool" {
@@ -502,6 +632,20 @@ mod tests {
             .call_tool("echo", &serde_json::json!({}))
             .expect("call");
         assert_eq!(outcome.content, "wasm echo");
+    }
+
+    #[test]
+    fn lists_and_calls_component_tools() {
+        let bytes = include_bytes!("../tests/fixtures/wit_plugin.wasm");
+        let plugin = WasmPlugin::from_bytes("wit", "WIT component", bytes).expect("component");
+        let tools = plugin.tools().expect("tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "echo");
+        assert!(tools[0].description.contains("WIT component"));
+        let outcome = plugin
+            .call_tool("echo", &serde_json::json!({"text": "hi"}))
+            .expect("call");
+        assert_eq!(outcome.content, "wit echo: hi");
     }
 
     #[test]

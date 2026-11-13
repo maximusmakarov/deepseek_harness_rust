@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v5.4 · 13.11.2026 · **M0–M7 закрыты; Leptos + Tauri; релизы подписаны; открыты WIT и Cordis**
+**Статус:** план v5.4 · 13.11.2026 · **M0–M7 закрыты; Leptos + Tauri; релизы подписаны; открыт Cordis**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-231 тест; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, WASM component model/WIT, Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+232 теста; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -243,7 +243,7 @@ docs/adr              001–039
 
 **Осталось:**
 1. Windows sandbox (persistent helper), сеть Windows.
-2. WASM component model/WIT (Ed25519-подпись плагинов уже есть).
+2. Бандл/трей/автообновление Tauri (оболочка и подпись плагинов уже есть).
 3. Бандл/трей/автообновление Tauri (оболочка уже есть).
 4. ghcr-бутылки Homebrew и воспроизводимые сборки.
 

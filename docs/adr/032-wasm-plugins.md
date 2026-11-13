@@ -9,9 +9,9 @@
 
 ## Решение
 
-1. **wasmi 2.0** — чистый Rust-интерпретатор, fuel metering, без JIT.
-2. **ABI `dshr.wasm.v1`:** `list_tools() -> i64`, `call_tool(i32,i32) -> i64`, опциональный `alloc`; JSON в памяти гостя, результат `ptr<<32|len`.
-3. **Без host-импортов:** нет WASI, файлов, сети, времени; только вычисления.
+1. **Бэкенды:** wasmi 2.0 для legacy core-модулей (чистый Rust, fuel metering) и wasmtime 50 для component model/WIT.
+2. **ABI:** legacy `dshr.wasm.v1` (`list_tools() -> i64`, `call_tool(i32,i32) -> i64`, опциональный `alloc`, `ptr<<32|len`) и `dshr:plugin@1.0.0` (WIT: `list-tools`/`call-tool` со строками).
+3. **Изоляция:** core-модули без host-импортов; компоненты получают пустой WASI-контекст (без preopens/args/env/сети), fuel и лимит памяти.
 4. **Манифест** `*.yaml` с `name`, `wasm`, `enabled`; каталоги `~/.dshr/plugins` и `.dshr/plugins`.
 5. **Sidecar** — это MCP: `plugin add --command/--url`, без отдельного протокола.
 6. **Границы:** fuel 10M, memory cap 64 MiB, инстанцирование на вызов, `sha256` манифеста; Ed25519-подпись (`dshr-wasm`, ключи доверия в `plugins.trusted_keys`); hot reload нет.
@@ -20,7 +20,7 @@
 
 - Плагины не требуют wasmtime/WASI и работают на всех целевых ОС.
 - Нет состояния между вызовами; для stateful-плагинов нужен sidecar.
-- WIT/component model, hot reload и capability-grants отложены.
+- Hot reload и capability-grants отложены.
 - Подпись не решает отзыв ключей и доверие к источнику плагина — это следующий слой.
 
 ## Альтернативы

@@ -1,0 +1,8 @@
+package dshr:plugin@1.0.0;
+
+/// Compute-only plugin world. The host passes and receives JSON strings, so
+/// the ABI stays small while the component model owns the canonical ABI.
+world plugin {
+    export list-tools: func() -> string;
+    export call-tool: func(name: string, arguments: string) -> string;
+}

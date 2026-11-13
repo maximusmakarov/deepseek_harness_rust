@@ -2,6 +2,11 @@
 
 ## WASM
 
+Поддерживаются два ABI: legacy core-модуль на wasmi (`dshr.wasm.v1`, JSON через
+упакованный `ptr<<32|len`) и компонент на wasmtime (`dshr:plugin@1.0.0`, WIT,
+строки через canonical ABI). Хост определяет тип по бинарю автоматически; подпись
+и sha256 проверяются для обоих одинаково.
+
 Плагин — `.wasm` + YAML-манифест в `~/.dshr/plugins` или `<cwd>/.dshr/plugins`.
 
 ```yaml
@@ -13,6 +18,25 @@ wasm: echo.wasm
 # signature: <hex Ed25519 signature>
 # signer: <hex Ed25519 public key>
 ```
+
+### Component model (WIT)
+
+```wit
+package dshr:plugin@1.0.0;
+world plugin {
+    export list-tools: func() -> string;
+    export call-tool: func(name: string, arguments: string) -> string;
+}
+```
+
+`list-tools` возвращает JSON `{"tools":[...]}`; `call-tool` получает имя инструмента и
+JSON-аргументы, возвращает JSON `{"content":"...","isError":false}`. Компонент
+запускается на wasmtime с пустым WASI-контекстом (без preopens, args, env и сети),
+fuel 10M и лимитом памяти 64 MiB. Готовый пример — `crates/wasm/tests/guest`,
+фикстура — `crates/wasm/tests/fixtures/wit_plugin.wasm`; сборка:
+`cd crates/wasm/tests/guest && cargo component build --release`.
+
+### Legacy core ABI
 
 ABI `dshr.wasm.v1`:
 
@@ -70,6 +94,6 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 ## Ограничения
 
-- WASM ABI кастомный (JSON), не component model/WIT; wasmtime не используется.
+- Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - Нет hot reload и capability-grants; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

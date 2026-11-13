@@ -18,6 +18,8 @@ sha2 = "0.10"
 thiserror.workspace = true
 tracing.workspace = true
 wasmi = "2.0"
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
 
 [dev-dependencies]
 dshr-core.workspace = true
