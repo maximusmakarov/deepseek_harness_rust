@@ -12,4 +12,6 @@ dshr serve --bind 127.0.0.1 --port 4317 --rate-limit 60
 
 ## API
 
+`GET /openapi.json` — OpenAPI 3.1 спецификация.
+
 `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/turns`, `/v1/sessions/{id}/events` (SSE), `/v1/sessions/{id}/cancel`, approvals, `/v1/rpc`.

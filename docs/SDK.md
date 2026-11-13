@@ -17,3 +17,4 @@ while let Some(event) = events.next().await {
 ```
 
 Методы: `health`, `list_sessions`, `create_session`, `session`, `start_turn`, `cancel`, `approve`, `events` (SSE stream). Ошибки — `SdkError` (`Http`, `Status`, `Json`). Таймаут HTTP — 30 с.
+\n\nКонтракт API: `GET /openapi.json` (OpenAPI 3.1).\n

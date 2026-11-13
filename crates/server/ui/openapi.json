@@ -1,0 +1,82 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "dshr server API",
+    "version": "0.1.0",
+    "description": "HTTP/SSE API for sessions, turns, approvals, and JSON-RPC."
+  },
+  "servers": [{"url": "http://127.0.0.1:4317"}],
+  "components": {
+    "securitySchemes": {
+      "bearer": {"type": "http", "scheme": "bearer"}
+    },
+    "schemas": {
+      "Session": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "created_at": {"type": "string"},
+          "model": {"type": "string"},
+          "provider": {"type": "string"},
+          "cwd": {"type": "string"}
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {"error": {"type": "string"}}
+      }
+    }
+  },
+  "security": [{"bearer": []}],
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "security": [],
+        "summary": "Health check",
+        "responses": {"200": {"description": "OK"}}
+      }
+    },
+    "/v1/sessions": {
+      "get": {
+        "summary": "List sessions",
+        "responses": {"200": {"description": "Session list"}}
+      },
+      "post": {
+        "summary": "Create a session",
+        "responses": {"200": {"description": "Created session"}}
+      }
+    },
+    "/v1/sessions/{id}": {
+      "get": {
+        "summary": "Get a session with messages",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Session view"}, "404": {"description": "Not found"}}
+      }
+    },
+    "/v1/sessions/{id}/turns": {
+      "post": {
+        "summary": "Start a turn",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object", "required": ["prompt"], "properties": {"prompt": {"type": "string"}}}}}
+        },
+        "responses": {"200": {"description": "Turn accepted"}, "429": {"description": "Rate limited"}}
+      }
+    },
+    "/v1/sessions/{id}/events": {
+      "get": {
+        "summary": "Server-sent events for a session",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "text/event-stream"}}
+      }
+    },
+    "/v1/sessions/{id}/cancel": {
+      "post": {
+        "summary": "Cancel the active turn",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Cancelled"}}
+      }
+    }
+  }
+}

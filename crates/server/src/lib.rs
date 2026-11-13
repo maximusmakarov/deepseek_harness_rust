@@ -264,6 +264,7 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/app.js", get(app_js))
         .route("/style.css", get(style_css))
+        .route("/openapi.json", get(openapi))
         .route("/manifest.webmanifest", get(manifest))
         .route("/icon-192.png", get(icon_192))
         .route("/icon-512.png", get(icon_512))
@@ -618,6 +619,14 @@ async fn app_js() -> Response {
             "application/javascript; charset=utf-8",
         )],
         include_str!("../ui/app.js"),
+    )
+        .into_response()
+}
+
+async fn openapi() -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        include_str!("../ui/openapi.json"),
     )
         .into_response()
 }

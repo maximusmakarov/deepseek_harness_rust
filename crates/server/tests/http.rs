@@ -293,3 +293,25 @@ async fn rate_limits_api_requests() {
         Some("60")
     );
 }
+
+#[tokio::test]
+async fn serves_openapi() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/openapi.json")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("openapi");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .expect("body");
+    let value: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(value["openapi"], "3.1.0");
+    assert!(value["paths"]["/v1/sessions"].is_object());
+}
