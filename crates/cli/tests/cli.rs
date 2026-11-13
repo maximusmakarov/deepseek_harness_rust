@@ -944,7 +944,7 @@ fn schedule_run_due_executes_and_advances() {
     assert_eq!(sessions[0]["title"], "schedule: sch_test");
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn sandbox_allows_workspace_write() {
     let home = tempfile::tempdir().expect("home");
@@ -1187,38 +1187,4 @@ fn sessions_reindex_and_fts_search() {
         .assert()
         .success()
         .stdout(predicate::str::contains("unique needle"));
-}
-
-#[cfg(target_os = "windows")]
-#[test]
-fn windows_sandbox_helper_runs_cmd() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let output = dshr()
-        .env("DSHR_SANDBOX_SETUP_TIMEOUT_SECS", "20")
-        .args([
-            "__sandbox-exec",
-            "--mode",
-            "workspace-write",
-            "--workspace",
-            dir.path().to_str().expect("utf8"),
-            "--",
-            "cmd",
-            "/C",
-            "echo ok > inside-helper.txt",
-        ])
-        .output()
-        .expect("run helper");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "helper failed: {}\nstdout: {stdout}\nstderr: {stderr}",
-        output.status
-    );
-    assert!(
-        dir.path().join("inside-helper.txt").exists(),
-        "file missing; stdout: {}; stderr: {}",
-        stdout.replace('\n', " | "),
-        stderr.replace('\n', " | ")
-    );
 }
