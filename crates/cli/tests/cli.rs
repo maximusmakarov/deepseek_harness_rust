@@ -1188,3 +1188,35 @@ fn sessions_reindex_and_fts_search() {
         .success()
         .stdout(predicate::str::contains("unique needle"));
 }
+
+#[test]
+fn cli_help_and_outputs_follow_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Управление MCP-плагинами"));
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "sessions", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("СОЗДАНА"));
+
+    dshr()
+        .args([
+            "--home", home, "--lang", "ru", "sessions", "search", "missing",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("совпадений"));
+
+    dshr()
+        .args(["--home", home, "sessions", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CREATED"));
+}

@@ -10,6 +10,7 @@ use dshr_agent::{
 };
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
+use dshr_i18n::current;
 use dshr_llm::{LlmError, LlmProvider};
 use dshr_llm_deepseek::DeepSeekProvider;
 use dshr_llm_mock::{RecordingProvider, ReplayProvider};
@@ -259,18 +260,23 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
             } else {
                 println!();
                 eprintln!(
-                    "session {} · {} in / {} out · {} step(s), {} tool call(s)",
-                    agent.session().header.id,
-                    report.usage.input_tokens,
-                    report.usage.output_tokens,
-                    report.steps,
-                    report.tool_calls
+                    "{}",
+                    current().run_summary(
+                        agent.session().header.id.as_str(),
+                        report.usage.input_tokens,
+                        report.usage.output_tokens,
+                        report.steps,
+                        report.tool_calls
+                    )
                 );
             }
             Ok(0)
         }
         Err(dshr_agent::AgentError::Cancelled) => {
-            eprintln!("cancelled; session {}", agent.session().header.id);
+            eprintln!(
+                "{}",
+                current().cancelled(agent.session().header.id.as_str())
+            );
             Ok(130)
         }
         Err(error) => Err(DshrError::config(error.to_string())),

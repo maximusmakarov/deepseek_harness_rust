@@ -1,6 +1,7 @@
 use clap::{Args, Subcommand};
 use dshr_config::ConfigLoader;
 use dshr_core::{DshrError, Result};
+use dshr_i18n::current;
 use dshr_llm::ContentBlock;
 use dshr_search::SessionSearchIndex;
 use dshr_session_jsonl::SessionStore;
@@ -145,6 +146,8 @@ fn search(store: &SessionStore, query: &str, limit: usize, json: bool, fts: bool
         let encoded = serde_json::to_string_pretty(&hits)
             .map_err(|error| DshrError::config(format!("serialize hits: {error}")))?;
         println!("{encoded}");
+    } else if hits.is_empty() {
+        println!("{}", current().no_hits());
     } else {
         for hit in hits {
             println!(
@@ -162,7 +165,7 @@ fn reindex(store: &SessionStore) -> Result<u8> {
     let count = index
         .rebuild(store)
         .map_err(|error| DshrError::config(error.to_string()))?;
-    println!("indexed {count} events");
+    println!("{}", current().indexed(count));
     Ok(0)
 }
 
@@ -175,7 +178,14 @@ fn list(store: &SessionStore, json: bool) -> Result<u8> {
         return Ok(0);
     }
 
-    println!("{:<40} {:<26} {:<20} TURNS", "ID", "CREATED", "MODEL");
+    let lang = current();
+    println!(
+        "{:<40} {:<26} {:<20} {}",
+        lang.col_id(),
+        lang.col_created(),
+        lang.col_model(),
+        lang.col_turns()
+    );
     for summary in summaries {
         println!(
             "{:<40} {:<26} {:<20} {}",
@@ -188,10 +198,18 @@ fn list(store: &SessionStore, json: bool) -> Result<u8> {
 fn show(store: &SessionStore, id: &str) -> Result<u8> {
     let session = store.open(id)?;
     println!("# {}", session.header.id);
-    println!("created:  {}", session.header.created_at);
-    println!("provider: {}", session.header.provider);
-    println!("model:    {}", session.header.model);
-    println!("cwd:      {}", session.header.cwd);
+    let lang = current();
+    if lang.is_ru() {
+        println!("создана:  {}", session.header.created_at);
+        println!("провайдер: {}", session.header.provider);
+        println!("модель:   {}", session.header.model);
+        println!("каталог:  {}", session.header.cwd);
+    } else {
+        println!("created:  {}", session.header.created_at);
+        println!("provider: {}", session.header.provider);
+        println!("model:    {}", session.header.model);
+        println!("cwd:      {}", session.header.cwd);
+    }
     println!();
 
     for message in session.derive_messages() {

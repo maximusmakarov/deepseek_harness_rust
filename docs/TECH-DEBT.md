@@ -37,7 +37,7 @@
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P2 | ACP image/MCP | Permissions, fs, terminal, load/resume/close есть; image/audio и клиентские MCP — нет. |
-| P2 | i18n CLI | TUI ru/en; help/CLI-вывод — только en. |
+| P3 | i18n остатка CLI | Основные help/выводы ru/en; часть аргументов, ошибок и export — en. |
 | P2 | MCP OAuth refresh/elicitation | Только client-credentials без refresh. |
 | P2 | WASM memory/signature | Fuel есть; memory cap и подписи нет. |
 | P3 | cargo-dist/brew, подпись | Release workflow + Dockerfile есть; brew/подпись нет. |

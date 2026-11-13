@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use clap::{Args, Subcommand};
 use dshr_config::ConfigLoader;
 use dshr_core::{DshrError, Result};
+use dshr_i18n::current;
 use serde_json::{Value, json};
 
 #[derive(Debug, Args)]
@@ -65,7 +66,7 @@ fn list(loader: &ConfigLoader, json: bool) -> Result<u8> {
         return Ok(0);
     }
     if config.mcp.servers.is_empty() {
-        println!("(no plugins)");
+        println!("{}", current().no_plugins());
         return Ok(0);
     }
     for server in config.mcp.servers {
@@ -75,9 +76,9 @@ fn list(loader: &ConfigLoader, json: bool) -> Result<u8> {
             server.url.as_deref().unwrap_or(&server.command),
             server.args.join(" "),
             if server.enabled {
-                "enabled"
+                current().enabled()
             } else {
-                "disabled"
+                current().disabled()
             }
         );
     }
@@ -119,7 +120,7 @@ fn add(
         "enabled": true
     }));
     save_raw(loader, &root)?;
-    println!("added plugin {name}");
+    println!("{}", current().plugin_added(name));
     Ok(0)
 }
 
@@ -132,7 +133,7 @@ fn remove(loader: &ConfigLoader, name: &str) -> Result<u8> {
         return Err(DshrError::not_found(format!("plugin '{name}' not found")));
     }
     save_raw(loader, &root)?;
-    println!("removed plugin {name}");
+    println!("{}", current().plugin_removed(name));
     Ok(0)
 }
 

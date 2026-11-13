@@ -17,4 +17,4 @@ logging:
   format: json
 ```
 
-`ui.language` влияет на подсказки, статусы и approval-диалог TUI. CLI-справка и сообщения остаются английскими; `run`/`sessions` вывод не локализован.
+`ui.language` влияет на подсказки, статусы и approval-диалог TUI. Для CLI язык задаётся `--lang en|ru` или `DSHR_LANG`; локализованы верхнеуровневая справка, аргументы `run`/`sessions`, вывод `sessions`, `doctor`, `plugin`, `schedule`, `run`-сводка и `serve`. Часть справки по остальным командам и ошибки остаются английскими.

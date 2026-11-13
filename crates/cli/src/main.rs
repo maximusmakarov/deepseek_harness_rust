@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod acp_cmd;
+mod cli_i18n;
 mod config_cmd;
 mod doctor;
 mod lsp_setup;
@@ -21,7 +22,7 @@ mod wasm_setup;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use dshr_config::ConfigLoader;
 use dshr_core::Result;
 
@@ -50,6 +51,10 @@ struct Cli {
     /// Log level for the default filter (RUST_LOG still wins)
     #[arg(long, global = true, env = "DSH_LOG", value_name = "LEVEL")]
     log_level: Option<String>,
+
+    /// CLI language: en or ru
+    #[arg(long, global = true, env = "DSHR_LANG", value_name = "LANG")]
+    lang: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -86,7 +91,15 @@ async fn main() -> ExitCode {
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("__sandbox-exec")) {
         return sandbox_exec::run();
     }
-    let cli = Cli::parse();
+    let requested = cli_i18n::scan_lang();
+    let matches = cli_i18n::localize(Cli::command(), requested).get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    dshr_i18n::set_current(
+        cli.lang
+            .as_deref()
+            .map(dshr_i18n::Lang::parse)
+            .unwrap_or(requested),
+    );
     telemetry::init(cli.log_level.as_deref());
 
     let code = match run(cli).await {

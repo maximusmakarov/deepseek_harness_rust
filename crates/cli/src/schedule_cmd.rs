@@ -7,6 +7,7 @@ use clap::{Args, Subcommand};
 use dshr_agent::{Agent, AgentConfig, ApprovalPolicy, AutoApprover, NullObserver, PermissionMode};
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
+use dshr_i18n::current;
 use dshr_llm::{LlmError, LlmProvider};
 use dshr_llm_deepseek::DeepSeekProvider;
 use dshr_llm_mock::ReplayProvider;
@@ -112,9 +113,8 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
                 )
                 .map_err(schedule_error)?;
             println!(
-                "added {} next={}",
-                entry.id,
-                entry.next_run.as_deref().unwrap_or("-")
+                "{}",
+                current().schedule_added(&entry.id, entry.next_run.as_deref())
             );
             Ok(0)
         }
@@ -129,14 +129,18 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
                 return Ok(0);
             }
             if store.entries().is_empty() {
-                println!("(no schedules)");
+                println!("{}", current().no_schedules());
                 return Ok(0);
             }
             for entry in store.entries() {
                 println!(
                     "{} {} cron={} next={} prompt={}",
                     entry.id,
-                    if entry.enabled { "enabled" } else { "disabled" },
+                    if entry.enabled {
+                        current().enabled()
+                    } else {
+                        current().disabled()
+                    },
                     entry.cron,
                     entry.next_run.as_deref().unwrap_or("-"),
                     entry.prompt.chars().take(60).collect::<String>()
@@ -147,14 +151,14 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
         ScheduleAction::Remove { id } => {
             let mut store = ScheduleStore::open(&path).map_err(schedule_error)?;
             store.remove(id).map_err(schedule_error)?;
-            println!("removed {id}");
+            println!("{}", current().schedule_removed(id));
             Ok(0)
         }
         ScheduleAction::Enable { id } | ScheduleAction::Disable { id } => {
             let enabled = matches!(args.action, ScheduleAction::Enable { .. });
             let mut store = ScheduleStore::open(&path).map_err(schedule_error)?;
             store.set_enabled(id, enabled).map_err(schedule_error)?;
-            println!("{} {id}", if enabled { "enabled" } else { "disabled" });
+            println!("{}", current().schedule_state(id, enabled));
             Ok(0)
         }
         ScheduleAction::RunDue { now, run } => {
@@ -196,7 +200,7 @@ async fn run_due(
     let sessions = Arc::new(SessionStore::new(session_dir));
     let due = store.due(now);
     if due.is_empty() {
-        println!("no due schedules at {}", format_time(now));
+        println!("{}", current().no_due(&format_time(now)));
         return Ok(0);
     }
 
@@ -265,12 +269,18 @@ async fn run_due(
             .run_turn(&entry.prompt, CancellationToken::new(), &NullObserver)
             .await;
         match result {
-            Ok(report) => println!("ran {}: {}", entry.id, first_line(&report.text)),
-            Err(error) => println!("failed {}: {error}", entry.id),
+            Ok(report) => println!(
+                "{}",
+                current().schedule_ran(&entry.id, &first_line(&report.text))
+            ),
+            Err(error) => println!(
+                "{}",
+                current().schedule_failed(&entry.id, &error.to_string())
+            ),
         }
         let next = store.mark_run(&entry.id, now).map_err(schedule_error)?;
         if let Some(next) = next {
-            println!("next {} at {}", entry.id, format_time(next));
+            println!("{}", current().schedule_next(&entry.id, &format_time(next)));
         }
     }
     Ok(0)

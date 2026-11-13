@@ -24,7 +24,7 @@
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |
 | Desktop | PWA (standalone), Tauri нет | ⚠️ частично |
-| i18n | TUI ru/en (`ui.language`); CLI/help — en | ⚠️ частично |
+| i18n | TUI ru/en; CLI `--lang`/`DSHR_LANG` (основные help/выводы) | ⚠️ частично |
 | MCP OAuth | client-credentials | ⚠️ без refresh/elicitation |
 
 Обозначения: ✅ есть, ⚠️ частично, ❌ нет.

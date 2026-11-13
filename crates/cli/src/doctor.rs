@@ -3,6 +3,7 @@ use std::env;
 use clap::Args;
 use dshr_config::ConfigLoader;
 use dshr_core::Result;
+use dshr_i18n::{Lang, current};
 use serde::Serialize;
 
 #[derive(Debug, Args)]
@@ -80,53 +81,87 @@ pub fn run(loader: &ConfigLoader, args: &DoctorArgs) -> Result<u8> {
 }
 
 fn print_human(report: &Report) {
+    let lang = current();
+    let ru = lang.is_ru();
     println!("dshr doctor");
-    println!("  version      {}", report.version);
-    println!("  platform     {} {}", report.os, report.arch);
     println!(
-        "  home         {} ({})",
+        "  {:<12} {}",
+        if ru { "версия" } else { "version" },
+        report.version
+    );
+    println!(
+        "  {:<12} {} {}",
+        if ru { "платформа" } else { "platform" },
+        report.os,
+        report.arch
+    );
+    println!(
+        "  {:<12} {} ({})",
+        if ru { "каталог" } else { "home" },
         report.home,
         if report.home_exists {
-            "present"
+            if ru { "есть" } else { "present" }
+        } else if ru {
+            "нет"
         } else {
             "missing"
         }
     );
     println!(
-        "  config       {} ({})",
+        "  {:<12} {} ({})",
+        if ru { "конфиг" } else { "config" },
         report.config_path,
         if report.config_found {
-            "found"
+            if ru { "найден" } else { "found" }
+        } else if ru {
+            "нет"
         } else {
             "missing"
         }
     );
     println!(
-        "  profile      {}: {} ({})",
+        "  {:<12} {}: {} ({})",
+        if ru { "профиль" } else { "profile" },
         report.profile,
         report.profile_path,
         if report.profile_found {
-            "found"
+            if ru { "найден" } else { "found" }
+        } else if ru {
+            "нет"
         } else {
             "missing"
         }
     );
-    println!("  provider     {}/{}", report.provider, report.model);
     println!(
-        "  credentials  DSH_DEEPSEEK_TOKEN={}, DEEPSEEK_API_KEY={}, ROUTERAI_API_KEY={}",
-        present(report.credentials.dsh_deepseek_token),
-        present(report.credentials.deepseek_api_key),
-        present(report.credentials.routerai_api_key),
+        "  {:<12} {}/{}",
+        if ru { "провайдер" } else { "provider" },
+        report.provider,
+        report.model
     );
-    println!("  sandbox      {}", report.sandbox);
+    println!(
+        "  {:<12} DSH_DEEPSEEK_TOKEN={}, DEEPSEEK_API_KEY={}, ROUTERAI_API_KEY={}",
+        if ru { "ключи" } else { "credentials" },
+        present(lang, report.credentials.dsh_deepseek_token),
+        present(lang, report.credentials.deepseek_api_key),
+        present(lang, report.credentials.routerai_api_key),
+    );
+    println!(
+        "  {:<12} {}",
+        if ru { "песочница" } else { "sandbox" },
+        report.sandbox
+    );
     if let Some(error) = &report.error {
-        println!("  error        {error}");
+        println!("  {:<12} {error}", if ru { "ошибка" } else { "error" });
     }
-    println!("status: {}", report.status);
+    println!(
+        "{}: {}",
+        if ru { "статус" } else { "status" },
+        report.status
+    );
 }
 
-const fn present(value: bool) -> &'static str {
-    if value { "present" } else { "absent" }
+fn present(lang: Lang, value: bool) -> &'static str {
+    lang.present(value)
 }
 
 fn env_present(key: &str) -> bool {
