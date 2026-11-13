@@ -30,12 +30,21 @@ pub fn execute(
         .command(&program)
         .args(&args)
         .current_dir(workspace)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stdin(Stdio::Null)
+        .stdout(Stdio::Piped)
+        .stderr(Stdio::Piped)
         .spawn()
         .map_err(|error| error.to_string())?;
-    let status = child.wait().map_err(|error| error.to_string())?;
-    let code = status.code().unwrap_or(1);
+    let output = child
+        .wait_with_output()
+        .map_err(|error| error.to_string())?;
+    use std::io::Write;
+    std::io::stdout()
+        .write_all(&output.stdout)
+        .map_err(|error| error.to_string())?;
+    std::io::stderr()
+        .write_all(&output.stderr)
+        .map_err(|error| error.to_string())?;
+    let code = output.status.code().unwrap_or(1);
     Ok(ExitCode::from((code & 0xff) as u8))
 }
