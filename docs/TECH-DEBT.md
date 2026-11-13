@@ -29,6 +29,7 @@
 | ACP audio/stdio MCP отсутствовали | audio-блоки и stdio MCP из `session/new` — [ADR-034](adr/034-acp.md) |
 | Не было криптоподписи WASM | Ed25519 над именем и sha256, `plugins.trusted_keys` — [ADR-032](adr/032-wasm-plugins.md) |
 | Jobs не переживали рестарт | состояние и логи в `<home>/jobs`, running → interrupted при загрузке |
+| ACP не принимал embedded `resource` | текст/blob → text/image/audio — [ADR-034](adr/034-acp.md) |
 | ACP игнорировал `resource_link` | блок разворачивается в текст с именем/URI — [ADR-034](adr/034-acp.md) |
 | Не было стабильных бинарных дистрибутивов | Архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула — [ADR-039](adr/039-release-artifacts.md) |
 

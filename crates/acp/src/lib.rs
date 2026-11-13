@@ -167,7 +167,7 @@ impl AcpServer {
                                         "promptCapabilities": {
                                             "image": true,
                                             "audio": self.provider.capabilities().audio,
-                                            "embeddedContext": false
+                                            "embeddedContext": true
                                         },
                                         "mcpCapabilities": {
                                             "http": true,
@@ -697,6 +697,39 @@ fn prompt_content(
                     media_type: media_type.to_owned(),
                     data: data.to_owned(),
                 });
+            }
+            Some("resource") => {
+                let resource = &block["resource"];
+                let uri = resource["uri"].as_str().unwrap_or("embedded");
+                if let Some(text) = resource["text"].as_str() {
+                    blocks.push(dshr_llm::ContentBlock::text(text));
+                } else if let Some(blob) = resource["blob"].as_str() {
+                    let media_type = resource["mimeType"]
+                        .as_str()
+                        .ok_or_else(|| format!("resource {uri}: blob requires mimeType"))?;
+                    if media_type.starts_with("image/") {
+                        blocks.push(dshr_llm::ContentBlock::Image {
+                            media_type: media_type.to_owned(),
+                            data: blob.to_owned(),
+                        });
+                    } else if media_type.starts_with("audio/") {
+                        if !audio_supported {
+                            return Err(
+                                "the configured provider does not support audio prompts".to_owned()
+                            );
+                        }
+                        blocks.push(dshr_llm::ContentBlock::Audio {
+                            media_type: media_type.to_owned(),
+                            data: blob.to_owned(),
+                        });
+                    } else {
+                        return Err(format!(
+                            "resource {uri}: unsupported embedded mime type {media_type}"
+                        ));
+                    }
+                } else {
+                    return Err(format!("resource {uri} has neither text nor blob"));
+                }
             }
             Some("resource_link") => {
                 let uri = block["uri"]
