@@ -81,6 +81,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    let _ = dotenvy::dotenv();
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("__sandbox-exec")) {
         return sandbox_exec::run();

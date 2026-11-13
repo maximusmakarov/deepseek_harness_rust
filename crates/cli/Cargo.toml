@@ -27,6 +27,7 @@ dshr-llm-deepseek.workspace = true
 dshr-llm-mock.workspace = true
 dshr-llm-openai.workspace = true
 dshr-wasm.workspace = true
+dotenvy.workspace = true
 dshr-mcp.workspace = true
 dshr-office.workspace = true
 dshr-prompt.workspace = true
