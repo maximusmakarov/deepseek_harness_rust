@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v5.2 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA**
+**Статус:** план v5.3 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA; релизы подписаны**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-218 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+221 тест; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -95,7 +95,8 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Команды, CI, тесты | Для разработки |
 | [docs/SERVER.md](docs/SERVER.md) | Auth, rate-limit, API | Для сервера |
 | [docs/SDK.md](docs/SDK.md) | Rust SDK: сессии, turn, SSE | Для интеграций |
-| [docs/INSTALL.md](docs/INSTALL.md) | Cargo/Homebrew/systemd/launchd/Docker | Для установки |
+| [docs/INSTALL.md](docs/INSTALL.md) | Готовые бинарники, Homebrew, systemd/launchd, Docker | Для установки |
+| [docs/RELEASE.md](docs/RELEASE.md) | Архивы, SHA256SUMS, Ed25519-подпись, provenance | Для релизов |
 | [docs/CONFIG.md](docs/CONFIG.md) | Слои и `ui.language` | Для настройки |
 | [docs/DESKTOP.md](docs/DESKTOP.md) | PWA-установка, статус Tauri | Для desktop |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
@@ -233,7 +234,7 @@ crates/lsp            LSP-клиент и инструменты навигац�
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–036
+docs/adr              001–039
 ```
 
 ## 9. Что дальше
@@ -242,6 +243,6 @@ docs/adr              001–036
 1. Windows sandbox (persistent helper), сеть Windows.
 2. WASM component model/WIT (Ed25519-подпись плагинов уже есть).
 3. Leptos UI и Tauri-оболочка (PWA уже есть).
-4. Стабильные бинарные дистрибутивы: бутылки Homebrew и подпись релизов.
+4. ghcr-бутылки Homebrew и воспроизводимые сборки.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

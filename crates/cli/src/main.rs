@@ -8,6 +8,7 @@ mod lsp_setup;
 mod mcp_setup;
 mod plugin_cmd;
 mod prompt_cmd;
+mod release_cmd;
 mod run_cmd;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod sandbox_exec;
@@ -76,6 +77,8 @@ enum Command {
     Prompt(prompt_cmd::PromptArgs),
     /// Manage MCP plugins
     Plugin(plugin_cmd::PluginArgs),
+    /// Sign and verify release artifacts
+    Release(release_cmd::ReleaseArgs),
     /// Run the HTTP/SSE server and embedded web UI
     Serve(serve_cmd::ServeArgs),
     /// Manage and run cron schedules
@@ -125,6 +128,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Tui(args) => tui_cmd::execute(&loader, &args).await,
         Command::Prompt(args) => prompt_cmd::execute(&loader, &args).await,
         Command::Plugin(args) => plugin_cmd::execute(&loader, &args),
+        Command::Release(args) => release_cmd::execute(&args),
         Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
         Command::Schedule(args) => schedule_cmd::execute(&loader, &args).await,
         Command::Acp(args) => acp_cmd::execute(&loader, &args).await,

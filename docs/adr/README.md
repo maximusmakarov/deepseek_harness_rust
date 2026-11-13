@@ -42,5 +42,6 @@
 | [036](036-pwa-desktop.md) | Desktop через PWA, Tauri отложен | Accepted |
 | [037](037-http-rate-limit.md) | HTTP rate limit per token | Accepted |
 | [038](038-rust-sdk.md) | Typed Rust HTTP/SSE SDK | Accepted |
+| [039](039-release-artifacts.md) | Релизы: архивы, SHA256SUMS, Ed25519-подпись, provenance | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

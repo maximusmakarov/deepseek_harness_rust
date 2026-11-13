@@ -1232,3 +1232,51 @@ fn cli_help_and_outputs_follow_lang() {
         .success()
         .stdout(predicate::str::contains("Cron-выражение"));
 }
+
+#[test]
+fn release_keygen_sign_and_verify() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = dir.path().join("release.key");
+    dshr()
+        .args(["release", "keygen", "--out"])
+        .arg(&key)
+        .assert()
+        .success();
+    let secret = std::fs::read_to_string(&key).expect("key");
+    let public = dshr()
+        .args(["release", "public-key", "--key", secret.trim()])
+        .output()
+        .expect("public key");
+    assert!(public.status.success());
+    let public = String::from_utf8(public.stdout).expect("utf8");
+    let public = public.trim();
+    assert_eq!(public.len(), 64, "{public}");
+
+    let artifact = dir.path().join("SHA256SUMS");
+    std::fs::write(&artifact, b"artifact contents\n").expect("artifact");
+    dshr()
+        .env("DSHR_RELEASE_KEY", secret.trim())
+        .args(["release", "sign"])
+        .arg(&artifact)
+        .assert()
+        .success();
+    let signature = dir.path().join("SHA256SUMS.sig");
+    dshr()
+        .args(["release", "verify"])
+        .arg(&artifact)
+        .args(["--signature"])
+        .arg(&signature)
+        .args(["--key", public])
+        .assert()
+        .success();
+
+    std::fs::write(&artifact, b"tampered\n").expect("tamper");
+    dshr()
+        .args(["release", "verify"])
+        .arg(&artifact)
+        .args(["--signature"])
+        .arg(&signature)
+        .args(["--key", public])
+        .assert()
+        .failure();
+}

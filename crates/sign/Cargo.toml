@@ -1,0 +1,11 @@
+[package]
+name = "dshr-sign"
+description = "Ed25519 signing and verification for release artifacts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ring.workspace = true
+thiserror.workspace = true

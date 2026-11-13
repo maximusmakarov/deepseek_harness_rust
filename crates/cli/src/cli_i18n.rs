@@ -37,6 +37,16 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::Ru, "tui") => "Интерактивный терминальный UI",
         (Lang::Ru, "prompt") => "Напечатать собранный системный промпт",
         (Lang::Ru, "plugin") => "Управление MCP-плагинами",
+        (Lang::Ru, "release") => "Подпись и проверка релизных артефактов",
+        (Lang::Ru, "release.keygen") => "Сгенерировать пару ключей Ed25519",
+        (Lang::Ru, "release.sign") => "Подписать релизный артефакт",
+        (Lang::Ru, "release.verify") => "Проверить подпись артефакта",
+        (Lang::Ru, "release.public-key") => "Напечатать публичный ключ для секретного",
+        (Lang::Ru, "release.file") => "Файл",
+        (Lang::Ru, "release.key") => "Секретный ключ (hex) или $DSHR_RELEASE_KEY",
+        (Lang::Ru, "release.key_public") => "Публичный ключ (hex)",
+        (Lang::Ru, "release.out") => "Файл подписи (по умолчанию <file>.sig)",
+        (Lang::Ru, "release.signature") => "Файл отделённой подписи",
         (Lang::Ru, "serve") => "HTTP/SSE сервер и встроенный Web UI",
         (Lang::Ru, "schedule") => "Управление cron-расписаниями",
         (Lang::Ru, "acp") => "ACP v1 сервер через stdio",
@@ -89,6 +99,16 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (_, "tui") => "Interactive terminal UI",
         (_, "prompt") => "Print the assembled system prompt",
         (_, "plugin") => "Manage MCP plugins",
+        (_, "release") => "Sign and verify release artifacts",
+        (_, "release.keygen") => "Generate an Ed25519 key pair",
+        (_, "release.sign") => "Sign a release artifact",
+        (_, "release.verify") => "Verify a release artifact signature",
+        (_, "release.public-key") => "Print the public key for a secret key",
+        (_, "release.file") => "File to sign or verify",
+        (_, "release.key") => "Secret key (hex) or $DSHR_RELEASE_KEY",
+        (_, "release.key_public") => "Public key (hex)",
+        (_, "release.out") => "Signature output (default: <file>.sig)",
+        (_, "release.signature") => "Detached signature file",
         (_, "serve") => "Run the HTTP/SSE server and embedded web UI",
         (_, "schedule") => "Manage and run cron schedules",
         (_, "acp") => "Run the ACP v1 server over stdio",
@@ -400,6 +420,34 @@ pub fn localize(mut command: Command, lang: Lang) -> Command {
                 "plugin",
                 &["name"],
             )
+        });
+        c
+    });
+    command = command.mut_subcommand("release", |c| {
+        let mut c = c.about(t(lang, "release"));
+        c = c.mut_subcommand("keygen", |s| {
+            with_args(
+                s.about(t(lang, "release.keygen")),
+                lang,
+                "release",
+                &["out"],
+            )
+        });
+        c = c.mut_subcommand("sign", |s| {
+            let s = s.about(t(lang, "release.sign"));
+            let mut s = s.mut_arg("file", |arg| arg.help(t(lang, "release.file")));
+            s = s.mut_arg("key", |arg| arg.help(t(lang, "release.key")));
+            s.mut_arg("out", |arg| arg.help(t(lang, "release.out")))
+        });
+        c = c.mut_subcommand("verify", |s| {
+            let s = s.about(t(lang, "release.verify"));
+            let mut s = s.mut_arg("file", |arg| arg.help(t(lang, "release.file")));
+            s = s.mut_arg("key", |arg| arg.help(t(lang, "release.key_public")));
+            s.mut_arg("signature", |arg| arg.help(t(lang, "release.signature")))
+        });
+        c = c.mut_subcommand("public-key", |s| {
+            s.about(t(lang, "release.public-key"))
+                .mut_arg("key", |arg| arg.help(t(lang, "release.key")))
         });
         c
     });

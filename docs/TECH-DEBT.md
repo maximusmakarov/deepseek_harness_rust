@@ -28,6 +28,7 @@
 | MCP OAuth отсутствовал | client-credentials — [ADR-028](adr/028-mcp-http-resources.md) |
 | ACP audio/stdio MCP отсутствовали | audio-блоки и stdio MCP из `session/new` — [ADR-034](adr/034-acp.md) |
 | Не было криптоподписи WASM | Ed25519 над именем и sha256, `plugins.trusted_keys` — [ADR-032](adr/032-wasm-plugins.md) |
+| Не было стабильных бинарных дистрибутивов | Архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула — [ADR-039](adr/039-release-artifacts.md) |
 
 ## Открыто
 
@@ -40,4 +41,3 @@
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P3 | i18n остатка CLI | Основные help/выводы ru/en; часть аргументов, ошибок и export — en. |
 | P2 | MCP OAuth refresh/elicitation | Только client-credentials без refresh. |
-| P3 | Стабильные дистрибутивы | HEAD-формула, systemd/launchd и Dockerfile есть; бинарные бутылки/подпись нет. |

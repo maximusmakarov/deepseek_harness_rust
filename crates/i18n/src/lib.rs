@@ -167,6 +167,22 @@ impl Lang {
     }
 
     #[must_use]
+    pub fn release_signed(self, path: &str) -> String {
+        match self {
+            Self::Ru => format!("подпись записана: {path}"),
+            Self::En => format!("wrote signature: {path}"),
+        }
+    }
+
+    #[must_use]
+    pub fn release_verified(self, path: &str) -> String {
+        match self {
+            Self::Ru => format!("подпись верна: {path}"),
+            Self::En => format!("signature valid: {path}"),
+        }
+    }
+
+    #[must_use]
     pub fn plugin_verified(self, manifest: &str) -> String {
         match self {
             Self::Ru => format!("подпись верна: {manifest}"),

@@ -1074,6 +1074,7 @@ dependencies = [
  "dshr-server",
  "dshr-session",
  "dshr-session-jsonl",
+ "dshr-sign",
  "dshr-skills",
  "dshr-team",
  "dshr-tools",
@@ -1395,6 +1396,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dshr-sign"
+version = "0.1.0"
+dependencies = [
+ "ring",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "dshr-skills"
 version = "0.1.0"
 dependencies = [
@@ -1476,8 +1485,8 @@ dependencies = [
  "async-trait",
  "dshr-core",
  "dshr-llm",
+ "dshr-sign",
  "dshr-tools",
- "ring",
  "serde",
  "serde-saphyr",
  "serde_json",

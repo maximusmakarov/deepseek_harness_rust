@@ -11,8 +11,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dshr_llm::ToolDef;
 use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
-use ring::rand::{SecureRandom, SystemRandom};
-use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
@@ -60,7 +58,7 @@ pub struct WasmPluginManifest {
 pub struct SignaturePolicy {
     /// Ed25519 public keys allowed to sign plugins. A non-empty list also
     /// requires every plugin to be signed.
-    pub trusted_keys: Vec<[u8; 32]>,
+    pub trusted_keys: Vec<String>,
 }
 
 impl SignaturePolicy {
@@ -68,7 +66,9 @@ impl SignaturePolicy {
     pub fn new(keys_hex: &[String]) -> Result<Self, WasmError> {
         let mut trusted_keys = Vec::with_capacity(keys_hex.len());
         for key in keys_hex {
-            trusted_keys.push(parse_key_hex(key)?);
+            dshr_sign::validate_public_key(key)
+                .map_err(|error| WasmError::Manifest(error.to_string()))?;
+            trusted_keys.push(key.trim().to_lowercase());
         }
         Ok(Self { trusted_keys })
     }
@@ -325,9 +325,8 @@ fn sha256_hex(bytes: &[u8]) -> String {
 ///
 /// Returns the signer public key in hex.
 pub fn sign_manifest(manifest_path: &Path, secret_key_hex: &str) -> Result<String, WasmError> {
-    let secret = parse_secret_hex(secret_key_hex)?;
-    let key = Ed25519KeyPair::from_seed_unchecked(&secret)
-        .map_err(|error| WasmError::Manifest(format!("invalid Ed25519 secret key: {error}")))?;
+    let public = dshr_sign::public_key(secret_key_hex)
+        .map_err(|error| WasmError::Manifest(error.to_string()))?;
     let text =
         std::fs::read_to_string(manifest_path).map_err(|error| WasmError::Io(error.to_string()))?;
     let manifest: WasmPluginManifest =
@@ -338,8 +337,8 @@ pub fn sign_manifest(manifest_path: &Path, secret_key_hex: &str) -> Result<Strin
         .join(&manifest.wasm);
     let bytes = std::fs::read(&wasm_path).map_err(|error| WasmError::Io(error.to_string()))?;
     let message = signed_message(&manifest.name, &bytes);
-    let signature = key.sign(&message);
-    let public = hex_encode(key.public_key().as_ref());
+    let signature = dshr_sign::sign_bytes(secret_key_hex, &message)
+        .map_err(|error| WasmError::Manifest(error.to_string()))?;
 
     let mut document: Value =
         serde_saphyr::from_str(&text).map_err(|error| WasmError::Manifest(error.to_string()))?;
@@ -348,10 +347,7 @@ pub fn sign_manifest(manifest_path: &Path, secret_key_hex: &str) -> Result<Strin
             "manifest root must be a mapping".into(),
         ));
     };
-    map.insert(
-        "signature".into(),
-        Value::String(hex_encode(signature.as_ref())),
-    );
+    map.insert("signature".into(), Value::String(signature));
     map.insert("signer".into(), Value::String(public.clone()));
     let encoded = serde_saphyr::to_string(&document)
         .map_err(|error| WasmError::Manifest(error.to_string()))?;
@@ -361,7 +357,8 @@ pub fn sign_manifest(manifest_path: &Path, secret_key_hex: &str) -> Result<Strin
 
 /// Verifies a manifest signature against an explicit public key.
 pub fn verify_manifest(manifest_path: &Path, public_key_hex: &str) -> Result<(), WasmError> {
-    let key = parse_key_hex(public_key_hex)?;
+    dshr_sign::validate_public_key(public_key_hex)
+        .map_err(|error| WasmError::Manifest(error.to_string()))?;
     let text =
         std::fs::read_to_string(manifest_path).map_err(|error| WasmError::Io(error.to_string()))?;
     let manifest: WasmPluginManifest =
@@ -372,7 +369,7 @@ pub fn verify_manifest(manifest_path: &Path, public_key_hex: &str) -> Result<(),
         .join(&manifest.wasm);
     let bytes = std::fs::read(&wasm_path).map_err(|error| WasmError::Io(error.to_string()))?;
     let policy = SignaturePolicy {
-        trusted_keys: vec![key],
+        trusted_keys: vec![public_key_hex.trim().to_lowercase()],
     };
     verify_signature(
         &manifest.name,
@@ -384,13 +381,7 @@ pub fn verify_manifest(manifest_path: &Path, public_key_hex: &str) -> Result<(),
 
 /// Generates a new Ed25519 key pair as `(public_hex, secret_hex)`.
 pub fn generate_keypair() -> Result<(String, String), WasmError> {
-    let mut seed = [0u8; 32];
-    SystemRandom::new()
-        .fill(&mut seed)
-        .map_err(|error| WasmError::Io(error.to_string()))?;
-    let key = Ed25519KeyPair::from_seed_unchecked(&seed)
-        .map_err(|error| WasmError::Manifest(error.to_string()))?;
-    Ok((hex_encode(key.public_key().as_ref()), hex_encode(&seed)))
+    dshr_sign::keygen().map_err(|error| WasmError::Manifest(error.to_string()))
 }
 
 fn signed_message(name: &str, wasm: &[u8]) -> Vec<u8> {
@@ -416,50 +407,17 @@ fn verify_signature(
             "plugin {name}: signature present but no trusted keys are configured"
         )));
     }
-    let signature = parse_signature_hex(signature)?;
     let message = signed_message(name, wasm);
-    if policy.trusted_keys.iter().any(|key| {
-        UnparsedPublicKey::new(&ED25519, key)
-            .verify(&message, &signature)
-            .is_ok()
-    }) {
+    if policy
+        .trusted_keys
+        .iter()
+        .any(|key| dshr_sign::verify_bytes(key, &message, signature).is_ok())
+    {
         return Ok(());
     }
     Err(WasmError::Manifest(format!(
         "plugin {name}: signature does not verify against a trusted key"
     )))
-}
-
-fn parse_key_hex(value: &str) -> Result<[u8; 32], WasmError> {
-    hex_decode(value)
-        .ok_or_else(|| WasmError::Manifest("trusted key must be a 32-byte hex string".into()))
-}
-
-fn parse_secret_hex(value: &str) -> Result<[u8; 32], WasmError> {
-    hex_decode(value)
-        .ok_or_else(|| WasmError::Manifest("secret key must be a 32-byte hex string".into()))
-}
-
-fn parse_signature_hex(value: &str) -> Result<[u8; 64], WasmError> {
-    hex_decode(value)
-        .ok_or_else(|| WasmError::Manifest("signature must be a 64-byte hex string".into()))
-}
-
-fn hex_decode<const N: usize>(value: &str) -> Option<[u8; N]> {
-    let value = value.trim();
-    if value.len() != N * 2 {
-        return None;
-    }
-    let mut bytes = [0u8; N];
-    for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
-        let text = std::str::from_utf8(chunk).ok()?;
-        bytes[index] = u8::from_str_radix(text, 16).ok()?;
-    }
-    Some(bytes)
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub fn discover(dirs: &[PathBuf], policy: &SignaturePolicy) -> Vec<Arc<WasmPlugin>> {
