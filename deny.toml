@@ -2,6 +2,7 @@
 yanked = "deny"
 ignore = [
   { id = "RUSTSEC-2026-0441", reason = "pin-utils is pulled only by the dev-only expectrl/nix TUI test harness; it is not linked into the shipped dshr binary" },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error is a build-time dependency of glib-macros, pulled only by Linux Tauri/GTK crates; Tauri 2.12 has no safe upgrade yet and macOS builds do not link it" },
 ]
 
 [licenses]

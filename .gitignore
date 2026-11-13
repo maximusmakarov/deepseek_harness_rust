@@ -17,3 +17,6 @@
 
 # release artifacts
 /dist/
+
+# local test home
+/.dshr/
