@@ -1,0 +1,14 @@
+[Unit]
+Description=dshr HTTP/SSE server
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+Environment=DSHR_API_TOKEN=%t/dshr-token
+ExecStart=/usr/local/bin/dshr serve --bind 127.0.0.1 --port 4317
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

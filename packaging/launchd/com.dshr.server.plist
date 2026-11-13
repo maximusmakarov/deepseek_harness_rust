@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.dshr.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/dshr</string>
+    <string>serve</string>
+    <string>--bind</string><string>127.0.0.1</string>
+    <string>--port</string><string>4317</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>/tmp/dshr-server.err</string>
+  <key>StandardOutPath</key><string>/tmp/dshr-server.out</string>
+</dict>
+</plist>

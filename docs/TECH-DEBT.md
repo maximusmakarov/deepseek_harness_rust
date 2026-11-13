@@ -40,4 +40,4 @@
 | P3 | i18n остатка CLI | Основные help/выводы ru/en; часть аргументов, ошибок и export — en. |
 | P2 | MCP OAuth refresh/elicitation | Только client-credentials без refresh. |
 | P3 | WASM signature | Memory cap и sha256 есть; криптографической подписи нет. |
-| P3 | cargo-dist/brew, подпись | Release workflow + Dockerfile есть; brew/подпись нет. |
+| P3 | Стабильные дистрибутивы | HEAD-формула, systemd/launchd и Dockerfile есть; бинарные бутылки/подпись нет. |

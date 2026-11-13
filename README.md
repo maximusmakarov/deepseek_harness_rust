@@ -95,6 +95,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Команды, CI, тесты | Для разработки |
 | [docs/SERVER.md](docs/SERVER.md) | Auth, rate-limit, API | Для сервера |
 | [docs/SDK.md](docs/SDK.md) | Rust SDK: сессии, turn, SSE | Для интеграций |
+| [docs/INSTALL.md](docs/INSTALL.md) | Cargo/Homebrew/systemd/launchd/Docker | Для установки |
 | [docs/CONFIG.md](docs/CONFIG.md) | Слои и `ui.language` | Для настройки |
 | [docs/DESKTOP.md](docs/DESKTOP.md) | PWA-установка, статус Tauri | Для desktop |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
