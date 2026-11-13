@@ -20,6 +20,7 @@ members = [
     "crates/team",
     "crates/schedule",
     "crates/lsp",
+    "crates/office",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -52,6 +53,7 @@ dshr-workflow = { path = "crates/workflow" }
 dshr-team = { path = "crates/team" }
 dshr-schedule = { path = "crates/schedule" }
 dshr-lsp = { path = "crates/lsp" }
+dshr-office = { path = "crates/office" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }

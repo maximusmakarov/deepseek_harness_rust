@@ -293,7 +293,7 @@ pub async fn run_turn(&self, inputs: Vec<Input>) -> Result<TurnOutcome> {
 
 ## 7. Инструменты
 
-LSP-навигация — [ADR-023](adr/023-lsp.md).
+LSP-навигация — [ADR-023](adr/023-lsp.md); Office — [ADR-030](adr/030-office.md).
 
 Реализация — `dshr-tools` + `dshr-agent`; принятое решение и границы — [ADR-014](adr/014-tool-approvals.md).
 

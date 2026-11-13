@@ -33,5 +33,6 @@
 | [027](027-linux-seccomp-network.md) | Linux seccomp: сетевая изоляция | Accepted |
 | [028](028-mcp-http-resources.md) | MCP: HTTP-транспорт и resources | Accepted |
 | [029](029-durable-teams-retries.md) | Durable teams и retries workflow | Accepted |
+| [030](030-office.md) | Office: docx, xlsx, pptx | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

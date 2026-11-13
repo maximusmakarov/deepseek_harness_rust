@@ -1,0 +1,23 @@
+[package]
+name = "dshr-office"
+description = "Office document tools for docx, xlsx, and pptx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+calamine = "0.38"
+dshr-core.workspace = true
+dshr-tools.workspace = true
+quick-xml = "0.42"
+rust_xlsxwriter = "0.102"
+serde_json.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+zip = "9"
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

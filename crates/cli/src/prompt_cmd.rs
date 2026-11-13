@@ -25,6 +25,7 @@ pub async fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
         tools.register_arc(std::sync::Arc::new(skills.tool()));
     }
     crate::mcp_setup::register(&mut tools, &config).await;
+    dshr_office::register_tools(&mut tools);
 
     let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let prompt = crate::run_cmd::build_system_prompt(

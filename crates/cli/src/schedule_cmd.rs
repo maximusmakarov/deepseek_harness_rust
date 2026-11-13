@@ -216,6 +216,7 @@ async fn run_due(
             network: SandboxNetwork::Deny,
         }));
         tools.register(BashTool::new(Some(sandbox)));
+        dshr_office::register_tools(&mut tools);
         let system_prompt = build_prompt(
             loader,
             &workspace,

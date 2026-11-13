@@ -83,6 +83,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
         tools.register_arc(Arc::new(skills.tool()));
     }
     crate::mcp_setup::register(&mut tools, &config).await;
+    dshr_office::register_tools(&mut tools);
     crate::lsp_setup::register(&mut tools, &config, cwd.clone());
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {
