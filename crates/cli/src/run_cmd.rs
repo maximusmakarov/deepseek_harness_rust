@@ -142,6 +142,7 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         std::path::Path::new(&cwd),
         &config.plugins,
     )?;
+    crate::cordis_setup::register(&mut tools, &config, loader.home()).await;
     crate::lsp_setup::register(&mut tools, &config, std::path::PathBuf::from(&cwd));
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {

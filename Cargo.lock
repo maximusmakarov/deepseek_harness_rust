@@ -1650,6 +1650,7 @@ dependencies = [
  "dshr-browser",
  "dshr-compaction",
  "dshr-config",
+ "dshr-cordis",
  "dshr-core",
  "dshr-i18n",
  "dshr-jobs",
@@ -1724,6 +1725,22 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "dshr-cordis"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dshr-core",
+ "dshr-mcp",
+ "dshr-tools",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

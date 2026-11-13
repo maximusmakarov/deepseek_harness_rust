@@ -81,6 +81,40 @@ dshr plugin verify ~/.dshr/plugins/echo.yaml --key <hex public key>
 списке ключей отклоняются. Приватный ключ — 32-байтная hex-строка, `keygen` пишет
 файл с правами `0600` на Unix.
 
+## Cordis / npm (sidecar)
+
+JS-плагины исполняются отдельным процессом `node`; bootstrap публикует их
+`ctx.tool(...)` как MCP-сервер, поэтому инструменты идут через существующий конвейер.
+При наличии пакета `cordis` рядом с плагином создаётся настоящий `Context` и
+вызывается `ctx.plugin(plugin)`, иначе вызывается `plugin.apply(ctx)` напрямую.
+
+```yaml
+plugins:
+  cordis:
+    - name: demo
+      entry: plugins/demo.mjs   # файл или каталог пакета, относительно workspace
+      env: {}
+```
+
+```js
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "echo",
+      description: "Echo",
+      inputSchema: { type: "object", properties: { text: { type: "string" } } },
+      handler: (args) => `echo:${args.text}`,
+    });
+  },
+};
+```
+
+Инструменты получают имена `cordis__<plugin>__<tool>`. Capability-шина:
+`ctx.fs` ограничен workspace-корнем, `ctx.exec` и `ctx.net` бросают ошибку;
+наследования env нет, переменные задаются явно. `DSHR_NODE` переопределяет бинарь
+node, `DSHR_CORDIS_ROOT` — корень (ставится автоматически). Горячей замены,
+кэша грантов и клиентской UI-половины пока нет.
+
 ## Sidecar
 
 Sidecar-плагины используют MCP (stdio или Streamable HTTP) — отдельный протокол не нужен:

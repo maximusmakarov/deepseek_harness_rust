@@ -14,6 +14,10 @@ ui:
   language: ru   # ru | en
 plugins:
   trusted_keys: []           # Ed25519 public keys (32-byte hex)
+  cordis:                    # JS/npm plugins через node-sidecar
+    - name: demo
+      entry: plugins/demo.mjs
+      enabled: true
 logging:
   level: info
   format: json

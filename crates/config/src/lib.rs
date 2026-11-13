@@ -124,6 +124,36 @@ pub struct PluginsConfig {
     /// Setting any key turns signatures on: every WASM plugin must then carry a
     /// signature that verifies against one of these keys.
     pub trusted_keys: Vec<String>,
+    /// JavaScript/Cordis plugins executed by a node sidecar.
+    pub cordis: Vec<CordisPluginConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct CordisPluginConfig {
+    /// Stable plugin name, used in tool names.
+    pub name: String,
+    /// Entry file or package directory, relative to the workspace.
+    pub entry: PathBuf,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    /// Extra environment variables for the sidecar.
+    pub env: BTreeMap<String, String>,
+}
+
+impl Default for CordisPluginConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            entry: PathBuf::new(),
+            enabled: true,
+            env: BTreeMap::new(),
+        }
+    }
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Default)]
@@ -265,6 +295,24 @@ impl Config {
             return Err(DshrError::config(
                 "logging.level must be one of trace, debug, info, warn, error",
             ));
+        }
+        let mut cordis_names = std::collections::BTreeSet::new();
+        for plugin in &self.plugins.cordis {
+            if plugin.name.trim().is_empty() {
+                return Err(DshrError::config("plugins.cordis name must not be empty"));
+            }
+            if plugin.entry.as_os_str().is_empty() {
+                return Err(DshrError::config(format!(
+                    "plugins.cordis '{}' has an empty entry",
+                    plugin.name
+                )));
+            }
+            if !cordis_names.insert(plugin.name.as_str()) {
+                return Err(DshrError::config(format!(
+                    "duplicate plugins.cordis name '{}'",
+                    plugin.name
+                )));
+            }
         }
         for key in &self.plugins.trusted_keys {
             if key.len() != 64 || !key.chars().all(|character| character.is_ascii_hexdigit()) {
@@ -654,6 +702,38 @@ mod tests {
             .load()
             .expect("load");
         assert_eq!(loaded.config.plugins.trusted_keys, vec![key]);
+    }
+
+    #[test]
+    fn cordis_plugins_are_validated() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        write(
+            &dir.path().join("config.yaml"),
+            "plugins:\n  cordis:\n    - name: demo\n      entry: plugin.mjs\n",
+        );
+        let loaded = ConfigLoader::new(dir.path(), "default")
+            .load()
+            .expect("load");
+        assert_eq!(loaded.config.plugins.cordis.len(), 1);
+        assert!(loaded.config.plugins.cordis[0].enabled);
+
+        write(
+            &dir.path().join("config.yaml"),
+            "plugins:\n  cordis:\n    - name: demo\n      entry: a.mjs\n    - name: demo\n      entry: b.mjs\n",
+        );
+        let error = ConfigLoader::new(dir.path(), "default")
+            .load()
+            .expect_err("duplicate names");
+        assert!(error.to_string().contains("duplicate"), "{error}");
+
+        write(
+            &dir.path().join("config.yaml"),
+            "plugins:\n  cordis:\n    - name: demo\n      entry: \"\"\n",
+        );
+        let error = ConfigLoader::new(dir.path(), "default")
+            .load()
+            .expect_err("empty entry");
+        assert!(error.to_string().contains("empty entry"), "{error}");
     }
 
     #[test]

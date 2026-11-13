@@ -1,0 +1,21 @@
+[package]
+name = "dshr-cordis"
+description = "Cordis/npm plugin sidecar over the MCP stdio transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+dshr-mcp.workspace = true
+dshr-tools.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+dshr-core.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
