@@ -44,6 +44,9 @@ pub async fn execute(loader: &ConfigLoader, args: &AcpArgs) -> Result<u8> {
     let store = Arc::new(SessionStore::new(session_dir));
 
     let mut tools = ToolRegistry::with_builtin();
+    let fs = Arc::new(dshr_acp::AcpFsClient::new());
+    tools.register(dshr_acp::AcpReadTool::new(Arc::clone(&fs)));
+    tools.register(dshr_acp::AcpWriteTool::new(Arc::clone(&fs)));
     let skills = Arc::new(SkillRegistry::discover(&[
         loader.home().join("skills"),
         cwd.join(".dshr/skills"),
@@ -97,6 +100,7 @@ pub async fn execute(loader: &ConfigLoader, args: &AcpArgs) -> Result<u8> {
             output_limit: config.tools.output_limit_chars,
         },
     )
+    .with_fs(fs)
     .serve(tokio::io::stdin(), tokio::io::stdout())
     .await
     .map_err(|error| DshrError::config(error.to_string()))?;

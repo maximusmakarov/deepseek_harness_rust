@@ -4,8 +4,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use tokio::sync::oneshot;
+
+mod fs;
+pub use fs::{AcpFsClient, AcpRpc, ClientRpc};
+mod fs_tools;
+pub use fs_tools::{AcpReadTool, AcpWriteTool};
 
 use async_trait::async_trait;
 use dshr_agent::{
@@ -19,7 +24,6 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::Mutex;
-use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Error)]
@@ -46,6 +50,7 @@ pub struct AcpServer {
     tools: Arc<ToolRegistry>,
     store: Arc<SessionStore>,
     config: AcpConfig,
+    fs: Option<Arc<AcpFsClient>>,
 }
 
 impl AcpServer {
@@ -61,7 +66,14 @@ impl AcpServer {
             tools,
             store,
             config,
+            fs: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_fs(mut self, fs: Arc<AcpFsClient>) -> Self {
+        self.fs = Some(fs);
+        self
     }
 
     pub async fn serve<R, W>(self, reader: R, writer: W) -> Result<(), AcpError>
@@ -72,9 +84,14 @@ impl AcpServer {
         let writer = Arc::new(Mutex::new(BufWriter::new(writer)));
         let active: Arc<Mutex<HashMap<String, CancellationToken>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>> =
+        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let permission_id = Arc::new(AtomicU64::new(1));
+        let rpc: Arc<dyn ClientRpc> = Arc::new(AcpRpc {
+            writer: Arc::clone(&writer),
+            pending: Arc::clone(&pending),
+            next_id: Arc::clone(&permission_id),
+        });
         let mut lines = BufReader::new(reader).lines();
 
         while let Some(line) = lines
@@ -96,16 +113,22 @@ impl AcpServer {
                 if let Some(id) = id.as_ref().and_then(Value::as_u64)
                     && let Some(sender) = pending.lock().await.remove(&id)
                 {
-                    let approved = message["result"]["outcome"]["outcome"].as_str()
-                        == Some("selected")
-                        && message["result"]["outcome"]["optionId"].as_str() == Some("allow-once");
-                    let _ = sender.send(approved);
+                    let _ = sender.send(message.clone());
                 }
                 continue;
             }
 
             match method {
                 "initialize" => {
+                    if let Some(fs) = &self.fs {
+                        let read = params["clientCapabilities"]["fs"]["readTextFile"]
+                            .as_bool()
+                            .unwrap_or(false);
+                        let write = params["clientCapabilities"]["fs"]["writeTextFile"]
+                            .as_bool()
+                            .unwrap_or(false);
+                        fs.attach(Arc::clone(&rpc), read, write).await;
+                    }
                     if let Some(id) = id {
                         send(
                             &writer,
@@ -188,8 +211,7 @@ impl AcpServer {
                     let server = self.clone();
                     let writer = Arc::clone(&writer);
                     let active = Arc::clone(&active);
-                    let pending = Arc::clone(&pending);
-                    let permission_id = Arc::clone(&permission_id);
+                    let prompt_rpc = Arc::clone(&rpc);
                     let session_id = session_id.to_owned();
                     tokio::spawn(async move {
                         let result = server
@@ -198,8 +220,7 @@ impl AcpServer {
                                 &prompt,
                                 cancel,
                                 Arc::clone(&writer),
-                                pending,
-                                permission_id,
+                                prompt_rpc,
                             )
                             .await;
                         match result {
@@ -257,8 +278,7 @@ impl AcpServer {
         prompt: &str,
         cancel: CancellationToken,
         writer: Arc<Mutex<BufWriter<impl tokio::io::AsyncWrite + Unpin + Send + 'static>>>,
-        pending: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
-        permission_id: Arc<AtomicU64>,
+        rpc: Arc<dyn ClientRpc>,
     ) -> Result<(), PromptError> {
         let session = self
             .store
@@ -273,9 +293,7 @@ impl AcpServer {
             workspace: PathBuf::from(&session.header.cwd),
             approver: Arc::new(AcpApprover {
                 session_id: session_id.to_owned(),
-                writer: Arc::clone(&writer),
-                pending,
-                next_id: permission_id,
+                rpc,
             }),
         };
         let config = AgentConfig {
@@ -302,32 +320,22 @@ impl AcpServer {
     }
 }
 
-struct AcpApprover<W> {
+struct AcpApprover {
     session_id: String,
-    writer: Arc<Mutex<BufWriter<W>>>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
-    next_id: Arc<AtomicU64>,
+    rpc: Arc<dyn ClientRpc>,
 }
 
 #[async_trait]
-impl<W> Approver for AcpApprover<W>
-where
-    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
+impl Approver for AcpApprover {
     async fn approve(&self, request: ApprovalRequest) -> bool {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (sender, receiver) = oneshot::channel();
-        self.pending.lock().await.insert(id, sender);
-        let sent = send(
-            &self.writer,
-            json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "method": "session/request_permission",
-                "params": {
+        match self
+            .rpc
+            .request(
+                "session/request_permission",
+                json!({
                     "sessionId": self.session_id,
                     "toolCall": {
-                        "toolCallId": format!("permission-{id}"),
+                        "toolCallId": format!("permission-{}", request.tool),
                         "title": request.tool,
                         "kind": "other"
                     },
@@ -335,20 +343,15 @@ where
                         {"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"},
                         {"optionId": "reject-once", "name": "Reject", "kind": "reject_once"}
                     ]
-                }
-            }),
-        )
-        .await;
-        if sent.is_err() {
-            self.pending.lock().await.remove(&id);
-            return false;
-        }
-        match tokio::time::timeout(Duration::from_secs(300), receiver).await {
-            Ok(Ok(approved)) => approved,
-            _ => {
-                self.pending.lock().await.remove(&id);
-                false
+                }),
+            )
+            .await
+        {
+            Ok(response) => {
+                response["outcome"]["outcome"].as_str() == Some("selected")
+                    && response["outcome"]["optionId"].as_str() == Some("allow-once")
             }
+            Err(_) => false,
         }
     }
 }
@@ -427,7 +430,7 @@ where
     }
 }
 
-async fn send<W>(writer: &Arc<Mutex<BufWriter<W>>>, value: Value) -> Result<(), AcpError>
+pub(crate) async fn send<W>(writer: &Arc<Mutex<BufWriter<W>>>, value: Value) -> Result<(), AcpError>
 where
     W: tokio::io::AsyncWrite + Unpin + Send,
 {

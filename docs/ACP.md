@@ -18,9 +18,11 @@ dshr acp --cassette test.json --model deepseek-flash
 | `session/cancel` | отменяет активный turn |
 
 Уведомления: `agent_message_chunk`, `tool_call`, `tool_call_update`.
+
+Файлы: если клиент объявил `clientCapabilities.fs.readTextFile`/`writeTextFile`, инструменты `read`/`write` идут через `fs/read_text_file`/`fs/write_text_file`; иначе используется локальный fallback.
 Инструменты выполняются локально. При `workspace-write` опасные вызовы (shell, запись вне workspace) отправляют клиенту `session/request_permission`; клиент выбирает `allow-once`/`reject-once`. Без ответа через 300 с — отказ. `--danger` отключает запросы.
 
-Не поддержано: `session/load`, `fs/*`, `terminal/*`, изображения/аудио, MCP-серверы от клиента.
+Не поддержано: `session/load`, `terminal/*`, изображения/аудио, MCP-серверы от клиента.
 
 `session/request_permission` реализован как запрос от агента клиенту; ответ `selected` + `optionId=allow-once` разрешает вызов.
 
