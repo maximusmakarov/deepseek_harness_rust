@@ -85,6 +85,7 @@ thiserror = "2"
 ring = "0.17"
 wasmtime = { version = "50", default-features = false, features = ["cranelift", "component-model", "runtime", "std", "async"] }
 wasmtime-wasi = { version = "50", default-features = false, features = ["p2"] }
+zstd = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }

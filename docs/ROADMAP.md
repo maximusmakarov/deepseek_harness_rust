@@ -80,7 +80,7 @@
 
 ## M3 — Промпт, сессии, compaction, skills (10–15 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 127 тестов; prompt/AGENTS, skills, fork/rewind/title/search, compaction, FTS5 ([ADR-016](adr/016-search-backend.md)). Отложено: авто-заголовки через LLM, импорт DSH, allowlist схем, live-гейт 100k.
+**Статус:** ядро выполнено 12.11.2026 — 127 тестов; prompt/AGENTS, skills, fork/rewind/title/search, compaction, FTS5 ([ADR-016](adr/016-search-backend.md)). Отложено: авто-заголовки через LLM, allowlist схем, live-гейт 100k; импорт DSH v4 добавлен позже.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — M0–M7 закрыты (257 тестов); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar-прототип; Windows отложен.
+**Статус:** срез 13.11.2026 — M0–M7 закрыты (258 тестов); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar-прототип; Windows отложен.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

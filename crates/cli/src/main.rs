@@ -5,6 +5,7 @@ mod cli_i18n;
 mod config_cmd;
 mod cordis_setup;
 mod doctor;
+mod dsh_import;
 mod lsp_setup;
 mod mcp_setup;
 mod plugin_cmd;

@@ -72,6 +72,17 @@ pub enum SessionsAction {
     },
     /// Build or rebuild the FTS5 search index
     Reindex,
+    /// Import a DSH v4 session (session.v4.jsonl.zstd)
+    Import {
+        /// Session directory or file
+        path: std::path::PathBuf,
+        /// Provider label stored in the imported header
+        #[arg(long)]
+        provider: Option<String>,
+        /// Model label stored in the imported header
+        #[arg(long)]
+        model: Option<String>,
+    },
 }
 
 pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
@@ -97,6 +108,20 @@ pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
             fts,
         } => search(&store, query, *limit, *json, *fts),
         SessionsAction::Reindex => reindex(&store),
+        SessionsAction::Import {
+            path,
+            provider,
+            model,
+        } => {
+            let id = crate::dsh_import::import(
+                &store,
+                path,
+                provider.as_deref().unwrap_or("dsh-import"),
+                model.as_deref().unwrap_or("dsh-import"),
+            )?;
+            println!("{id}");
+            Ok(0)
+        }
     }
 }
 

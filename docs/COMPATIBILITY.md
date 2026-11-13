@@ -9,7 +9,7 @@
 | HTTP/SSE + Web UI | axum, bearer, approvals, JSON-RPC, rate-limit, Leptos CSR | ✅ |
 | Rust SDK | typed HTTP/SSE client | ✅ |
 | ACP v1 | initialize/new/load/resume/close/prompt/cancel, permissions, fs, terminal, image/audio/resource, HTTP/stdio MCP | ✅ |
-| Сессии | JSONL, resume, fork/rewind/title/search, FTS5 | ✅ |
+| Сессии | JSONL, resume, fork/rewind/title/search, FTS5, импорт DSH v4 | ✅ |
 | Промпт/AGENTS/skills/compaction | deterministic, discovery, compaction | ✅ |
 | Инструменты | read/write/edit/apply_patch/glob/grep/bash/todo/ask_user/present | ✅ |
 | MCP | stdio/HTTP tools/resources/prompts/sampling (GET-SSE) | ✅ |
