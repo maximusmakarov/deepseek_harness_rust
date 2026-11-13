@@ -1217,6 +1217,8 @@ fn windows_sandbox_helper_runs_cmd() {
     );
     assert!(
         dir.path().join("inside-helper.txt").exists(),
-        "file missing; stdout: {stdout}; stderr: {stderr}"
+        "file missing; stdout: {}; stderr: {}",
+        stdout.replace('\n', " | "),
+        stderr.replace('\n', " | ")
     );
 }

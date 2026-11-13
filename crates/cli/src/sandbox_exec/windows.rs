@@ -46,8 +46,11 @@ fn execute_inner(
     if mode == "read-only" {
         builder = builder.read_only(workspace);
     }
+    eprintln!("sandbox: build start");
     let sandbox = builder.build().map_err(|error| error.to_string())?;
+    eprintln!("sandbox: build ok");
 
+    eprintln!("sandbox: spawn start");
     let mut child = sandbox
         .command(program)
         .args(args)
