@@ -41,7 +41,40 @@ pub(crate) fn apply_grants(
             }
         })?;
     }
+    apply_baseline_readonly(profile);
     Ok(())
+}
+
+#[cfg(windows)]
+fn apply_baseline_readonly(profile: &rappct::AppContainerProfile) {
+    let read_execute = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
+    for env in [
+        "SystemRoot",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "CommonProgramFiles",
+        "CommonProgramFiles(x86)",
+    ] {
+        if let Some(value) = std::env::var_os(env) {
+            let _ = grant_root(Path::new(&value), profile, read_execute);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn grant_root(
+    path: &Path,
+    profile: &rappct::AppContainerProfile,
+    access: u32,
+) -> Result<(), String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|err| err.to_string())?;
+    let target = if metadata.is_dir() {
+        rappct::acl::ResourcePath::Directory(path.to_path_buf())
+    } else {
+        rappct::acl::ResourcePath::File(path.to_path_buf())
+    };
+    rappct::acl::grant_to_package(target, &profile.sid, rappct::acl::AccessMask(access))
+        .map_err(|err| err.to_string())
 }
 
 #[cfg(windows)]
