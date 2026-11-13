@@ -115,6 +115,21 @@ export default {
 node, `DSHR_CORDIS_ROOT` — корень (ставится автоматически). Горячей замены,
 кэша грантов и клиентской UI-половины пока нет.
 
+### Установка npm-плагинов
+
+```sh
+dshr plugin npm add cordis --name cordis-core
+dshr plugin npm add @scope/plugin@1.2.3
+dshr plugin npm update [name]
+dshr plugin npm remove name
+dshr plugin npm list
+```
+
+Пакет ставится в `<home>/cordis/packages/<name>`; запись `plugins.cordis`
+(entry — абсолютный путь к каталогу пакета, `enabled: true`) пишется в user config.
+Для `file:`, git- и URL-спеков имя пакета нужно указать через `--name`. После
+установки перезапустите harness, чтобы sidecar подхватил плагин.
+
 ## Sidecar
 
 Sidecar-плагины используют MCP (stdio или Streamable HTTP) — отдельный протокол не нужен:

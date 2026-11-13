@@ -35,8 +35,9 @@ scripts/package-desktop.sh 0.1.0
 ./dist/dshr.app/Contents/MacOS/dshr-desktop --check
 ```
 
-`--check` проверяет запуск sidecar-сервера без окна. Автообновление, recovery-окна и
-режимы окна (compatibility/extended/enhanced) пока не реализованы — это следующий
+`--check` проверяет запуск sidecar-сервера без окна. Обновления: трей-пункт «Check for updates…» и фоновая проверка GitHub Releases
+(уведомление; установщик не скачивается). Recovery-окна и режимы окна
+(compatibility/extended/enhanced) пока не реализованы — это следующий
 срез desktop; матрица — [PARITY.md](PARITY.md).
 
 ## PWA

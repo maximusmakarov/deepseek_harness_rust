@@ -21,7 +21,7 @@
 | Office | docx/xlsx/pptx read/create | ✅ |
 | CUA/browser | Chrome navigate/screenshot/click/type/eval | ✅ |
 | WASM-плагины | wasmi core + wasmtime component/WIT, fuel, 64 MiB, sha256, Ed25519 | ✅ |
-| npm/Cordis-плагины | sidecar-прототип: JS-плагины как MCP-инструменты, настоящий `cordis` при наличии пакета; без HMR/клиентской половины | ⚠️ частично |
+| npm/Cordis-плагины | sidecar + `plugin npm add/remove/update`; настоящий `cordis` при наличии пакета; без HMR/клиентской половины | ⚠️ частично |
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |

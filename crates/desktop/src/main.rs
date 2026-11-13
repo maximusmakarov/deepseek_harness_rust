@@ -78,6 +78,14 @@ fn main() {
 
             build_tray(app, &home, &profile)?;
             let _ = window;
+            std::thread::spawn(|| {
+                if let Ok(Some(release)) = check_for_updates() {
+                    notify(
+                        "dshr update available",
+                        &format!("{} is available", release.version),
+                    );
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -111,6 +119,7 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates…", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let profiles = Submenu::new(app, "Profile", true)?;
@@ -165,6 +174,19 @@ fn build_tray(
                 }
             }
             "terminal" => open_terminal(),
+            "updates" => {
+                std::thread::spawn(|| match check_for_updates() {
+                    Ok(Some(release)) => {
+                        notify(
+                            "dshr update available",
+                            &format!("{} — opening the release page", release.version),
+                        );
+                        open_url(&release.url);
+                    }
+                    Ok(None) => notify("dshr", "You are running the latest version"),
+                    Err(error) => notify("dshr update check failed", &error),
+                });
+            }
             "diagnostics" => {
                 let _ = export_diagnostics();
             }
@@ -353,6 +375,87 @@ fn export_diagnostics() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(archive)
 }
 
+#[derive(Debug, PartialEq)]
+struct Release {
+    version: String,
+    url: String,
+}
+
+fn fetch_latest_release() -> Result<Release, String> {
+    let output = Command::new("curl")
+        .args([
+            "-fsSL",
+            "-H",
+            "User-Agent: dshr-desktop",
+            "https://api.github.com/repos/maximusmakarov/deepseek_harness_rust/releases/latest",
+        ])
+        .output()
+        .map_err(|error| format!("curl: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "GitHub API HTTP error: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    parse_release(&text).ok_or_else(|| "invalid release payload".to_owned())
+}
+
+fn parse_release(text: &str) -> Option<Release> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let tag = value["tag_name"].as_str()?.trim_start_matches('v');
+    let url = value["html_url"].as_str()?;
+    Some(Release {
+        version: tag.to_owned(),
+        url: url.to_owned(),
+    })
+}
+
+fn check_for_updates() -> Result<Option<Release>, String> {
+    let release = fetch_latest_release()?;
+    if is_newer(env!("CARGO_PKG_VERSION"), &release.version) {
+        Ok(Some(release))
+    } else {
+        Ok(None)
+    }
+}
+
+fn is_newer(current: &str, latest: &str) -> bool {
+    fn version(value: &str) -> (u64, u64, u64) {
+        let mut parts = value
+            .trim_start_matches('v')
+            .split(['.', '-', '+'])
+            .take(3)
+            .map(|part| part.parse().unwrap_or(0));
+        (
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+            parts.next().unwrap_or(0),
+        )
+    }
+    version(latest) > version(current)
+}
+
+fn notify(title: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display notification \"{}\" with title \"{}\"",
+            body.replace('"', "'"),
+            title.replace('"', "'")
+        );
+        let _ = Command::new("osascript").args(["-e", &script]).status();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = Command::new("notify-send").args([title, body]).status();
+    }
+    #[cfg(not(unix))]
+    {
+        eprintln!("{title}: {body}");
+    }
+}
+
 fn open_reveal(path: &Path) {
     #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg("-R").arg(path).status();
@@ -468,6 +571,26 @@ mod tests {
         assert_ne!(port, 0);
         let listener = TcpListener::bind(("127.0.0.1", port)).expect("rebind");
         drop(listener);
+    }
+
+    #[test]
+    fn compares_versions() {
+        assert!(is_newer("0.1.0", "0.1.1"));
+        assert!(is_newer("0.1.0", "v0.2.0"));
+        assert!(!is_newer("0.2.0", "0.2.0"));
+        assert!(!is_newer("0.2.0", "0.1.9"));
+        assert!(is_newer("1.0.0", "1.0.1-rc.1"));
+    }
+
+    #[test]
+    fn parses_a_release_payload() {
+        let release = parse_release(
+            r#"{"tag_name":"v9.9.9","html_url":"https://example.test/releases/v9.9.9"}"#,
+        )
+        .expect("release");
+        assert_eq!(release.version, "9.9.9");
+        assert_eq!(release.url, "https://example.test/releases/v9.9.9");
+        assert!(parse_release("{}").is_none());
     }
 
     #[test]
