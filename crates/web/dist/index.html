@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dshr</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" href="/icon-192.png">
+  <meta name="theme-color" content="#0b0f14">
+  <link rel="stylesheet" href="/style.css" integrity="sha384-KKJYYE5ekgAxppKAVCc3Z/VX1t0KC1EHr2OQPoOftkf5s/Ynqsmmf0NHFK0v6YhS"/>
+  
+<script type="module">
+import init, * as bindings from '/dshr-web-ui.js';
+const wasm = await init({ module_or_path: '/dshr-web-ui_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+<link rel="modulepreload" href="/dshr-web-ui.js" crossorigin="anonymous" integrity="sha384-hMxXcuOCpjQaAlYWQEhvDmGel0TZfG23vAd0REVLdYUAQ3fw88QzMZLwGdokZd6k"><link rel="preload" href="/dshr-web-ui_bg.wasm" crossorigin="anonymous" integrity="sha384-KKJPvYk3O8H79ddYNLX10O6ssX/yWs0aiaQDF07YogQtCwZ7MIxKSvnuqjSBkgof" as="fetch" type="application/wasm"></head>
+<body></body>
+</html>

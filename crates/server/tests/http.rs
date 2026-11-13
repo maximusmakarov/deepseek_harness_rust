@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{Request, StatusCode, header};
 use dshr_agent::PermissionMode;
 use dshr_llm::{StopReason, StreamChunk};
 use dshr_llm_mock::ScriptedProvider;
@@ -314,4 +314,40 @@ async fn serves_openapi() {
     let value: Value = serde_json::from_slice(&body).expect("json");
     assert_eq!(value["openapi"], "3.1.0");
     assert!(value["paths"]["/v1/sessions"].is_object());
+}
+
+#[tokio::test]
+async fn serves_leptos_assets() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let wasm = app
+        .oneshot(
+            Request::builder()
+                .uri("/dshr-web-ui_bg.wasm")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("wasm");
+    assert_eq!(wasm.status(), StatusCode::OK);
+    assert_eq!(
+        wasm.headers().get(header::CONTENT_TYPE).expect("ctype"),
+        "application/wasm"
+    );
+    let bytes = axum::body::to_bytes(wasm.into_body(), 4 * 1024 * 1024)
+        .await
+        .expect("body");
+    assert!(bytes.len() > 10_000, "wasm is {} bytes", bytes.len());
+
+    let app = router(state(dir.path()));
+    let js = app
+        .oneshot(
+            Request::builder()
+                .uri("/dshr-web-ui.js")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("js");
+    assert_eq!(js.status(), StatusCode::OK);
 }

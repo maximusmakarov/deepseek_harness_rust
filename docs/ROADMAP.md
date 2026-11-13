@@ -160,7 +160,7 @@
 
 ## M6 — Server + Web UI + SDK (15–25 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 149 тестов; REST/SSE, auth, approvals, JSON-RPC подмножество, vanilla Web UI, Dockerfile. Отложено: Leptos, браузерный e2e, ghcr-бутылки и reproducible builds.
+**Статус:** ядро выполнено 12.11.2026 — 149 тестов; REST/SSE, auth, approvals, JSON-RPC подмножество, Leptos CSR Web UI, Dockerfile. Отложено: браузерный e2e, ghcr-бутылки и reproducible builds.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|

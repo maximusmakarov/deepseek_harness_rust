@@ -47,4 +47,4 @@ curl -N "$BASE/v1/sessions/$SID/events?token=$TOKEN"
 
 ## Web UI
 
-`GET /` отдаёт встроенную страницу: список сессий, чат со стримом, карточки инструментов, approvals. Это vanilla JS без сборки; Leptos-версия отложена.
+`GET /` отдаёт Leptos CSR-приложение: список сессий, чат со стримом, карточки инструментов, approvals. Исходник — `crates/web` (trunk + wasm-bindgen), собранный `dist/` встроен в сервер. Пересборка: `cd crates/web && trunk build --release`.

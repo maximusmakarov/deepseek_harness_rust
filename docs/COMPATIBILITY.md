@@ -6,7 +6,7 @@
 |---|---|---|
 | TUI | ratatui, стрим, tool-карточки, approvals | ✅ |
 | Headless | `dshr run`, JSON output, cassettes | ✅ |
-| HTTP/SSE + Web UI | axum, bearer, approvals, JSON-RPC, rate-limit | ✅ |
+| HTTP/SSE + Web UI | axum, bearer, approvals, JSON-RPC, rate-limit, Leptos CSR | ✅ |
 | Rust SDK | typed HTTP/SSE client | ✅ |
 | ACP v1 | initialize/new/load/resume/close/prompt/cancel, permissions, fs, terminal, image/audio/resource, HTTP/stdio MCP | ✅ |
 | Сессии | JSONL, resume, fork/rewind/title/search, FTS5 | ✅ |

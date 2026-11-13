@@ -1,0 +1,488 @@
+use std::cell::RefCell;
+
+use gloo_net::http::Request;
+use leptos::prelude::*;
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen_futures::spawn_local;
+use web_sys::{EventSource, MessageEvent};
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct SessionSummary {
+    id: String,
+    created_at: String,
+    model: String,
+    turns: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct SessionsResponse {
+    sessions: Vec<SessionSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct SessionResponse {
+    messages: Vec<Message>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct Message {
+    role: String,
+    content: Vec<Value>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct NewSessionResponse {
+    session: SessionHeader,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct SessionHeader {
+    id: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ChatItem {
+    role: String,
+    text: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ApprovalInfo {
+    id: String,
+    tool: String,
+    summary: String,
+    reason: String,
+}
+
+thread_local! {
+    static SOURCE: RefCell<Option<(EventSource, Closure<dyn FnMut(MessageEvent)>)>> =
+        const { RefCell::new(None) };
+}
+
+fn main() {
+    console_error_panic_hook::set_once();
+    leptos::mount::mount_to_body(App);
+}
+
+fn stored_token() -> String {
+    web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item("dshr-token").ok().flatten())
+        .unwrap_or_default()
+}
+
+fn store_token(token: &str) {
+    if let Some(storage) =
+        web_sys::window().and_then(|window| window.local_storage().ok().flatten())
+    {
+        let _ = storage.set_item("dshr-token", token);
+    }
+}
+
+async fn get_json<T: DeserializeOwned>(path: &str, token: &str) -> Result<T, String> {
+    let response = Request::get(path)
+        .header("Authorization", &format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.ok() {
+        return Err(format!(
+            "HTTP {}: {}",
+            response.status(),
+            response.status_text()
+        ));
+    }
+    response
+        .json::<T>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn post_json<T: DeserializeOwned>(
+    path: &str,
+    token: &str,
+    body: &Value,
+) -> Result<T, String> {
+    let response = Request::post(path)
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Content-Type", "application/json")
+        .json(body)
+        .map_err(|error| error.to_string())?
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.ok() {
+        return Err(format!(
+            "HTTP {}: {}",
+            response.status(),
+            response.status_text()
+        ));
+    }
+    response
+        .json::<T>()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn text_of(content: &[Value]) -> String {
+    content
+        .iter()
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn push_text(messages: RwSignal<Vec<ChatItem>>, streaming: RwSignal<bool>, text: &str) {
+    messages.update(|items| {
+        if streaming.get_untracked()
+            && let Some(last) = items.last_mut()
+            && last.role == "assistant"
+        {
+            last.text.push_str(text);
+            return;
+        }
+        items.push(ChatItem {
+            role: "assistant".into(),
+            text: text.to_owned(),
+        });
+    });
+    streaming.set(true);
+}
+
+fn connect_events(
+    session: String,
+    token: String,
+    messages: RwSignal<Vec<ChatItem>>,
+    streaming: RwSignal<bool>,
+    busy: RwSignal<bool>,
+    status: RwSignal<String>,
+    approval: RwSignal<Option<ApprovalInfo>>,
+) {
+    let url = format!(
+        "/v1/sessions/{session}/events?token={}",
+        js_sys::encode_uri_component(&token)
+    );
+    let Ok(source) = EventSource::new(&url) else {
+        status.set("events: error".into());
+        return;
+    };
+    let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
+        let Some(data) = event.data().as_string() else {
+            return;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&data) else {
+            return;
+        };
+        match value["type"].as_str().unwrap_or_default() {
+            "text" => {
+                if let Some(text) = value["text"].as_str() {
+                    push_text(messages, streaming, text);
+                }
+            }
+            "tool_start" => {
+                let name = value["name"].as_str().unwrap_or("tool");
+                messages.update(|items| {
+                    items.push(ChatItem {
+                        role: "tool".into(),
+                        text: format!("→ {name}"),
+                    });
+                });
+            }
+            "tool_end" => {
+                let name = value["name"].as_str().unwrap_or("tool");
+                let ok = value["ok"].as_bool().unwrap_or(true);
+                messages.update(|items| {
+                    items.push(ChatItem {
+                        role: "tool".into(),
+                        text: format!("{} {name}", if ok { "✓" } else { "✗" }),
+                    });
+                });
+            }
+            "approval" => {
+                approval.set(Some(ApprovalInfo {
+                    id: value["id"].as_str().unwrap_or_default().to_owned(),
+                    tool: value["tool"].as_str().unwrap_or_default().to_owned(),
+                    summary: value["summary"].as_str().unwrap_or_default().to_owned(),
+                    reason: value["reason"].as_str().unwrap_or_default().to_owned(),
+                }));
+            }
+            "done" => {
+                streaming.set(false);
+                busy.set(false);
+                status.set("done".into());
+                if let Some(text) = value["text"].as_str()
+                    && !text.is_empty()
+                {
+                    messages.update(|items| {
+                        if let Some(last) = items.last_mut()
+                            && last.role == "assistant"
+                        {
+                            last.text = text.to_owned();
+                        } else {
+                            items.push(ChatItem {
+                                role: "assistant".into(),
+                                text: text.to_owned(),
+                            });
+                        }
+                    });
+                }
+            }
+            "cancelled" => {
+                streaming.set(false);
+                busy.set(false);
+                status.set("cancelled".into());
+            }
+            "error" => {
+                streaming.set(false);
+                busy.set(false);
+                let message = value["message"].as_str().unwrap_or("error");
+                status.set(format!("error: {message}"));
+            }
+            _ => {}
+        }
+    });
+    source.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+    SOURCE.with(|slot| {
+        if let Some((previous, _)) = slot.borrow_mut().take() {
+            previous.close();
+        }
+        *slot.borrow_mut() = Some((source, on_message));
+    });
+}
+
+#[component]
+fn App() -> impl IntoView {
+    let token = RwSignal::new(stored_token());
+    let status = RwSignal::new(String::from("offline"));
+    let sessions = RwSignal::new(Vec::<SessionSummary>::new());
+    let messages = RwSignal::new(Vec::<ChatItem>::new());
+    let current = RwSignal::new(None::<String>);
+    let prompt = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    let streaming = RwSignal::new(false);
+    let approval = RwSignal::new(None::<ApprovalInfo>);
+
+    let refresh_sessions = move || {
+        let value = token.get_untracked();
+        if value.is_empty() {
+            status.set("token required".into());
+            return;
+        }
+        store_token(&value);
+        let status = status;
+        spawn_local(async move {
+            match get_json::<SessionsResponse>("/v1/sessions", &value).await {
+                Ok(data) => {
+                    sessions.set(data.sessions);
+                    status.set("connected".into());
+                }
+                Err(error) => status.set(format!("error: {error}")),
+            }
+        });
+    };
+
+    let open_session = move |id: String| {
+        let value = token.get_untracked();
+        current.set(Some(id.clone()));
+        messages.set(Vec::new());
+        streaming.set(false);
+        approval.set(None);
+        let id_for_load = id.clone();
+        let value_for_load = value.clone();
+        let status = status;
+        spawn_local(async move {
+            match get_json::<SessionResponse>(
+                &format!("/v1/sessions/{id_for_load}"),
+                &value_for_load,
+            )
+            .await
+            {
+                Ok(data) => {
+                    messages.set(
+                        data.messages
+                            .into_iter()
+                            .filter_map(|message| {
+                                let text = text_of(&message.content);
+                                (!text.is_empty()).then_some(ChatItem {
+                                    role: message.role,
+                                    text,
+                                })
+                            })
+                            .collect(),
+                    );
+                    status.set(id_for_load.clone());
+                }
+                Err(error) => status.set(format!("error: {error}")),
+            }
+        });
+        connect_events(id, value, messages, streaming, busy, status, approval);
+    };
+
+    let new_session = move || {
+        let value = token.get_untracked();
+        if value.is_empty() {
+            status.set("token required".into());
+            return;
+        }
+        let status = status;
+        spawn_local(async move {
+            match post_json::<NewSessionResponse>("/v1/sessions", &value, &serde_json::json!({}))
+                .await
+            {
+                Ok(data) => {
+                    status.set(format!("session {}", data.session.id));
+                    // The next refresh makes the sidebar show it.
+                }
+                Err(error) => status.set(format!("error: {error}")),
+            }
+        });
+    };
+
+    let send = move || {
+        let Some(session) = current.get_untracked() else {
+            status.set("no session".into());
+            return;
+        };
+        let value = prompt.get_untracked();
+        if value.trim().is_empty() {
+            return;
+        }
+        let token_value = token.get_untracked();
+        prompt.set(String::new());
+        messages.update(|items| {
+            items.push(ChatItem {
+                role: "user".into(),
+                text: value.clone(),
+            });
+        });
+        busy.set(true);
+        streaming.set(false);
+        let status = status;
+        spawn_local(async move {
+            let result = post_json::<Value>(
+                &format!("/v1/sessions/{session}/turns"),
+                &token_value,
+                &serde_json::json!({"prompt": value}),
+            )
+            .await;
+            if let Err(error) = result {
+                status.set(format!("error: {error}"));
+                busy.set(false);
+            }
+        });
+    };
+
+    let cancel = move || {
+        let Some(session) = current.get_untracked() else {
+            return;
+        };
+        let value = token.get_untracked();
+        spawn_local(async move {
+            let _ = post_json::<Value>(
+                &format!("/v1/sessions/{session}/cancel"),
+                &value,
+                &serde_json::json!({}),
+            )
+            .await;
+        });
+    };
+
+    let resolve = move |approved: bool| {
+        let Some(info) = approval.get_untracked() else {
+            return;
+        };
+        let Some(session) = current.get_untracked() else {
+            return;
+        };
+        let value = token.get_untracked();
+        approval.set(None);
+        spawn_local(async move {
+            let _ = post_json::<Value>(
+                &format!("/v1/sessions/{session}/approvals/{}", info.id),
+                &value,
+                &serde_json::json!({"approved": approved}),
+            )
+            .await;
+        });
+    };
+
+    view! {
+        <header>
+            <strong>"dshr"</strong>
+            <input
+                placeholder="API token"
+                autocomplete="off"
+                prop:value=move || token.get()
+                on:input=move |event| token.set(event_target_value(&event))
+            />
+            <button on:click=move |_| refresh_sessions()>"Connect"</button>
+            <button on:click=move |_| new_session()>"New session"</button>
+            <span id="status">{move || status.get()}</span>
+        </header>
+        <main>
+            <aside id="sessions">
+                <For
+                    each=move || sessions.get()
+                    key=|session| session.id.clone()
+                    children=move |session| {
+                        let id = session.id.clone();
+                        view! {
+                            <button
+                                class="session"
+                                on:click=move |_| open_session(id.clone())
+                            >
+                                {format!(
+                                    "{} · {} turn(s) · {}",
+                                    &session.id[..session.id.len().min(12)],
+                                    session.turns,
+                                    session.model,
+                                )}
+                            </button>
+                        }
+                    }
+                />
+            </aside>
+            <section id="chat">
+                <div id="messages">
+                    <For
+                        each=move || messages.get()
+                        key=|item| (item.role.clone(), item.text.clone())
+                        children=|item| {
+                            view! { <div class=item.role>{item.text}</div> }
+                        }
+                    />
+                </div>
+                <form on:submit=move |event| {
+                    event.prevent_default();
+                    send();
+                }>
+                    <textarea
+                        rows="3"
+                        placeholder="Ask dshr…"
+                        prop:value=move || prompt.get()
+                        on:input=move |event| prompt.set(event_target_value(&event))
+                    ></textarea>
+                    <div class="row">
+                        <button type="submit" prop:disabled=move || busy.get()>"Send"</button>
+                        <button type="button" on:click=move |_| cancel()>"Cancel"</button>
+                    </div>
+                </form>
+            </section>
+        </main>
+        {move || approval.get().map(|info| view! {
+            <dialog open>
+                <h3>"Approval required"</h3>
+                <p>{format!("{}: {}", info.tool, info.summary)}</p>
+                <p>{info.reason}</p>
+                <div class="row">
+                    <button on:click=move |_| resolve(true)>"Allow"</button>
+                    <button on:click=move |_| resolve(false)>"Deny"</button>
+                </div>
+            </dialog>
+        })}
+    }
+}

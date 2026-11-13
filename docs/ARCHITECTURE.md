@@ -605,7 +605,7 @@ JSON-RPC 2.0 поверх stdio (для встраивания) и HTTP-клие
 
 ## 16. UI
 
-Web UI в M6 — встроенный vanilla JS; Leptos/Tauri отложены — [ADR-019](adr/019-server-ui.md).
+Web UI — Leptos CSR (`crates/web`, trunk), `dist/` встроен в сервер; Tauri отложен — [ADR-019](adr/019-server-ui.md).
 
 ### 16.1. TUI (T1)
 

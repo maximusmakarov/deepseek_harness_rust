@@ -262,7 +262,8 @@ async fn rate_limit(State(state): State<AppState>, request: Request, next: Next)
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
-        .route("/app.js", get(app_js))
+        .route("/dshr-web-ui.js", get(web_js))
+        .route("/dshr-web-ui_bg.wasm", get(web_wasm))
         .route("/style.css", get(style_css))
         .route("/openapi.json", get(openapi))
         .route("/manifest.webmanifest", get(manifest))
@@ -609,16 +610,24 @@ fn not_found(error: DshrError) -> StatusCode {
 }
 
 async fn index() -> Html<&'static str> {
-    Html(include_str!("../ui/index.html"))
+    Html(include_str!("../../web/dist/index.html"))
 }
 
-async fn app_js() -> Response {
+async fn web_js() -> Response {
     (
         [(
             header::CONTENT_TYPE,
             "application/javascript; charset=utf-8",
         )],
-        include_str!("../ui/app.js"),
+        include_bytes!("../../web/dist/dshr-web-ui.js").as_slice(),
+    )
+        .into_response()
+}
+
+async fn web_wasm() -> Response {
+    (
+        [(header::CONTENT_TYPE, "application/wasm")],
+        include_bytes!("../../web/dist/dshr-web-ui_bg.wasm").as_slice(),
     )
         .into_response()
 }
@@ -661,7 +670,7 @@ async fn icon_512() -> Response {
 async fn style_css() -> Response {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        include_str!("../ui/style.css"),
+        include_str!("../../web/dist/style.css"),
     )
         .into_response()
 }

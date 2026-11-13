@@ -11,6 +11,21 @@ cargo deny check
 cargo llvm-cov --workspace --summary-only
 ```
 
+## Web UI
+
+The Leptos CSR app lives in `crates/web` and is excluded from the root workspace
+(it targets `wasm32-unknown-unknown`). Build it with trunk:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install trunk --locked        # or a prebuilt release binary
+cd crates/web && trunk build --release
+```
+
+`crates/web/dist` is committed because `crates/server` embeds it via `include_bytes!`.
+Rebuild the UI and commit `dist` whenever the frontend changes; `cargo test -p dshr-server`
+checks that the wasm asset is served.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on macOS/Ubuntu/Windows: fmt, clippy, nextest, doc tests; separate `cargo-deny` and `coverage` jobs. Failed nextest/clippy output is annotated and uploaded on failure.

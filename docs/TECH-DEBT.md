@@ -29,6 +29,7 @@
 | ACP audio/stdio MCP отсутствовали | audio-блоки и stdio MCP из `session/new` — [ADR-034](adr/034-acp.md) |
 | Не было криптоподписи WASM | Ed25519 над именем и sha256, `plugins.trusted_keys` — [ADR-032](adr/032-wasm-plugins.md) |
 | Jobs не переживали рестарт | состояние и логи в `<home>/jobs`, running → interrupted при загрузке |
+| Не было Leptos UI | `crates/web` (Leptos CSR, trunk), dist встроен в сервер — [ADR-003](adr/003-ui-stack.md) |
 | ACP не принимал embedded `resource` | текст/blob → text/image/audio — [ADR-034](adr/034-acp.md) |
 | ACP игнорировал `resource_link` | блок разворачивается в текст с именем/URI — [ADR-034](adr/034-acp.md) |
 | Не было стабильных бинарных дистрибутивов | Архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула — [ADR-039](adr/039-release-artifacts.md) |
@@ -39,7 +40,6 @@
 |---|---|---|
 | Deferred | Windows sandbox | Отложено по решению пользователя. По умолчанию fail-closed; experimental `DSHR_WINDOWS_SANDBOX` не работает (setup зависает). Нужен Win32/low-integrity backend или persistent daemon. |
 | Deferred | Сеть Windows | Отложено вместе с Windows sandbox; enforcement `Partial`. |
-| P2 | Leptos UI | Vanilla Web UI; SDK и rate-limit уже есть. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P3 | i18n остатка CLI | Help, sessions/show/export, plugin/release — ru/en; сообщения ошибок и часть справки остаются en. |

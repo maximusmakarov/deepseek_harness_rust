@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["vendor/sandboxrs-windows"]
+exclude = ["vendor/sandboxrs-windows", "crates/web"]
 members = [
     "crates/core",
     "crates/config",
