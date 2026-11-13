@@ -944,7 +944,7 @@ fn schedule_run_due_executes_and_advances() {
     assert_eq!(sessions[0]["title"], "schedule: sch_test");
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 #[test]
 fn sandbox_allows_workspace_write() {
     let home = tempfile::tempdir().expect("home");
