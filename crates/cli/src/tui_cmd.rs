@@ -120,6 +120,7 @@ pub async fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
         max_tokens: args.max_tokens,
         output_limit: config.tools.output_limit_chars,
         mode,
+        lang: dshr_i18n::Lang::parse(&config.ui.language),
     })?;
     Ok(0)
 }

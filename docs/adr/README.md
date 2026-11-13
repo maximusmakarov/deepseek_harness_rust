@@ -38,5 +38,6 @@
 | [032](032-wasm-plugins.md) | WASM-плагины: wasmi и JSON ABI | Accepted |
 | [033](033-opentelemetry.md) | OpenTelemetry: OTLP/HTTP traces | Accepted |
 | [034](034-acp.md) | ACP v1 server | Accepted |
+| [035](035-tui-i18n.md) | TUI i18n ru/en | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

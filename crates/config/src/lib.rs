@@ -35,6 +35,7 @@ pub struct Config {
     pub tools: ToolsConfig,
     pub mcp: McpConfig,
     pub lsp: LspConfig,
+    pub ui: UiConfig,
 }
 
 impl Default for Config {
@@ -48,6 +49,7 @@ impl Default for Config {
             tools: ToolsConfig::default(),
             mcp: McpConfig::default(),
             lsp: LspConfig::default(),
+            ui: UiConfig::default(),
         }
     }
 }
@@ -93,6 +95,21 @@ impl Default for LoggingConfig {
         Self {
             level: "info".to_owned(),
             format: LogFormat::Json,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct UiConfig {
+    /// UI language: `ru` or `en`.
+    pub language: String,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            language: "ru".to_owned(),
         }
     }
 }

@@ -24,7 +24,7 @@
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | AppContainer opt-in, default fail-closed | ⚠️ deferred |
 | Desktop (Tauri) | — | ❌ deferred |
-| i18n | CLI/TUI в основном en/ru смешанно | ❌ deferred |
+| i18n | TUI ru/en (`ui.language`); CLI/help — en | ⚠️ частично |
 | ACP permissions/fs/terminal | — | ❌ deferred |
 | MCP HTTP GET-SSE/OAuth | — | ❌ deferred |
 

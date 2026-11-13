@@ -1049,6 +1049,7 @@ dependencies = [
  "dshr-compaction",
  "dshr-config",
  "dshr-core",
+ "dshr-i18n",
  "dshr-jobs",
  "dshr-llm",
  "dshr-llm-deepseek",
@@ -1130,6 +1131,13 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "dshr-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -1420,6 +1428,7 @@ dependencies = [
  "dshr-agent",
  "dshr-compaction",
  "dshr-core",
+ "dshr-i18n",
  "dshr-llm",
  "dshr-session",
  "dshr-session-jsonl",

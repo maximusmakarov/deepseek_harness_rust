@@ -19,6 +19,7 @@ use dshr_agent::{
     PermissionMode, ToolCallInfo,
 };
 use dshr_core::{DshrError, Result};
+use dshr_i18n::Lang;
 use dshr_llm::{LlmProvider, Usage};
 use dshr_session::Session;
 use dshr_session_jsonl::SessionStore;
@@ -41,6 +42,7 @@ pub struct TuiOptions {
     pub max_tokens: u32,
     pub output_limit: usize,
     pub mode: PermissionMode,
+    pub lang: Lang,
 }
 
 enum Command {
@@ -131,12 +133,13 @@ pub fn run(options: TuiOptions) -> Result<()> {
     let workspace = PathBuf::from(&options.session.header.cwd);
     let model = options.session.header.model.clone();
     let session_id = options.session.header.id.to_string();
+    let lang = options.lang;
 
     spawn_agent(options, command_rx, event_tx, cancel.clone(), workspace);
 
     let mut terminal = enter_terminal()?;
     let guard = RawModeGuard;
-    let mut app = App::new(model, session_id);
+    let mut app = App::new(model, session_id, lang);
 
     let result = event_loop(&mut terminal, &mut app, &event_rx, &command_tx, &cancel);
     drop(guard);
@@ -223,16 +226,13 @@ struct App {
     approval: Option<(ApprovalRequest, oneshot::Sender<bool>)>,
     model: String,
     session: String,
+    lang: Lang,
 }
 
 impl App {
-    fn new(model: String, session: String) -> Self {
+    fn new(model: String, session: String, lang: Lang) -> Self {
         Self {
-            lines: vec![
-                "dshr".to_owned(),
-                "Enter — отправить, Esc — отменить, Ctrl-C — выход.".to_owned(),
-                String::new(),
-            ],
+            lines: vec!["dshr".to_owned(), lang.hint().to_owned(), String::new()],
             stream: String::new(),
             input: String::new(),
             status: String::new(),
@@ -241,6 +241,7 @@ impl App {
             approval: None,
             model,
             session,
+            lang,
         }
     }
 
@@ -261,9 +262,11 @@ impl App {
                 tool_calls,
             } => {
                 self.flush_stream();
-                self.lines.push(format!(
-                    "[done: {} in / {} out, {steps} step(s), {tool_calls} tool call(s)]",
-                    usage.input_tokens, usage.output_tokens
+                self.lines.push(self.lang.done(
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    steps,
+                    tool_calls,
                 ));
                 self.status.clear();
                 self.busy = false;
@@ -299,7 +302,7 @@ impl App {
         self.lines.push(format!("> {prompt}"));
         self.input.clear();
         self.busy = true;
-        self.status = "thinking…".to_owned();
+        self.status = self.lang.thinking().to_owned();
         let _ = commands.send(Command::Prompt(prompt));
     }
 
@@ -418,10 +421,9 @@ impl App {
         if let Some((request, _)) = &self.approval {
             let popup = centered(area, 70, 7);
             frame.render_widget(Clear, popup);
-            let text = format!(
-                "Разрешить {}?\n\n{}\n\n{}",
-                request.tool, request.summary, request.reason
-            );
+            let text = self
+                .lang
+                .approval(&request.tool, &request.summary, &request.reason);
             frame.render_widget(
                 Paragraph::new(text)
                     .block(
@@ -504,7 +506,7 @@ mod tests {
     use super::*;
 
     fn app() -> App {
-        App::new("deepseek-flash".into(), "ses_test".into())
+        App::new("deepseek-flash".into(), "ses_test".into(), Lang::Ru)
     }
 
     #[test]
