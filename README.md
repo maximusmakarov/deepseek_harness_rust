@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v4.7 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA**
+**Статус:** план v4.8 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-201 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+202 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -94,6 +94,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Матрица возможностей и пробелов | Для оценки паритета |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Команды, CI, тесты | Для разработки |
 | [docs/SERVER.md](docs/SERVER.md) | Auth, rate-limit, API | Для сервера |
+| [docs/SDK.md](docs/SDK.md) | Rust SDK: сессии, turn, SSE | Для интеграций |
 | [docs/CONFIG.md](docs/CONFIG.md) | Слои и `ui.language` | Для настройки |
 | [docs/DESKTOP.md](docs/DESKTOP.md) | PWA-установка, статус Tauri | Для desktop |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
@@ -224,6 +225,7 @@ crates/search         FTS5-индекс сессий
 crates/wasm           WASM-плагины
 crates/acp            ACP v1 stdio-сервер
 crates/i18n           TUI ru/en
+crates/sdk            типизированный HTTP/SSE клиент
 crates/office         docx/xlsx/pptx
 crates/browser        headless Chrome CUA
 crates/lsp            LSP-клиент и инструменты навигации

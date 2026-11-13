@@ -25,6 +25,7 @@ members = [
     "crates/browser",
     "crates/search",
     "crates/wasm",
+    "crates/sdk",
     "crates/acp",
     "crates/i18n",
     "crates/compaction",

@@ -1307,6 +1307,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dshr-sdk"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "axum",
+ "dshr-agent",
+ "dshr-llm",
+ "dshr-llm-mock",
+ "dshr-server",
+ "dshr-session-jsonl",
+ "dshr-tools",
+ "futures-util",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "dshr-search"
 version = "0.1.0"
 dependencies = [

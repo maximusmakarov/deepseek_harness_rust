@@ -41,5 +41,6 @@
 | [035](035-tui-i18n.md) | TUI i18n ru/en | Accepted |
 | [036](036-pwa-desktop.md) | Desktop через PWA, Tauri отложен | Accepted |
 | [037](037-http-rate-limit.md) | HTTP rate limit per token | Accepted |
+| [038](038-rust-sdk.md) | Typed Rust HTTP/SSE SDK | Accepted |
 
 Шаблон: [000-template.md](000-template.md).
