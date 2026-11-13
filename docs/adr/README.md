@@ -35,5 +35,6 @@
 | [029](029-durable-teams-retries.md) | Durable teams и retries workflow | Accepted |
 | [030](030-office.md) | Office: docx, xlsx, pptx | Accepted |
 | [031](031-browser-cua.md) | Browser/CUA: headless Chrome | Accepted |
+| [032](032-wasm-plugins.md) | WASM-плагины: wasmi и JSON ABI | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

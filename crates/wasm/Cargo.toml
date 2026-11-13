@@ -1,0 +1,25 @@
+[package]
+name = "dshr-wasm"
+description = "Sandboxed WASM plugin host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+dshr-llm.workspace = true
+dshr-tools.workspace = true
+serde.workspace = true
+serde-saphyr.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+wasmi = "2.0"
+
+[dev-dependencies]
+dshr-core.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true
+tokio.workspace = true
+wat = "1"

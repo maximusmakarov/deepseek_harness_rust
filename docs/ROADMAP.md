@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — workflows, teams, schedules, LSP, guardrails, MCP HTTP+prompts+sampling, Office, CUA, FTS (185 тестов). Остались WASM/sidecar, desktop/OTel/ACP/i18n.
+**Статус:** срез 13.11.2026 — workflows, teams, schedules, LSP, guardrails, MCP HTTP+prompts+sampling, Office, CUA, FTS, WASM (187 тестов). Остались desktop/OTel/ACP/i18n, Windows sandbox.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

@@ -14,6 +14,7 @@ mod serve_cmd;
 mod sessions;
 mod subagent_runner;
 mod tui_cmd;
+mod wasm_setup;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

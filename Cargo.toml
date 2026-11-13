@@ -24,6 +24,7 @@ members = [
     "crates/office",
     "crates/browser",
     "crates/search",
+    "crates/wasm",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -59,6 +60,7 @@ dshr-lsp = { path = "crates/lsp" }
 dshr-office = { path = "crates/office" }
 dshr-browser = { path = "crates/browser" }
 dshr-search = { path = "crates/search" }
+dshr-wasm = { path = "crates/wasm" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }
