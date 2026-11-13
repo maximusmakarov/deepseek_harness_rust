@@ -1194,6 +1194,7 @@ fn sessions_reindex_and_fts_search() {
 fn windows_sandbox_helper_runs_cmd() {
     let dir = tempfile::tempdir().expect("tempdir");
     let output = dshr()
+        .env("DSHR_SANDBOX_TIMEOUT_SECS", "20")
         .args([
             "__sandbox-exec",
             "--mode",

@@ -20,7 +20,11 @@ pub fn execute(
     } else {
         workspace.to_path_buf()
     };
-    let mut builder = Sandbox::builder(&base);
+    let timeout_secs = std::env::var("DSHR_SANDBOX_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(3600);
+    let mut builder = Sandbox::builder(&base).timeout(std::time::Duration::from_secs(timeout_secs));
     if mode == "read-only" {
         builder = builder.read_only(workspace);
     }
