@@ -61,8 +61,24 @@ fn main() {
     tauri::Builder::default()
         .setup(move |app| {
             let home = home_dir();
+            let first_run = ensure_home(&home);
             let profile = current_profile(&home);
-            let (port, token, child) = start_server(&home, &profile, folder.as_deref())?;
+            let (port, token, child) = match start_server(&home, &profile, folder.as_deref()) {
+                Ok(started) => started,
+                Err(error) => {
+                    show_error(
+                        "dshr could not start",
+                        &format!(
+                            "{error}\n\nConfigure the provider (DEEPSEEK_API_KEY / config.yaml) \
+                             and check `dshr doctor`."
+                        ),
+                    );
+                    return Err(error);
+                }
+            };
+            if first_run {
+                notify("dshr", "First run: home initialized");
+            }
             app.manage(DesktopState {
                 server: Mutex::new(Some(child)),
                 port,
@@ -112,6 +128,14 @@ fn build_tray(
     let hide = MenuItem::with_id(app, "hide", "Hide window", true, None::<&str>)?;
     let browser = MenuItem::with_id(app, "browser", "Open in browser", true, None::<&str>)?;
     let terminal = MenuItem::with_id(app, "terminal", "Open terminal", true, None::<&str>)?;
+    let new_profile = MenuItem::with_id(app, "new-profile", "New profile…", true, None::<&str>)?;
+    let config_folder = MenuItem::with_id(
+        app,
+        "config-folder",
+        "Open config folder",
+        true,
+        None::<&str>,
+    )?;
     let diagnostics = MenuItem::with_id(
         app,
         "diagnostics",
@@ -139,8 +163,11 @@ fn build_tray(
             &show,
             &hide,
             &profiles,
+            &new_profile,
             &browser,
             &terminal,
+            &config_folder,
+            &updates,
             &diagnostics,
             &quit,
         ],
@@ -174,6 +201,20 @@ fn build_tray(
                 }
             }
             "terminal" => open_terminal(),
+            "config-folder" => open_reveal(&home_dir()),
+            "new-profile" => {
+                if let Some(name) = prompt_text("New profile", "Profile name", "") {
+                    let home = home_dir();
+                    match create_profile(&home, &name) {
+                        Ok(name) => {
+                            let _ = std::fs::write(home.join("desktop-profile"), &name);
+                            stop_server(app);
+                            app.restart();
+                        }
+                        Err(error) => show_error("New profile", &error),
+                    }
+                }
+            }
             "updates" => {
                 std::thread::spawn(|| match check_for_updates() {
                     Ok(Some(release)) => {
@@ -496,6 +537,113 @@ fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Err
     Ok(format!("http://127.0.0.1:{port}/?token=…"))
 }
 
+fn ensure_home(home: &Path) -> bool {
+    let fresh = !home.is_dir();
+    if fresh {
+        let _ = std::fs::create_dir_all(home);
+        let readme = "dshr desktop home\n\n\
+                      Configure the provider with DEEPSEEK_API_KEY or a config.yaml,\n\
+                      then restart the app. Profiles live in ./profiles/<name>.\n";
+        let _ = std::fs::write(home.join("README.txt"), readme);
+    }
+    if !home.join("desktop-profile").is_file() {
+        let _ = std::fs::write(home.join("desktop-profile"), "default\n");
+    }
+    fresh
+}
+
+fn valid_profile_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "default"
+        && name.len() <= 64
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.')
+        })
+}
+
+fn create_profile(home: &Path, name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if !valid_profile_name(name) {
+        return Err(
+            "profile name must be 1-64 ASCII letters, digits, '.', '-' or '_' and not 'default'"
+                .to_owned(),
+        );
+    }
+    let directory = home.join("profiles").join(name);
+    if directory.exists() {
+        return Err(format!("profile '{name}' already exists"));
+    }
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("create {}: {error}", directory.display()))?;
+    Ok(name.to_owned())
+}
+
+fn prompt_text(title: &str, prompt: &str, default: &str) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display dialog \"{}\" default answer \"{}\" buttons {{\"Cancel\", \"OK\"}} default button \"OK\" with title \"{}\"",
+            escape_osascript(prompt),
+            escape_osascript(default),
+            escape_osascript(title)
+        );
+        let output = Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        text.split("text returned:")
+            .nth(1)
+            .map(|value| value.trim().to_owned())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let output = Command::new("zenity")
+            .args(["--entry", "--title", title, "--text", prompt])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (title, prompt, default);
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn escape_osascript(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn show_error(title: &str, message: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display dialog \"{}\" buttons {{\"OK\"}} default button 1 with title \"{}\" with icon caution",
+            escape_osascript(message),
+            escape_osascript(title)
+        );
+        let _ = Command::new("osascript").args(["-e", &script]).status();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = Command::new("zenity")
+            .args(["--error", "--title", title, "--text", message])
+            .status();
+    }
+    #[cfg(not(unix))]
+    {
+        eprintln!("{title}: {message}");
+    }
+}
+
 fn folder_argument(args: &[String]) -> Result<Option<PathBuf>, String> {
     let mut positional = args.iter().skip(1).filter(|arg| !arg.starts_with('-'));
     let Some(value) = positional.next() else {
@@ -571,6 +719,37 @@ mod tests {
         assert_ne!(port, 0);
         let listener = TcpListener::bind(("127.0.0.1", port)).expect("rebind");
         drop(listener);
+    }
+
+    #[test]
+    fn validates_and_creates_profiles() {
+        assert!(valid_profile_name("work"));
+        assert!(valid_profile_name("work-2.x"));
+        assert!(!valid_profile_name(""));
+        assert!(!valid_profile_name("default"));
+        assert!(!valid_profile_name("../escape"));
+        assert!(!valid_profile_name("a b"));
+
+        let dir = std::env::temp_dir().join(format!("dshr-profile-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        assert_eq!(create_profile(&dir, "work").expect("create"), "work");
+        assert!(dir.join("profiles/work").is_dir());
+        assert!(create_profile(&dir, "work").is_err());
+        assert!(create_profile(&dir, "..").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn initializes_a_empty_home() {
+        let dir = std::env::temp_dir().join(format!("dshr-home-test-{}", uuid::Uuid::new_v4()));
+        assert!(ensure_home(&dir));
+        assert!(dir.join("README.txt").is_file());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("desktop-profile")).expect("profile"),
+            "default\n"
+        );
+        assert!(!ensure_home(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -22,9 +22,11 @@ Linux-CI; на macOS его тесты запускаются отдельным
 а первый позиционный аргумент — папка workspace (cwd сервера). Drag-and-drop не поддержан.
 Закрытие окна скрывает его в трей, а Quit завершает сервер.
 
-Трей: Show/Hide, Open in browser, Open terminal, Export diagnostics…, Profile
-(список `default` + `<home>/profiles/*`, переключение через `desktop-profile` и
-рестарт shell) и Quit. `--export-diagnostics` собирает `system-info.txt`,
+Трей: Show/Hide, Open in browser, Open terminal, Open config folder,
+New profile…, Export diagnostics…, Check for updates…, Profile (список
+`default` + `<home>/profiles/*`, переключение через `desktop-profile` и рестарт
+shell) и Quit. Первый запуск создаёт home, `desktop-profile=default` и README;
+ошибка старта сервера показывается нативным диалогом с подсказкой про провайдера. `--export-diagnostics` собирает `system-info.txt`,
 `desktop.log`, вывод `dshr doctor` и упаковывает в `dshr-diagnostics-*.tar.gz`.
 
 Сборка `.app` (macOS):
