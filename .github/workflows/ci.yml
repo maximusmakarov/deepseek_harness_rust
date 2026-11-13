@@ -49,9 +49,9 @@ jobs:
         shell: bash
         run: |
           if [ -f nextest.log ]; then
-            tail -120 nextest.log | while IFS= read -r line; do
-              echo "::error title=nextest::${line}"
-            done
+            grep -a -E "FAIL|failures:|panicked|assertion|Error:" nextest.log               | sed 's/\x1b\[[0-9;]*m//g'               | head -80               | while IFS= read -r line; do
+                  echo "::error title=nextest::${line}"
+                done
           else
             echo "::error title=nextest::nextest.log is missing"
           fi
