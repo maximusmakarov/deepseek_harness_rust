@@ -12,9 +12,9 @@ M4 закрыл только stdio-tools. Для удалённых MCP-серв
 1. **Транспорт выбирается по `url`:** если он задан — Streamable HTTP, иначе stdio.
 2. **HTTP-клиент:** POST JSON-RPC, `Accept: application/json, text/event-stream`, разбор JSON и SSE, заголовок `Mcp-Session-Id`, произвольные headers.
 3. **Единый backend:** `McpBackend::{Stdio, Http}`; адаптеры инструментов и ресурсов не зависят от транспорта.
-4. **Resources:** для каждого сервера регистрируются `list_resources` и `read_resource`; текстовые contents склеиваются, binary помечается.
+4. **Resources и prompts:** для каждого сервера регистрируются `list_resources`, `read_resource`, `list_prompts`, `get_prompt`; текстовые contents склеиваются, binary помечается.
 5. **Плагины:** `plugin add --url` пишет HTTP-сервер в конфиг.
-6. **Границы:** нет GET-SSE, prompts, sampling, elicitation, OAuth; один клиент — одна сессия.
+6. **Границы:** нет GET-SSE, sampling, elicitation, OAuth; prompts есть, server-initiated цикл — нет.
 
 ## Последствия
 

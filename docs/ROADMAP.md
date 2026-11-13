@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — workflows, teams (durable), worktrees, schedules, LSP, guardrails, MCP HTTP, Office, CUA (184 теста). P1 закрыт; остались P2.
+**Статус:** срез 13.11.2026 — workflows, teams (durable), worktrees, schedules, LSP, guardrails, MCP HTTP+prompts, Office, CUA (184 теста). P1 закрыт; остались P2.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

@@ -44,6 +44,13 @@ async fn handler(Json(request): Json<Value>) -> Response {
             }],
             "isError": false
         }),
+        "prompts/list" => json!({
+            "prompts": [{"name": "mock", "description": "Mock prompt"}]
+        }),
+        "prompts/get" => json!({
+            "description": "Mock prompt",
+            "messages": [{"role": "user", "content": {"type": "text", "text": "prompt body"}}]
+        }),
         "resources/list" => json!({
             "resources": [{
                 "uri": "mock://resource",
@@ -86,7 +93,7 @@ async fn http_client_initializes_calls_tools_and_reads_resources() {
         headers: BTreeMap::new(),
     };
     let (backend, tools) = connect_server(spec).await.expect("connect");
-    assert_eq!(tools.len(), 3);
+    assert_eq!(tools.len(), 5);
 
     let calls = backend
         .call_tool("echo", json!({"text": "hi"}))
@@ -103,4 +110,9 @@ async fn http_client_initializes_calls_tools_and_reads_resources() {
         .await
         .expect("read");
     assert_eq!(text, "resource body");
+
+    let prompts = backend.list_prompts().await.expect("prompts");
+    assert_eq!(prompts.len(), 1);
+    let prompt = backend.get_prompt("mock", json!({})).await.expect("prompt");
+    assert_eq!(prompt.messages[0].1, "prompt body");
 }

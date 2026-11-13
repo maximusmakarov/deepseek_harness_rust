@@ -19,7 +19,7 @@ async fn connects_lists_and_calls_tools() {
         headers: BTreeMap::new(),
     };
     let (_client, tools) = connect_server(spec).await.expect("connect");
-    assert_eq!(tools.len(), 3);
+    assert_eq!(tools.len(), 5);
     assert_eq!(tools[0].name(), "mcp__mock__echo");
 
     let mut registry = ToolRegistry::new();

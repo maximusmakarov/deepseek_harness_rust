@@ -33,13 +33,16 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 dshr plugin list
 ```
 
-## Ресурсы
+## Ресурсы и prompts
 
 - `mcp__<server>__list_resources` — список `uri/name/description`.
 - `mcp__<server>__read_resource` — чтение по `uri` (текстовые contents; binary помечается).
+- `mcp__<server>__list_prompts` — список prompts и их аргументов.
+- `mcp__<server>__get_prompt` — получить prompt по имени (`name`, `arguments`) и вернуть сообщения.
 
 ## Границы
 
-- Нет GET-SSE потока, prompts, sampling, elicitation и OAuth.
+- Нет GET-SSE потока, sampling, elicitation и OAuth.
+- Prompts поддерживаются для stdio и HTTP; sampling отложен: требует server-initiated цикла.
 - HTTP-сессия живёт в памяти клиента; реконнект — новый `initialize`.
 - MCP-серверы запускаются как обычные процессы/соединения без собственного sandbox.

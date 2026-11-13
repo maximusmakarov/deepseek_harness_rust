@@ -69,6 +69,26 @@ pub struct McpCallResult {
 }
 
 #[derive(Debug, Clone)]
+pub struct McpPromptInfo {
+    pub name: String,
+    pub description: String,
+    pub arguments: Vec<McpPromptArgument>,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpPromptArgument {
+    pub name: String,
+    pub description: String,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpPromptResult {
+    pub description: String,
+    pub messages: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone)]
 pub struct McpResource {
     pub uri: String,
     pub name: String,
@@ -101,6 +121,24 @@ impl McpBackend {
         match self {
             Self::Stdio(client) => client.lock().await.read_resource(uri).await,
             Self::Http(client) => client.read_resource(uri).await,
+        }
+    }
+
+    pub async fn list_prompts(&self) -> Result<Vec<McpPromptInfo>, McpError> {
+        match self {
+            Self::Stdio(client) => client.lock().await.list_prompts().await,
+            Self::Http(client) => client.list_prompts().await,
+        }
+    }
+
+    pub async fn get_prompt(
+        &self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<McpPromptResult, McpError> {
+        match self {
+            Self::Stdio(client) => client.lock().await.get_prompt(name, arguments).await,
+            Self::Http(client) => client.get_prompt(name, arguments).await,
         }
     }
 }
@@ -241,6 +279,22 @@ impl McpClient {
     pub async fn read_resource(&mut self, uri: &str) -> Result<String, McpError> {
         let result = self.request("resources/read", json!({"uri": uri})).await?;
         Ok(parse_resource_text(&result))
+    }
+
+    pub async fn list_prompts(&mut self) -> Result<Vec<McpPromptInfo>, McpError> {
+        let result = self.request("prompts/list", json!({})).await?;
+        Ok(parse_prompts(&result))
+    }
+
+    pub async fn get_prompt(
+        &mut self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<McpPromptResult, McpError> {
+        let result = self
+            .request("prompts/get", json!({"name": name, "arguments": arguments}))
+            .await?;
+        Ok(parse_prompt_result(&result))
     }
 
     async fn notify(&mut self, method: &str, params: Value) -> Result<(), McpError> {
@@ -410,6 +464,22 @@ impl McpHttpClient {
         Ok(parse_resource_text(&result))
     }
 
+    pub async fn list_prompts(&self) -> Result<Vec<McpPromptInfo>, McpError> {
+        let result = self.request("prompts/list", json!({})).await?;
+        Ok(parse_prompts(&result))
+    }
+
+    pub async fn get_prompt(
+        &self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<McpPromptResult, McpError> {
+        let result = self
+            .request("prompts/get", json!({"name": name, "arguments": arguments}))
+            .await?;
+        Ok(parse_prompt_result(&result))
+    }
+
     async fn notify(&self, method: &str, params: Value) -> Result<(), McpError> {
         let body = json!({"jsonrpc": "2.0", "method": method, "params": params});
         let mut request = self
@@ -564,6 +634,63 @@ fn parse_call_result(result: &Value) -> McpCallResult {
     }
 }
 
+fn parse_prompts(result: &Value) -> Vec<McpPromptInfo> {
+    result["prompts"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| McpPromptInfo {
+                    name: item["name"].as_str().unwrap_or_default().to_owned(),
+                    description: item["description"].as_str().unwrap_or_default().to_owned(),
+                    arguments: item["arguments"]
+                        .as_array()
+                        .map(|arguments| {
+                            arguments
+                                .iter()
+                                .map(|argument| McpPromptArgument {
+                                    name: argument["name"].as_str().unwrap_or_default().to_owned(),
+                                    description: argument["description"]
+                                        .as_str()
+                                        .unwrap_or_default()
+                                        .to_owned(),
+                                    required: argument["required"].as_bool().unwrap_or(false),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_prompt_result(result: &Value) -> McpPromptResult {
+    McpPromptResult {
+        description: result["description"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+        messages: result["messages"]
+            .as_array()
+            .map(|messages| {
+                messages
+                    .iter()
+                    .map(|message| {
+                        (
+                            message["role"].as_str().unwrap_or("user").to_owned(),
+                            message["content"]["text"]
+                                .as_str()
+                                .unwrap_or_default()
+                                .to_owned(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
 fn parse_resources(result: &Value) -> Vec<McpResource> {
     result["resources"]
         .as_array()
@@ -661,6 +788,120 @@ impl Tool for McpTool {
             is_error: result.is_error,
             files: Vec::new(),
         })
+    }
+}
+
+pub struct McpListPromptsTool {
+    client: McpBackend,
+    namespaced: String,
+    description: String,
+}
+
+impl McpListPromptsTool {
+    #[must_use]
+    pub fn new(client: McpBackend, server: &str) -> Self {
+        Self {
+            client,
+            namespaced: format!("mcp__{server}__list_prompts"),
+            description: format!("[MCP:{server}] List prompts"),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for McpListPromptsTool {
+    fn name(&self) -> &str {
+        &self.namespaced
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn schema(&self) -> Value {
+        json!({"type": "object", "additionalProperties": false, "properties": {}})
+    }
+
+    async fn execute(&self, _ctx: &ToolCtx, _args: Value) -> Result<ToolOutcome, ToolError> {
+        let prompts = self
+            .client
+            .list_prompts()
+            .await
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        if prompts.is_empty() {
+            return Ok(ToolOutcome::text("(no prompts)"));
+        }
+        let text = prompts
+            .iter()
+            .map(|prompt| {
+                let args = prompt
+                    .arguments
+                    .iter()
+                    .map(|argument| argument.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}\t{}\t[{args}]", prompt.name, prompt.description)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(ToolOutcome::text(text))
+    }
+}
+
+pub struct McpGetPromptTool {
+    client: McpBackend,
+    namespaced: String,
+    description: String,
+}
+
+impl McpGetPromptTool {
+    #[must_use]
+    pub fn new(client: McpBackend, server: &str) -> Self {
+        Self {
+            client,
+            namespaced: format!("mcp__{server}__get_prompt"),
+            description: format!("[MCP:{server}] Get a prompt by name"),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for McpGetPromptTool {
+    fn name(&self) -> &str {
+        &self.namespaced
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+                "name": {"type": "string", "minLength": 1},
+                "arguments": {"type": "object"}
+            }
+        })
+    }
+
+    async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
+        let name = args["name"]
+            .as_str()
+            .ok_or_else(|| ToolError::InvalidArgs("name is required".into()))?;
+        let arguments = args.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        let prompt = self
+            .client
+            .get_prompt(name, arguments)
+            .await
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        let mut text = prompt.description;
+        for (role, content) in prompt.messages {
+            text.push_str(&format!("\n[{role}]\n{content}"));
+        }
+        Ok(ToolOutcome::text(text))
     }
 }
 
@@ -802,5 +1043,7 @@ pub async fn connect_server(
         .collect();
     adapters.push(Arc::new(McpListResourcesTool::new(backend.clone(), &name)));
     adapters.push(Arc::new(McpReadResourceTool::new(backend.clone(), &name)));
+    adapters.push(Arc::new(McpListPromptsTool::new(backend.clone(), &name)));
+    adapters.push(Arc::new(McpGetPromptTool::new(backend.clone(), &name)));
     Ok((backend, adapters))
 }

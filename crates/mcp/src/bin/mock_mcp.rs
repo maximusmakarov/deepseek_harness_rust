@@ -43,6 +43,25 @@ fn main() {
                     }]
                 }
             }),
+            "prompts/list" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "prompts": [{
+                        "name": "mock",
+                        "description": "Mock prompt",
+                        "arguments": [{"name": "topic", "required": true}]
+                    }]
+                }
+            }),
+            "prompts/get" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "description": "Mock prompt",
+                    "messages": [{"role": "user", "content": {"type": "text", "text": "prompt body"}}]
+                }
+            }),
             "resources/list" => json!({
                 "jsonrpc": "2.0",
                 "id": id,
