@@ -30,7 +30,7 @@ pub fn execute(
         .command(&program)
         .args(&args)
         .current_dir(workspace)
-        .stdin(Stdio::inherit())
+        .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
