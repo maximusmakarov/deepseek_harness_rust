@@ -27,8 +27,15 @@ struct DesktopState {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    let folder = match folder_argument(&args) {
+        Ok(folder) => folder,
+        Err(error) => {
+            eprintln!("dshr-desktop: {error}");
+            std::process::exit(1);
+        }
+    };
     if args.iter().any(|argument| argument == "--check") {
-        match check_server() {
+        match check_server(folder.as_deref()) {
             Ok(url) => println!("desktop check ok: {url}"),
             Err(error) => {
                 eprintln!("desktop check failed: {error}");
@@ -37,7 +44,10 @@ fn main() {
         }
         return;
     }
-    if args.iter().any(|argument| argument == "--export-diagnostics") {
+    if args
+        .iter()
+        .any(|argument| argument == "--export-diagnostics")
+    {
         match export_diagnostics() {
             Ok(path) => println!("{}", path.display()),
             Err(error) => {
@@ -49,10 +59,10 @@ fn main() {
     }
 
     tauri::Builder::default()
-        .setup(|app| {
+        .setup(move |app| {
             let home = home_dir();
             let profile = current_profile(&home);
-            let (port, token, child) = start_server(&home, &profile)?;
+            let (port, token, child) = start_server(&home, &profile, folder.as_deref())?;
             app.manage(DesktopState {
                 server: Mutex::new(Some(child)),
                 port,
@@ -85,12 +95,22 @@ fn main() {
         });
 }
 
-fn build_tray(app: &mut tauri::App, home: &Path, profile: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn build_tray(
+    app: &mut tauri::App,
+    home: &Path,
+    profile: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "hide", "Hide window", true, None::<&str>)?;
     let browser = MenuItem::with_id(app, "browser", "Open in browser", true, None::<&str>)?;
     let terminal = MenuItem::with_id(app, "terminal", "Open terminal", true, None::<&str>)?;
-    let diagnostics = MenuItem::with_id(app, "diagnostics", "Export diagnostics…", true, None::<&str>)?;
+    let diagnostics = MenuItem::with_id(
+        app,
+        "diagnostics",
+        "Export diagnostics…",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let profiles = Submenu::new(app, "Profile", true)?;
@@ -106,7 +126,15 @@ fn build_tray(app: &mut tauri::App, home: &Path, profile: &str) -> Result<(), Bo
 
     let menu = Menu::with_items(
         app,
-        &[&show, &hide, &profiles, &browser, &terminal, &diagnostics, &quit],
+        &[
+            &show,
+            &hide,
+            &profiles,
+            &browser,
+            &terminal,
+            &diagnostics,
+            &quit,
+        ],
     )?;
     let icon = app
         .default_window_icon()
@@ -163,6 +191,7 @@ fn build_tray(app: &mut tauri::App, home: &Path, profile: &str) -> Result<(), Bo
 fn start_server(
     home: &Path,
     profile: &str,
+    folder: Option<&Path>,
 ) -> Result<(u16, String, Child), Box<dyn std::error::Error>> {
     let port = desktop_port()?;
     let token = format!(
@@ -180,9 +209,17 @@ fn start_server(
     let err = log.try_clone()?;
     log_line(
         home,
-        &format!("start profile={profile} port={port} bin={}", binary.display()),
+        &format!(
+            "start profile={profile} port={port} bin={} folder={}",
+            binary.display(),
+            folder.map_or("-".into(), |path| path.display().to_string())
+        ),
     );
-    let child = Command::new(&binary)
+    let mut command = Command::new(&binary);
+    if let Some(folder) = folder {
+        command.current_dir(folder);
+    }
+    let child = command
         .args([
             "--home",
             &home.display().to_string(),
@@ -320,7 +357,9 @@ fn open_reveal(path: &Path) {
     #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg("-R").arg(path).status();
     #[cfg(target_os = "windows")]
-    let _ = Command::new("explorer").arg(format!("/select,{}", path.display())).status();
+    let _ = Command::new("explorer")
+        .arg(format!("/select,{}", path.display()))
+        .status();
     #[cfg(all(unix, not(target_os = "macos")))]
     let _ = Command::new("xdg-open")
         .arg(path.parent().unwrap_or(path))
@@ -345,13 +384,30 @@ fn open_terminal() {
     let _ = Command::new("x-terminal-emulator").status();
 }
 
-fn check_server() -> Result<String, Box<dyn std::error::Error>> {
+fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Error>> {
     let home = home_dir();
     let profile = current_profile(&home);
-    let (port, _token, mut child) = start_server(&home, &profile)?;
+    let (port, _token, mut child) = start_server(&home, &profile, folder)?;
     let _ = child.kill();
     let _ = child.wait();
     Ok(format!("http://127.0.0.1:{port}/?token=…"))
+}
+
+fn folder_argument(args: &[String]) -> Result<Option<PathBuf>, String> {
+    let mut positional = args.iter().skip(1).filter(|arg| !arg.starts_with('-'));
+    let Some(value) = positional.next() else {
+        return Ok(None);
+    };
+    let path = PathBuf::from(value);
+    if !path.exists() {
+        return Err(format!("folder does not exist: {}", path.display()));
+    }
+    if !path.is_dir() {
+        return Err(format!("not a folder: {}", path.display()));
+    }
+    Ok(Some(std::fs::canonicalize(&path).map_err(|error| {
+        format!("folder {}: {error}", path.display())
+    })?))
 }
 
 fn free_port() -> std::io::Result<u16> {
@@ -412,6 +468,27 @@ mod tests {
         assert_ne!(port, 0);
         let listener = TcpListener::bind(("127.0.0.1", port)).expect("rebind");
         drop(listener);
+    }
+
+    #[test]
+    fn parses_a_folder_argument() {
+        let dir = std::env::temp_dir().join(format!("dshr-desktop-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let args = vec!["dshr-desktop".to_owned(), dir.display().to_string()];
+        assert_eq!(
+            folder_argument(&args).expect("folder").expect("some"),
+            std::fs::canonicalize(&dir).expect("canonical")
+        );
+        let file = dir.join("file.txt");
+        std::fs::write(&file, b"x").expect("file");
+        let args = vec!["dshr-desktop".to_owned(), file.display().to_string()];
+        assert!(folder_argument(&args).is_err());
+        assert!(
+            folder_argument(&["dshr-desktop".to_owned()])
+                .expect("none")
+                .is_none()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

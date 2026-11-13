@@ -18,7 +18,8 @@ CARGO_TARGET_DIR=target cargo build --release --manifest-path crates/desktop/Car
 Linux-CI; на macOS его тесты запускаются отдельным шагом CI.
 
 `DSHR_BIN` задаёт путь к `dshr`, иначе берётся соседний бинарь или `PATH`;
-`DSH_HOME` задаёт home, `DSHR_DESKTOP_PORT` — фиксированный порт (0 = случайный).
+`DSH_HOME` задаёт home, `DSHR_DESKTOP_PORT` — фиксированный порт (0 = случайный),
+а первый позиционный аргумент — папка workspace (cwd сервера). Drag-and-drop не поддержан.
 Закрытие окна скрывает его в трей, а Quit завершает сервер.
 
 Трей: Show/Hide, Open in browser, Open terminal, Export diagnostics…, Profile
