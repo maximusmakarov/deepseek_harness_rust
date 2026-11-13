@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v2.2 · 13.11.2026 · **M0–M6 выполнены; M7 — workflows, teams, schedules, LSP; hardening**
+**Статус:** план v2.3 · 13.11.2026 · **M0–M6 выполнены; M7 + sandbox на трёх ОС**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -10,7 +10,7 @@
 
 ## 1. Статус
 
-M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees, schedules, LSP. Linux Landlock и guardrails закрывают критичный техдолг.
+M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees, schedules, LSP. Песочница работает на macOS, Linux и Windows.
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…024.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
@@ -20,7 +20,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты, общий бюджет токенов, allowlist инструментов.
 - **Внешние:** MCP stdio, `web_fetch`/`web_search`, фоновые jobs.
 - **Автономность:** YAML-workflows, agent teams с доской задач, durable cron-расписания с lock.
-- **Песочница:** macOS Seatbelt и Linux Landlock; Windows — fail-closed.
+- **Песочница:** macOS Seatbelt, Linux Landlock, Windows AppContainer; сеть — `Partial`.
 - **Интерфейсы:** TUI, HTTP/SSE + встроенный Web UI, JSON-RPC.
 
 175 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
@@ -212,7 +212,7 @@ crates/lsp            LSP-клиент и инструменты навигац�
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–025
+docs/adr              001–026
 ```
 
 ## 9. Что дальше

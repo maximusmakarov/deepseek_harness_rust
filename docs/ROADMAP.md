@@ -119,7 +119,7 @@
 
 ## M5 — Песочница + плагины + композиция (15–25 ИД)
 
-**Статус:** ядро выполнено; 13.11.2026 добавлен Linux Landlock. Отложено: seccomp, Windows ACL, WASM/sidecar, hot reload, capability audit.
+**Статус:** ядро выполнено; добавлены Linux Landlock и Windows AppContainer. Отложено: Linux seccomp/network, WASM/sidecar, hot reload, capability audit.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -209,7 +209,7 @@
 | G2 | конец M2 | ✅ ядро: tool-loop + approvals + TUI e2e; eval-набор отложен |
 | G3 | конец M3 | ✅ ядро: compaction unit-тест; live-гейт 100k отложен |
 | G4 | конец M4 | ✅ MCP mock-сервер + субагент из кассеты; HTTP/resources отложены |
-| G5 | конец M5 | ✅ macOS Seatbelt и Linux Landlock: escape + workspace-write; Windows fail-closed |
+| G5 | конец M5 | ✅ Seatbelt, Landlock и AppContainer: escape + workspace-write на macOS/Linux/Windows |
 | G6 | конец M6 | ✅ HTTP/SSE + встроенный UI; Playwright e2e отложен |
 | G7 | M7 | матрица возможностей заполнена |
 

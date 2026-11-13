@@ -154,7 +154,13 @@ fn default_backend() -> Arc<dyn SandboxBackend> {
             wrapper: std::env::current_exe().unwrap_or_default(),
         })
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(target_os = "windows")]
+    {
+        Arc::new(WindowsBackend {
+            wrapper: std::env::current_exe().unwrap_or_default(),
+        })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         Arc::new(UnsupportedBackend)
     }
@@ -180,6 +186,57 @@ impl SandboxBackend for UnsupportedBackend {
         Err(SandboxError::Unavailable(
             "no sandbox backend for this platform".into(),
         ))
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub struct WindowsBackend {
+    wrapper: PathBuf,
+}
+
+#[cfg(target_os = "windows")]
+impl SandboxBackend for WindowsBackend {
+    fn name(&self) -> &str {
+        "appcontainer"
+    }
+
+    fn available(&self) -> bool {
+        self.wrapper.is_file()
+    }
+
+    fn confine(
+        &self,
+        policy: &SandboxPolicy,
+        program: &str,
+        args: &[String],
+    ) -> Result<ConfinedCommand, SandboxError> {
+        let mode = match policy.mode {
+            SandboxMode::ReadOnly => "read-only",
+            SandboxMode::WorkspaceWrite => "workspace-write",
+            SandboxMode::DangerFull => "danger-full-access",
+        };
+        let network = match policy.network {
+            NetworkMode::Deny => "deny",
+            NetworkMode::Allow => "allow",
+        };
+        let mut confined = vec![
+            "__sandbox-exec".to_owned(),
+            "--mode".to_owned(),
+            mode.to_owned(),
+            "--workspace".to_owned(),
+            policy.workspace.display().to_string(),
+            "--network".to_owned(),
+            network.to_owned(),
+            "--".to_owned(),
+            program.to_owned(),
+        ];
+        confined.extend(args.iter().cloned());
+        Ok(ConfinedCommand {
+            program: self.wrapper.display().to_string(),
+            args: confined,
+            enforcement: Enforcement::Partial,
+            backend: "appcontainer".to_owned(),
+        })
     }
 }
 
@@ -348,6 +405,19 @@ mod tests {
             .confine("sh", &["-c".into(), "true".into()])
             .expect_err("unavailable");
         assert!(matches!(error, SandboxError::Unavailable(_)));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn appcontainer_wraps_command() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let sandbox = Sandbox::platform(SandboxPolicy::workspace_write(dir.path()));
+        let command = sandbox
+            .confine("cmd", &["/C".into(), "echo ok".into()])
+            .expect("confine");
+        assert_eq!(command.backend, "appcontainer");
+        assert_eq!(command.args[0], "__sandbox-exec");
+        assert_eq!(command.enforcement, Enforcement::Partial);
     }
 
     #[cfg(target_os = "linux")]

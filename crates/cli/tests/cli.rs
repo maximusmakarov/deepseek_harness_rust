@@ -643,11 +643,12 @@ fn plugin_manager_adds_lists_and_removes_mcp_servers() {
         .stdout(predicate::str::contains("(no plugins)"));
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 #[test]
 fn sandbox_blocks_writes_outside_workspace() {
     let home = tempfile::tempdir().expect("home");
-    let project = tempfile::tempdir().expect("project");
+    let project = home.path().join("project");
+    std::fs::create_dir_all(&project).expect("project");
     let cassette = home.path().join("sandbox.json");
     std::fs::write(
         &cassette,
@@ -655,7 +656,7 @@ fn sandbox_blocks_writes_outside_workspace() {
           [
             {"type":"start","model":"deepseek-flash"},
             {"type":"tool_use_start","index":0,"id":"call_1","name":"bash"},
-            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"printf no > ../outside-sandbox.txt\"}"},
+            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"cd .. && echo no > outside-sandbox.txt\"}"},
             {"type":"done","stop_reason":"tool_use"}
           ],
           [
@@ -668,7 +669,7 @@ fn sandbox_blocks_writes_outside_workspace() {
     .expect("cassette");
 
     dshr()
-        .current_dir(project.path())
+        .current_dir(&project)
         .args([
             "--home",
             home.path().to_str().expect("utf8"),
@@ -724,7 +725,7 @@ fn run_executes_workflow_from_cassette() {
     .expect("cassette");
 
     dshr()
-        .current_dir(project.path())
+        .current_dir(&project)
         .args([
             "--home",
             home.path().to_str().expect("utf8"),
@@ -791,7 +792,7 @@ fn run_executes_agent_team_from_cassette() {
     .expect("cassette");
 
     dshr()
-        .current_dir(project.path())
+        .current_dir(&project)
         .args([
             "--home",
             home.path().to_str().expect("utf8"),
@@ -934,11 +935,12 @@ fn schedule_run_due_executes_and_advances() {
     assert_eq!(sessions[0]["title"], "schedule: sch_test");
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 #[test]
 fn sandbox_allows_workspace_write() {
     let home = tempfile::tempdir().expect("home");
-    let project = tempfile::tempdir().expect("project");
+    let project = home.path().join("project");
+    std::fs::create_dir_all(&project).expect("project");
     let cassette = home.path().join("sandbox-inside.json");
     std::fs::write(
         &cassette,
@@ -946,7 +948,7 @@ fn sandbox_allows_workspace_write() {
           [
             {"type":"start","model":"deepseek-flash"},
             {"type":"tool_use_start","index":0,"id":"call_1","name":"bash"},
-            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"printf ok > inside-sandbox.txt\"}"},
+            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"echo ok > inside-sandbox.txt\"}"},
             {"type":"done","stop_reason":"tool_use"}
           ],
           [
@@ -959,7 +961,7 @@ fn sandbox_allows_workspace_write() {
     .expect("cassette");
 
     dshr()
-        .current_dir(project.path())
+        .current_dir(&project)
         .args([
             "--home",
             home.path().to_str().expect("utf8"),
@@ -975,7 +977,7 @@ fn sandbox_allows_workspace_write() {
         .success()
         .stdout(predicate::str::contains("done"));
 
-    assert!(project.path().join("inside-sandbox.txt").exists());
+    assert!(project.join("inside-sandbox.txt").exists());
 }
 
 #[test]

@@ -12,13 +12,13 @@
 | Два scheduler-демона могли работать одновременно | lock-файл `schedules.lock` — [ADR-025](adr/025-guardrails.md) |
 | Безымянные сессии после `run` | заголовок из первой строки prompt |
 | LSP-навигация отсутствовала | `dshr-lsp` — [ADR-023](adr/023-lsp.md) |
+| Windows shell не работал (fail-closed) | AppContainer через `sandboxrs-windows` — [ADR-026](adr/026-windows-appcontainer.md) |
 
 ## Открыто
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
-| P0 | Windows sandbox | Сейчас fail-closed: shell/jobs на Windows не выполняются. Нужны AppContainer/ACL/Job Objects. |
-| P0 | Linux seccomp и сеть | Landlock ABI V1 покрывает только FS; enforcement `Partial`. |
+| P0 | Linux seccomp и сеть | Landlock ABI V1 покрывает только FS; enforcement `Partial` на Linux и Windows. |
 | P1 | MCP HTTP и resources | Реализован только stdio-tools; нет resources/prompts/sampling. |
 | P1 | Durable teams и workflow retries | Доска в памяти, шаги последовательны, нет повторных попыток. |
 | P1 | Office и CUA | docx/xlsx/pptx, браузер/скриншоты. |

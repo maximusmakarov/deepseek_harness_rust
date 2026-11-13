@@ -29,5 +29,6 @@
 | [023](023-lsp.md) | LSP: минимальный клиент и инструменты | Accepted |
 | [024](024-linux-landlock.md) | Linux Landlock: helper и границы изоляции | Accepted |
 | [025](025-guardrails.md) | Бюджет дерева, allowlist инструментов, scheduler lock | Accepted |
+| [026](026-windows-appcontainer.md) | Windows AppContainer через helper | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

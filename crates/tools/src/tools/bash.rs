@@ -50,7 +50,10 @@ impl Tool for BashTool {
             Duration::from_secs(args["timeout_secs"].as_u64().unwrap_or(60).clamp(1, 600));
 
         let (program, args) = if cfg!(windows) {
-            ("cmd".to_owned(), vec!["/C".to_owned(), command.to_owned()])
+            (
+                std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned()),
+                vec!["/C".to_owned(), command.to_owned()],
+            )
         } else {
             ("sh".to_owned(), vec!["-c".to_owned(), command.to_owned()])
         };

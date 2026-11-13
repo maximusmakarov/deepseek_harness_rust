@@ -101,7 +101,10 @@ impl JobManager {
 
     pub async fn start(&self, command: &str, cwd: &std::path::Path) -> Result<JobId, JobError> {
         let (program, args) = if cfg!(windows) {
-            ("cmd".to_owned(), vec!["/C".to_owned(), command.to_owned()])
+            (
+                std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned()),
+                vec!["/C".to_owned(), command.to_owned()],
+            )
         } else {
             ("sh".to_owned(), vec!["-c".to_owned(), command.to_owned()])
         };
