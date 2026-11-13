@@ -12,7 +12,6 @@
 | Два scheduler-демона могли работать одновременно | lock-файл `schedules.lock` — [ADR-025](adr/025-guardrails.md) |
 | Безымянные сессии после `run` | заголовок из первой строки prompt |
 | LSP-навигация отсутствовала | `dshr-lsp` — [ADR-023](adr/023-lsp.md) |
-| Windows shell не работал (fail-closed) | AppContainer — экспериментальный opt-in; по умолчанию fail-closed |
 | Linux network не ограничивался | seccomp-bpf deny сетевых syscalls — [ADR-027](adr/027-linux-seccomp-network.md) |
 | MCP HTTP/resources отсутствовали | Streamable HTTP + resource tools — [ADR-028](adr/028-mcp-http-resources.md) |
 | Team-доска терялась, workflow не повторялся | durable state + `retries` — [ADR-029](adr/029-durable-teams-retries.md) |
@@ -32,9 +31,13 @@
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
-| P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
+| P0 | Windows sandbox | AppContainer setup зависает на CI; по умолчанию fail-closed, opt-in `DSHR_WINDOWS_SANDBOX` не работает. Нужен Win32/low-integrity backend или persistent daemon. |
+| P1 | Сеть Windows | Зависит от Windows sandbox; enforcement `Partial`. |
 | P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P2 | ACP image/MCP | Permissions, fs, terminal, load/resume/close есть; image/audio и клиентские MCP — нет. |
+| P2 | i18n CLI | TUI ru/en; help/CLI-вывод — только en. |
+| P2 | MCP OAuth refresh/elicitation | Только client-credentials без refresh. |
+| P2 | WASM memory/signature | Fuel есть; memory cap и подписи нет. |
 | P3 | cargo-dist/brew, подпись | Release workflow + Dockerfile есть; brew/подпись нет. |
