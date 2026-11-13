@@ -383,7 +383,7 @@ pub struct PermissionPolicy {
 
 ## 10. MCP
 
-Реализация — `dshr-mcp`; границы M4 — [ADR-017](adr/017-external-tools.md).
+Реализация — `dshr-mcp`; stdio и HTTP/resources — [ADR-017](adr/017-external-tools.md), [ADR-028](adr/028-mcp-http-resources.md).
 
 - Клиент на базе `rmcp` (официальный Rust SDK): stdio и Streamable HTTP.
 - Namespacing: `mcp__<server>__<tool>`; конфликты — ошибка конфигурации.

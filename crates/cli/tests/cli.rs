@@ -1104,3 +1104,29 @@ fn contains_text(dir: &std::path::Path, needle: &str) -> bool {
     }
     false
 }
+
+#[test]
+fn plugin_manager_supports_http_servers() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "plugin",
+            "add",
+            "remote",
+            "--url",
+            "https://mcp.example.com/mcp",
+        ])
+        .assert()
+        .success();
+
+    let listed = dshr()
+        .args(["--home", home, "plugin", "list", "--json"])
+        .output()
+        .expect("list");
+    let servers: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    assert_eq!(servers[0]["url"], "https://mcp.example.com/mcp");
+}

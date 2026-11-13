@@ -22,15 +22,18 @@ pub enum PluginAction {
     Add {
         /// Plugin/server name
         name: String,
-        /// Command to launch the server
+        /// Command to launch a stdio server
         #[arg(long)]
-        command: String,
+        command: Option<String>,
         /// Argument (repeatable)
         #[arg(long = "arg", allow_hyphen_values = true)]
         args: Vec<String>,
         /// Environment entry KEY=VALUE (repeatable)
         #[arg(long = "env")]
         env: Vec<String>,
+        /// Streamable HTTP endpoint instead of a command
+        #[arg(long)]
+        url: Option<String>,
     },
     /// Remove an MCP plugin
     Remove {
@@ -47,7 +50,8 @@ pub fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
             command,
             args,
             env,
-        } => add(loader, name, command, args, env),
+            url,
+        } => add(loader, name, command.as_deref(), args, env, url.as_deref()),
         PluginAction::Remove { name } => remove(loader, name),
     }
 }
@@ -68,7 +72,7 @@ fn list(loader: &ConfigLoader, json: bool) -> Result<u8> {
         println!(
             "{}: {} {} ({})",
             server.name,
-            server.command,
+            server.url.as_deref().unwrap_or(&server.command),
             server.args.join(" "),
             if server.enabled {
                 "enabled"
@@ -83,10 +87,16 @@ fn list(loader: &ConfigLoader, json: bool) -> Result<u8> {
 fn add(
     loader: &ConfigLoader,
     name: &str,
-    command: &str,
+    command: Option<&str>,
     args: &[String],
     env: &[String],
+    url: Option<&str>,
 ) -> Result<u8> {
+    if command.is_none() && url.is_none() {
+        return Err(DshrError::invalid_input(
+            "plugin add requires --command or --url",
+        ));
+    }
     let mut root = load_raw(loader)?;
     let mut environment = BTreeMap::new();
     for entry in env {
@@ -102,9 +112,10 @@ fn add(
     servers.retain(|server| server["name"].as_str() != Some(name));
     servers.push(json!({
         "name": name,
-        "command": command,
+        "command": command.unwrap_or_default(),
         "args": args,
         "env": environment,
+        "url": url,
         "enabled": true
     }));
     save_raw(loader, &root)?;

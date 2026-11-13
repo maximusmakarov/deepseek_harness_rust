@@ -171,6 +171,9 @@ pub struct McpServerConfig {
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub cwd: Option<PathBuf>,
+    /// Streamable HTTP endpoint; when set, `command` is ignored.
+    pub url: Option<String>,
+    pub headers: BTreeMap<String, String>,
     pub enabled: bool,
 }
 
@@ -182,6 +185,8 @@ impl Default for McpServerConfig {
             args: Vec::new(),
             env: BTreeMap::new(),
             cwd: None,
+            url: None,
+            headers: BTreeMap::new(),
             enabled: true,
         }
     }
@@ -241,9 +246,9 @@ impl Config {
             if server.name.trim().is_empty() {
                 return Err(DshrError::config("mcp server name must not be empty"));
             }
-            if server.command.trim().is_empty() {
+            if server.url.is_none() && server.command.trim().is_empty() {
                 return Err(DshrError::config(format!(
-                    "mcp server '{}' has an empty command",
+                    "mcp server '{}' needs either command or url",
                     server.name
                 )));
             }

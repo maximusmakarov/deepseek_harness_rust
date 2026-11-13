@@ -43,6 +43,24 @@ fn main() {
                     }]
                 }
             }),
+            "resources/list" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "resources": [{
+                        "uri": "mock://resource",
+                        "name": "mock",
+                        "description": "Mock resource"
+                    }]
+                }
+            }),
+            "resources/read" => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "contents": [{"uri": "mock://resource", "text": "resource body"}]
+                }
+            }),
             "tools/call" => {
                 let text = value["params"]["arguments"]["text"].as_str().unwrap_or("");
                 json!({

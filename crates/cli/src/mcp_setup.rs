@@ -14,6 +14,8 @@ pub async fn register(registry: &mut ToolRegistry, config: &Config) {
             args: server.args.clone(),
             env: server.env.clone(),
             cwd: server.cwd.clone(),
+            url: server.url.clone(),
+            headers: server.headers.clone(),
         };
         match connect_server(spec).await {
             Ok((_client, tools)) => {

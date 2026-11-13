@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -49,6 +50,9 @@ pub struct McpServerSpec {
     pub args: Vec<String>,
     pub env: BTreeMap<String, String>,
     pub cwd: Option<PathBuf>,
+    /// When set, use Streamable HTTP instead of stdio.
+    pub url: Option<String>,
+    pub headers: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +66,43 @@ pub struct McpToolInfo {
 pub struct McpCallResult {
     pub content: String,
     pub is_error: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpResource {
+    pub uri: String,
+    pub name: String,
+    pub description: String,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Clone)]
+pub enum McpBackend {
+    Stdio(Arc<Mutex<McpClient>>),
+    Http(Arc<McpHttpClient>),
+}
+
+impl McpBackend {
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<McpCallResult, McpError> {
+        match self {
+            Self::Stdio(client) => client.lock().await.call_tool(name, arguments).await,
+            Self::Http(client) => client.call_tool(name, arguments).await,
+        }
+    }
+
+    pub async fn list_resources(&self) -> Result<Vec<McpResource>, McpError> {
+        match self {
+            Self::Stdio(client) => client.lock().await.list_resources().await,
+            Self::Http(client) => client.list_resources().await,
+        }
+    }
+
+    pub async fn read_resource(&self, uri: &str) -> Result<String, McpError> {
+        match self {
+            Self::Stdio(client) => client.lock().await.read_resource(uri).await,
+            Self::Http(client) => client.read_resource(uri).await,
+        }
+    }
 }
 
 pub struct McpClient {
@@ -192,6 +233,16 @@ impl McpClient {
         })
     }
 
+    pub async fn list_resources(&mut self) -> Result<Vec<McpResource>, McpError> {
+        let result = self.request("resources/list", json!({})).await?;
+        Ok(parse_resources(&result))
+    }
+
+    pub async fn read_resource(&mut self, uri: &str) -> Result<String, McpError> {
+        let result = self.request("resources/read", json!({"uri": uri})).await?;
+        Ok(parse_resource_text(&result))
+    }
+
     async fn notify(&mut self, method: &str, params: Value) -> Result<(), McpError> {
         let message = json!({"jsonrpc": "2.0", "method": method, "params": params});
         self.write_message(&message).await
@@ -264,9 +315,292 @@ impl McpClient {
     }
 }
 
+pub struct McpHttpClient {
+    name: String,
+    url: String,
+    headers: BTreeMap<String, String>,
+    client: reqwest::Client,
+    session_id: Mutex<Option<String>>,
+    next_id: AtomicU64,
+}
+
+impl McpHttpClient {
+    pub async fn connect(spec: McpServerSpec) -> Result<Self, McpError> {
+        let url = spec
+            .url
+            .clone()
+            .ok_or_else(|| McpError::Spawn("HTTP MCP server has no url".into()))?;
+        let client = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .map_err(|error| McpError::Io(error.to_string()))?;
+        let this = Self {
+            name: spec.name,
+            url,
+            headers: spec.headers,
+            client,
+            session_id: Mutex::new(None),
+            next_id: AtomicU64::new(1),
+        };
+        this.initialize().await?;
+        Ok(this)
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    async fn initialize(&self) -> Result<(), McpError> {
+        self.request(
+            "initialize",
+            json!({
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "dshr", "version": env!("CARGO_PKG_VERSION")}
+            }),
+        )
+        .await?;
+        self.notify("notifications/initialized", json!({})).await
+    }
+
+    pub async fn list_tools(&self) -> Result<Vec<McpToolInfo>, McpError> {
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let params = match &cursor {
+                Some(cursor) => json!({ "cursor": cursor }),
+                None => json!({}),
+            };
+            let result = self.request("tools/list", params).await?;
+            if let Some(items) = result["tools"].as_array() {
+                for item in items {
+                    tools.push(McpToolInfo {
+                        name: item["name"].as_str().unwrap_or_default().to_owned(),
+                        description: item["description"].as_str().unwrap_or_default().to_owned(),
+                        input_schema: item["inputSchema"].clone(),
+                    });
+                }
+            }
+            cursor = result["nextCursor"].as_str().map(ToOwned::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+        Ok(tools)
+    }
+
+    pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<McpCallResult, McpError> {
+        let result = self
+            .request(
+                "tools/call",
+                json!({ "name": name, "arguments": arguments }),
+            )
+            .await?;
+        Ok(parse_call_result(&result))
+    }
+
+    pub async fn list_resources(&self) -> Result<Vec<McpResource>, McpError> {
+        let result = self.request("resources/list", json!({})).await?;
+        Ok(parse_resources(&result))
+    }
+
+    pub async fn read_resource(&self, uri: &str) -> Result<String, McpError> {
+        let result = self.request("resources/read", json!({"uri": uri})).await?;
+        Ok(parse_resource_text(&result))
+    }
+
+    async fn notify(&self, method: &str, params: Value) -> Result<(), McpError> {
+        let body = json!({"jsonrpc": "2.0", "method": method, "params": params});
+        let mut request = self
+            .client
+            .post(&self.url)
+            .header(
+                reqwest::header::ACCEPT,
+                "application/json, text/event-stream",
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&body);
+        for (key, value) in &self.headers {
+            request = request.header(key, value);
+        }
+        if let Some(session) = self.session_id.lock().await.as_deref() {
+            request = request.header("Mcp-Session-Id", session);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| McpError::Io(error.to_string()))?;
+        self.capture_session(&response).await;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(McpError::Io(format!("HTTP {status}")));
+        }
+        Ok(())
+    }
+
+    async fn request(&self, method: &str, params: Value) -> Result<Value, McpError> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let body = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params
+        });
+        let mut request = self
+            .client
+            .post(&self.url)
+            .header(
+                reqwest::header::ACCEPT,
+                "application/json, text/event-stream",
+            )
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&body);
+        for (key, value) in &self.headers {
+            request = request.header(key, value);
+        }
+        if let Some(session) = self.session_id.lock().await.as_deref() {
+            request = request.header("Mcp-Session-Id", session);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| McpError::Io(error.to_string()))?;
+        self.capture_session(&response).await;
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("")
+            .to_owned();
+        let text = response
+            .text()
+            .await
+            .map_err(|error| McpError::Io(error.to_string()))?;
+        if !status.is_success() {
+            return Err(McpError::Io(format!("HTTP {status}: {text}")));
+        }
+        if content_type.contains("text/event-stream") {
+            parse_sse_response(&text, id)
+        } else {
+            let value: Value = serde_json::from_str(&text)
+                .map_err(|error| McpError::Protocol(format!("invalid JSON: {error}")))?;
+            extract_response(value, id)
+        }
+    }
+
+    async fn capture_session(&self, response: &reqwest::Response) {
+        if let Some(session) = response
+            .headers()
+            .get("mcp-session-id")
+            .and_then(|value| value.to_str().ok())
+        {
+            *self.session_id.lock().await = Some(session.to_owned());
+        }
+    }
+}
+
+fn extract_response(value: Value, id: u64) -> Result<Value, McpError> {
+    if let Some(error) = value.get("error") {
+        return Err(McpError::Rpc {
+            code: error["code"].as_i64().unwrap_or(-1),
+            message: error["message"].as_str().unwrap_or("unknown").to_owned(),
+        });
+    }
+    if value["id"].as_u64().is_some_and(|actual| actual != id) {
+        return Err(McpError::Protocol(format!(
+            "unexpected response id: {}",
+            value["id"]
+        )));
+    }
+    Ok(value["result"].clone())
+}
+
+fn parse_sse_response(text: &str, id: u64) -> Result<Value, McpError> {
+    let mut data = String::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("data:") {
+            data.push_str(rest.trim_start());
+            data.push('\n');
+        } else if line.trim().is_empty() && !data.is_empty() {
+            let value: Value = serde_json::from_str(data.trim())
+                .map_err(|error| McpError::Protocol(format!("invalid SSE JSON: {error}")))?;
+            data.clear();
+            if value["id"].as_u64() == Some(id) {
+                return extract_response(value, id);
+            }
+        }
+    }
+    if !data.trim().is_empty() {
+        let value: Value = serde_json::from_str(data.trim())
+            .map_err(|error| McpError::Protocol(format!("invalid SSE JSON: {error}")))?;
+        if value["id"].as_u64() == Some(id) {
+            return extract_response(value, id);
+        }
+    }
+    Err(McpError::Protocol(
+        "SSE response without matching id".into(),
+    ))
+}
+
+fn parse_call_result(result: &Value) -> McpCallResult {
+    let mut content = String::new();
+    if let Some(blocks) = result["content"].as_array() {
+        for block in blocks {
+            if let Some(text) = block["text"].as_str() {
+                if !content.is_empty() {
+                    content.push('\n');
+                }
+                content.push_str(text);
+            } else if let Some(kind) = block["type"].as_str() {
+                content.push_str(&format!("[{kind}]"));
+            }
+        }
+    }
+    McpCallResult {
+        content,
+        is_error: result["isError"].as_bool().unwrap_or(false),
+    }
+}
+
+fn parse_resources(result: &Value) -> Vec<McpResource> {
+    result["resources"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| McpResource {
+                    uri: item["uri"].as_str().unwrap_or_default().to_owned(),
+                    name: item["name"].as_str().unwrap_or_default().to_owned(),
+                    description: item["description"].as_str().unwrap_or_default().to_owned(),
+                    mime_type: item["mimeType"].as_str().map(ToOwned::to_owned),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn parse_resource_text(result: &Value) -> String {
+    let mut text = String::new();
+    if let Some(contents) = result["contents"].as_array() {
+        for item in contents {
+            if let Some(value) = item["text"].as_str() {
+                if !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(value);
+            } else if item["blob"].is_string() {
+                text.push_str("[binary resource]");
+            }
+        }
+    }
+    text
+}
+
 /// Registers one MCP tool under `mcp__<server>__<tool>`.
 pub struct McpTool {
-    client: Arc<Mutex<McpClient>>,
+    client: McpBackend,
     server: String,
     remote_name: String,
     namespaced: String,
@@ -276,7 +610,7 @@ pub struct McpTool {
 
 impl McpTool {
     #[must_use]
-    pub fn new(client: Arc<Mutex<McpClient>>, server: &str, info: &McpToolInfo) -> Self {
+    pub fn new(client: McpBackend, server: &str, info: &McpToolInfo) -> Self {
         Self {
             client,
             server: server.to_owned(),
@@ -317,8 +651,8 @@ impl Tool for McpTool {
     }
 
     async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
-        let mut client = self.client.lock().await;
-        let result = client
+        let result = self
+            .client
             .call_tool(&self.remote_name, args)
             .await
             .map_err(|error| ToolError::Failed(error.to_string()))?;
@@ -327,6 +661,113 @@ impl Tool for McpTool {
             is_error: result.is_error,
             files: Vec::new(),
         })
+    }
+}
+
+pub struct McpListResourcesTool {
+    client: McpBackend,
+    namespaced: String,
+    description: String,
+}
+
+impl McpListResourcesTool {
+    #[must_use]
+    pub fn new(client: McpBackend, server: &str) -> Self {
+        Self {
+            client,
+            namespaced: format!("mcp__{server}__list_resources"),
+            description: format!("[MCP:{server}] List resources"),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for McpListResourcesTool {
+    fn name(&self) -> &str {
+        &self.namespaced
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn schema(&self) -> Value {
+        json!({"type": "object", "additionalProperties": false, "properties": {}})
+    }
+
+    async fn execute(&self, _ctx: &ToolCtx, _args: Value) -> Result<ToolOutcome, ToolError> {
+        let resources = self
+            .client
+            .list_resources()
+            .await
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        if resources.is_empty() {
+            return Ok(ToolOutcome::text("(no resources)"));
+        }
+        let text = resources
+            .iter()
+            .map(|resource| {
+                format!(
+                    "{}\t{}\t{}",
+                    resource.uri, resource.name, resource.description
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(ToolOutcome::text(text))
+    }
+}
+
+pub struct McpReadResourceTool {
+    client: McpBackend,
+    namespaced: String,
+    description: String,
+}
+
+impl McpReadResourceTool {
+    #[must_use]
+    pub fn new(client: McpBackend, server: &str) -> Self {
+        Self {
+            client,
+            namespaced: format!("mcp__{server}__read_resource"),
+            description: format!("[MCP:{server}] Read a resource by URI"),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for McpReadResourceTool {
+    fn name(&self) -> &str {
+        &self.namespaced
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "required": ["uri"],
+            "additionalProperties": false,
+            "properties": {"uri": {"type": "string", "minLength": 1}}
+        })
+    }
+
+    async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
+        let uri = args["uri"]
+            .as_str()
+            .ok_or_else(|| ToolError::InvalidArgs("uri is required".into()))?;
+        let text = self
+            .client
+            .read_resource(uri)
+            .await
+            .map_err(|error| ToolError::Failed(error.to_string()))?;
+        Ok(ToolOutcome::text(if text.is_empty() {
+            "(empty resource)".to_owned()
+        } else {
+            text
+        }))
     }
 }
 
@@ -341,16 +782,25 @@ fn normalize_schema(schema: &Value) -> Value {
 /// Connects to a server and returns its tool adapters.
 pub async fn connect_server(
     spec: McpServerSpec,
-) -> Result<(Arc<Mutex<McpClient>>, Vec<Arc<McpTool>>), McpError> {
+) -> Result<(McpBackend, Vec<Arc<dyn dshr_tools::Tool>>), McpError> {
     let name = spec.name.clone();
-    let client = Arc::new(Mutex::new(McpClient::connect(spec).await?));
-    let tools = {
-        let mut guard = client.lock().await;
-        guard.list_tools().await?
+    let (backend, tools) = if spec.url.is_some() {
+        let client = Arc::new(McpHttpClient::connect(spec).await?);
+        let tools = client.list_tools().await?;
+        (McpBackend::Http(client), tools)
+    } else {
+        let client = Arc::new(Mutex::new(McpClient::connect(spec).await?));
+        let tools = client.lock().await.list_tools().await?;
+        (McpBackend::Stdio(client), tools)
     };
-    let adapters = tools
+
+    let mut adapters: Vec<Arc<dyn dshr_tools::Tool>> = tools
         .iter()
-        .map(|tool| Arc::new(McpTool::new(Arc::clone(&client), &name, tool)))
+        .map(|tool| {
+            Arc::new(McpTool::new(backend.clone(), &name, tool)) as Arc<dyn dshr_tools::Tool>
+        })
         .collect();
-    Ok((client, adapters))
+    adapters.push(Arc::new(McpListResourcesTool::new(backend.clone(), &name)));
+    adapters.push(Arc::new(McpReadResourceTool::new(backend.clone(), &name)));
+    Ok((backend, adapters))
 }

@@ -903,9 +903,11 @@ name = "dshr-mcp"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "dshr-core",
  "dshr-llm",
  "dshr-tools",
+ "reqwest",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
