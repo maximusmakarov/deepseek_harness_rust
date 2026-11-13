@@ -100,7 +100,7 @@
 
 ## M4 — MCP, web, jobs, субагенты (10–15 ИД)
 
-**Статус:** ядро выполнено; MCP HTTP, resources, prompts, sampling и OAuth refresh. Отложено: durable jobs, MCP elicitation.
+**Статус:** ядро выполнено; MCP HTTP, resources, prompts, sampling и OAuth refresh. Отложено: MCP elicitation.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — M0–M7/P2 закрыты (224 теста); desktop = PWA; Windows отложен, остались расширенные протоколы.
+**Статус:** срез 13.11.2026 — M0–M7/P2 закрыты (226 тестов); desktop = PWA; Windows отложен, остались расширенные протоколы.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

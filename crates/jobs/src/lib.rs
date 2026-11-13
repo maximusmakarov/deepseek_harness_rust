@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
-//! In-process background jobs.
+//! Background jobs with durable status and output.
 //!
 //! Each job owns a shell child process, a captured output buffer (tail-capped),
-//! and a status. Jobs live for the lifetime of the harness process; durable
-//! jobs are deferred.
+//! and a status. With a state directory, metadata and logs survive a restart;
+//! jobs that were running when the process died are marked interrupted.
 
 use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,11 +36,12 @@ pub enum JobError {
     Failed(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum JobStatus {
     Running,
     Exited(i32),
     Killed,
+    Interrupted,
     Failed(String),
 }
 
@@ -50,6 +53,7 @@ impl JobStatus {
             Self::Exited(0) => "exited(0)".to_owned(),
             Self::Exited(code) => format!("exited({code})"),
             Self::Killed => "killed".to_owned(),
+            Self::Interrupted => "interrupted".to_owned(),
             Self::Failed(error) => format!("failed: {error}"),
         }
     }
@@ -68,12 +72,20 @@ struct Job {
     command: String,
     status: Arc<Mutex<JobStatus>>,
     output: Arc<Mutex<String>>,
-    child: Arc<Mutex<Child>>,
+    child: Option<Arc<Mutex<Child>>>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct StoredJob {
+    id: String,
+    command: String,
+    status: JobStatus,
 }
 
 pub struct JobManager {
     jobs: Mutex<BTreeMap<String, Arc<Job>>>,
     sandbox: Option<Arc<Sandbox>>,
+    state_dir: Option<PathBuf>,
 }
 
 impl Default for JobManager {
@@ -81,6 +93,7 @@ impl Default for JobManager {
         Self {
             jobs: Mutex::new(BTreeMap::new()),
             sandbox: None,
+            state_dir: None,
         }
     }
 }
@@ -96,6 +109,19 @@ impl JobManager {
         Self {
             jobs: Mutex::new(BTreeMap::new()),
             sandbox,
+            state_dir: None,
+        }
+    }
+
+    /// Opens a manager backed by `state_dir`, restoring finished jobs and
+    /// marking jobs that were running during a crash as interrupted.
+    #[must_use]
+    pub fn with_state(sandbox: Option<Arc<Sandbox>>, state_dir: PathBuf) -> Self {
+        let jobs = load_jobs(&state_dir);
+        Self {
+            jobs: Mutex::new(jobs),
+            sandbox,
+            state_dir: Some(state_dir),
         }
     }
 
@@ -138,32 +164,43 @@ impl JobManager {
             .ok_or_else(|| JobError::Spawn("missing stderr".into()))?;
 
         let id = JobId::new();
+        let log_path = self
+            .state_dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{id}.log")));
         let output = Arc::new(Mutex::new(String::new()));
-        spawn_reader(stdout, Arc::clone(&output), "");
-        spawn_reader(stderr, Arc::clone(&output), "[stderr] ");
+        spawn_reader(stdout, Arc::clone(&output), "", log_path.clone());
+        spawn_reader(stderr, Arc::clone(&output), "[stderr] ", log_path.clone());
 
         let status = Arc::new(Mutex::new(JobStatus::Running));
         let child = Arc::new(Mutex::new(child));
         {
             let child = Arc::clone(&child);
             let status = Arc::clone(&status);
+            let output = Arc::clone(&output);
+            let state_dir = self.state_dir.clone();
+            let command = command.to_owned();
+            let id_text = id.to_string();
+            let log_path = log_path.clone();
             tokio::spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     let mut guard = child.lock().await;
-                    match guard.try_wait() {
-                        Ok(Some(exit)) => {
-                            drop(guard);
-                            *status.lock().await = JobStatus::Exited(exit.code().unwrap_or(-1));
-                            break;
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            drop(guard);
-                            *status.lock().await = JobStatus::Failed(error.to_string());
-                            break;
-                        }
+                    let next = match guard.try_wait() {
+                        Ok(Some(exit)) => Some(JobStatus::Exited(exit.code().unwrap_or(-1))),
+                        Ok(None) => None,
+                        Err(error) => Some(JobStatus::Failed(error.to_string())),
+                    };
+                    drop(guard);
+                    let Some(next) = next else { continue };
+                    *status.lock().await = next.clone();
+                    if let Some(path) = &log_path {
+                        let _ = std::fs::write(path, &*output.lock().await);
                     }
+                    if let Some(dir) = &state_dir {
+                        persist_status(dir, &id_text, &command, &next);
+                    }
+                    break;
                 }
             });
         }
@@ -173,9 +210,12 @@ impl JobManager {
             command: command.to_owned(),
             status,
             output,
-            child,
+            child: Some(child),
         });
         self.jobs.lock().await.insert(id.to_string(), job);
+        if let Some(dir) = &self.state_dir {
+            persist_status(dir, id.as_str(), command, &JobStatus::Running);
+        }
         Ok(id)
     }
 
@@ -205,12 +245,18 @@ impl JobManager {
 
     pub async fn kill(&self, id: &str) -> Result<(), JobError> {
         let job = self.get(id).await?;
-        let mut child = job.child.lock().await;
+        let Some(child) = &job.child else {
+            return Err(JobError::Failed(format!("job '{id}' is not running")));
+        };
         child
+            .lock()
+            .await
             .start_kill()
             .map_err(|error| JobError::Failed(error.to_string()))?;
-        drop(child);
         *job.status.lock().await = JobStatus::Killed;
+        if let Some(dir) = &self.state_dir {
+            persist_status(dir, &job.id.to_string(), &job.command, &JobStatus::Killed);
+        }
         Ok(())
     }
 
@@ -224,20 +270,107 @@ impl JobManager {
     }
 }
 
-fn spawn_reader<R>(reader: R, output: Arc<Mutex<String>>, prefix: &'static str)
-where
+fn spawn_reader<R>(
+    reader: R,
+    output: Arc<Mutex<String>>,
+    prefix: &'static str,
+    log_path: Option<PathBuf>,
+) where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
+        if let Some(path) = &log_path
+            && let Some(parent) = path.parent()
+        {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut log = log_path.as_ref().and_then(|path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .ok()
+        });
         let mut lines = BufReader::new(reader).lines();
+        let mut written = 0usize;
         while let Ok(Some(line)) = lines.next_line().await {
             let mut buffer = output.lock().await;
             buffer.push_str(prefix);
             buffer.push_str(&line);
             buffer.push('\n');
             trim_tail(&mut buffer);
+            if let Some(file) = log.as_mut() {
+                let _ = writeln!(file, "{prefix}{line}");
+                written += 1;
+                if written.is_multiple_of(1024)
+                    && let Some(path) = &log_path
+                    && std::fs::metadata(path)
+                        .is_ok_and(|meta| meta.len() > 4 * MAX_OUTPUT_BYTES as u64)
+                {
+                    let _ = std::fs::write(path, &*buffer);
+                }
+            }
         }
     });
+}
+
+fn persist_status(dir: &Path, id: &str, command: &str, status: &JobStatus) {
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let Ok(text) = serde_json::to_string(&StoredJob {
+        id: id.to_owned(),
+        command: command.to_owned(),
+        status: status.clone(),
+    }) else {
+        return;
+    };
+    let path = dir.join(format!("{id}.json"));
+    let temporary = dir.join(format!("{id}.json.tmp"));
+    if std::fs::write(&temporary, text).is_ok() {
+        let _ = std::fs::rename(&temporary, &path);
+    }
+}
+
+fn load_jobs(dir: &Path) -> BTreeMap<String, Arc<Job>> {
+    let mut jobs = BTreeMap::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return jobs;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(stored) = serde_json::from_str::<StoredJob>(&text) else {
+            continue;
+        };
+        let Ok(id) = stored.id.parse::<JobId>() else {
+            continue;
+        };
+        let mut status = stored.status;
+        if matches!(status, JobStatus::Running) {
+            status = JobStatus::Interrupted;
+            persist_status(dir, &stored.id, &stored.command, &status);
+        }
+        let mut output =
+            std::fs::read_to_string(dir.join(format!("{}.log", stored.id))).unwrap_or_default();
+        trim_tail(&mut output);
+        jobs.insert(
+            stored.id.clone(),
+            Arc::new(Job {
+                id,
+                command: stored.command,
+                status: Arc::new(Mutex::new(status)),
+                output: Arc::new(Mutex::new(output)),
+                child: None,
+            }),
+        );
+    }
+    jobs
 }
 
 fn trim_tail(buffer: &mut String) {
@@ -467,6 +600,60 @@ mod tests {
             manager.status(id.as_str()).await.expect("status"),
             JobStatus::Killed
         );
+    }
+
+    #[tokio::test]
+    async fn restores_finished_job_and_output() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = dir.path().join("jobs");
+        let manager = JobManager::with_state(None, state.clone());
+        let id = manager
+            .start("printf 'durable'", dir.path())
+            .await
+            .expect("start");
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(
+            manager.status(id.as_str()).await.expect("status"),
+            JobStatus::Exited(0)
+        );
+        drop(manager);
+
+        let restored = JobManager::with_state(None, state);
+        assert_eq!(
+            restored.status(id.as_str()).await.expect("status"),
+            JobStatus::Exited(0)
+        );
+        let output = restored.output(id.as_str()).await.expect("output");
+        assert!(output.contains("durable"), "{output}");
+    }
+
+    #[tokio::test]
+    async fn marks_running_job_interrupted_on_load() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let state = dir.path().join("jobs");
+        std::fs::create_dir_all(&state).expect("mkdir");
+        let id = JobId::new();
+        std::fs::write(
+            state.join(format!("{id}.json")),
+            serde_json::to_string(&StoredJob {
+                id: id.to_string(),
+                command: "sleep 10".into(),
+                status: JobStatus::Running,
+            })
+            .expect("json"),
+        )
+        .expect("metadata");
+        std::fs::write(state.join(format!("{id}.log")), "partial output\n").expect("log");
+
+        let manager = JobManager::with_state(None, state.clone());
+        assert_eq!(
+            manager.status(id.as_str()).await.expect("status"),
+            JobStatus::Interrupted
+        );
+        let output = manager.output(id.as_str()).await.expect("output");
+        assert!(output.contains("partial output"), "{output}");
+        let stored = std::fs::read_to_string(state.join(format!("{id}.json"))).expect("metadata");
+        assert!(stored.contains("Interrupted"), "{stored}");
     }
 
     #[tokio::test]

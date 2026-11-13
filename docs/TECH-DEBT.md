@@ -28,6 +28,7 @@
 | MCP OAuth отсутствовал | client-credentials — [ADR-028](adr/028-mcp-http-resources.md) |
 | ACP audio/stdio MCP отсутствовали | audio-блоки и stdio MCP из `session/new` — [ADR-034](adr/034-acp.md) |
 | Не было криптоподписи WASM | Ed25519 над именем и sha256, `plugins.trusted_keys` — [ADR-032](adr/032-wasm-plugins.md) |
+| Jobs не переживали рестарт | состояние и логи в `<home>/jobs`, running → interrupted при загрузке |
 | ACP игнорировал `resource_link` | блок разворачивается в текст с именем/URI — [ADR-034](adr/034-acp.md) |
 | Не было стабильных бинарных дистрибутивов | Архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула — [ADR-039](adr/039-release-artifacts.md) |
 
@@ -42,6 +43,5 @@
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P3 | i18n остатка CLI | Основные help/выводы ru/en; часть аргументов, ошибок и export — en. |
 | P2 | MCP elicitation | OAuth refresh (expiry + 401 retry) есть; `elicitation/create` не поддержан. |
-| P2 | Durable jobs | `jobs` живут в памяти процесса и не переживают рестарт (DoD M4). |
 | P2 | Cordis/npm-совместимость | ADR-013 принят, но runtime pack, JS-шина и capability-аудит не реализованы; сейчас есть WASM и MCP-sidecar. |
 | P3 | ghcr-бутылки и reproducible builds | Бинарная формула, суммы и подпись есть; `brew bottle` и байтовая воспроизводимость — нет — [ADR-039](adr/039-release-artifacts.md). |

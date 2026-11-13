@@ -1158,6 +1158,7 @@ dependencies = [
  "dshr-core",
  "dshr-sandbox",
  "dshr-tools",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",

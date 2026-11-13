@@ -153,7 +153,10 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         network: SandboxNetwork::Deny,
     }));
     tools.register(BashTool::new(Some(Arc::clone(&sandbox))));
-    let jobs = Arc::new(dshr_jobs::JobManager::with_sandbox(Some(sandbox)));
+    let jobs = Arc::new(dshr_jobs::JobManager::with_state(
+        Some(sandbox),
+        loader.home().join("jobs"),
+    ));
     dshr_jobs::register_tools(&mut tools, jobs);
 
     let mode = if args.danger {
