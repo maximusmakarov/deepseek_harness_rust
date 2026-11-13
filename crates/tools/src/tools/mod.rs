@@ -1,4 +1,5 @@
 mod apply_patch;
+mod ask_user;
 mod bash;
 mod edit;
 mod plan;
@@ -9,6 +10,7 @@ mod worktree;
 mod write;
 
 pub use apply_patch::ApplyPatchTool;
+pub use ask_user::AskUserTool;
 pub use bash::BashTool;
 pub use edit::EditTool;
 pub use plan::{PresentTool, TodoTool};

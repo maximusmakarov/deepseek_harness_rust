@@ -28,6 +28,7 @@
 | MCP OAuth отсутствовал | client-credentials — [ADR-028](adr/028-mcp-http-resources.md) |
 | ACP audio/stdio MCP отсутствовали | audio-блоки и stdio MCP из `session/new` — [ADR-034](adr/034-acp.md) |
 | Не было криптоподписи WASM | Ed25519 над именем и sha256, `plugins.trusted_keys` — [ADR-032](adr/032-wasm-plugins.md) |
+| Не было `ask_user` | observer-канал в TUI/Web, fail-closed в headless — `dshr-agent` |
 | Не было `apply_patch` | multi-file `*** Begin Patch` (add/update/delete/move), тесты — `dshr-tools` |
 | Jobs не переживали рестарт | состояние и логи в `<home>/jobs`, running → interrupted при загрузке |
 | Не было component model/WIT | wasmtime + WIT-мир `dshr:plugin@1.0.0`, пустой WASI; legacy wasmi сохранён — [ADR-032](adr/032-wasm-plugins.md) |

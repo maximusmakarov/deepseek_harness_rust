@@ -71,6 +71,11 @@ enum UiEvent {
         request: ApprovalRequest,
         respond: oneshot::Sender<bool>,
     },
+    Question {
+        question: String,
+        options: Vec<String>,
+        respond: oneshot::Sender<Option<String>>,
+    },
 }
 
 struct ChannelApprover {
@@ -114,6 +119,22 @@ impl AgentObserver for TuiObserver {
             name: call.name.clone(),
             ok: !outcome.is_error,
         });
+    }
+
+    async fn on_question(&self, question: &str, options: &[String]) -> Option<String> {
+        let (respond, answer) = oneshot::channel();
+        if self
+            .events
+            .send(UiEvent::Question {
+                question: question.to_owned(),
+                options: options.to_vec(),
+                respond,
+            })
+            .is_err()
+        {
+            return None;
+        }
+        answer.await.ok().flatten()
     }
 }
 
@@ -216,6 +237,13 @@ fn spawn_agent(
     });
 }
 
+struct PendingQuestion {
+    question: String,
+    options: Vec<String>,
+    answer: String,
+    respond: oneshot::Sender<Option<String>>,
+}
+
 struct App {
     lines: Vec<String>,
     stream: String,
@@ -224,6 +252,7 @@ struct App {
     busy: bool,
     quit: bool,
     approval: Option<(ApprovalRequest, oneshot::Sender<bool>)>,
+    question: Option<PendingQuestion>,
     model: String,
     session: String,
     lang: Lang,
@@ -239,6 +268,7 @@ impl App {
             busy: false,
             quit: false,
             approval: None,
+            question: None,
             model,
             session,
             lang,
@@ -284,6 +314,19 @@ impl App {
             UiEvent::Approval { request, respond } => {
                 self.approval = Some((request, respond));
             }
+            UiEvent::Question {
+                question,
+                options,
+                respond,
+            } => {
+                self.flush_stream();
+                self.question = Some(PendingQuestion {
+                    question,
+                    options,
+                    answer: String::new(),
+                    respond,
+                });
+            }
         }
     }
 
@@ -313,6 +356,41 @@ impl App {
         cancel: &Mutex<Option<CancellationToken>>,
     ) {
         if key.kind != KeyEventKind::Press {
+            return;
+        }
+
+        if let Some(mut pending) = self.question.take() {
+            match key.code {
+                KeyCode::Esc => {
+                    let _ = pending.respond.send(None);
+                }
+                KeyCode::Enter => {
+                    let _ = pending.respond.send(Some(pending.answer.trim().to_owned()));
+                }
+                KeyCode::Backspace => {
+                    pending.answer.pop();
+                    self.question = Some(pending);
+                }
+                KeyCode::Char(character)
+                    if pending.options.is_empty() || !character.is_ascii_digit() =>
+                {
+                    pending.answer.push(character);
+                    self.question = Some(pending);
+                }
+                KeyCode::Char(character) if character.is_ascii_digit() => {
+                    let index = character.to_digit(10).unwrap_or(0) as usize;
+                    if index >= 1 && index <= pending.options.len() {
+                        let _ = pending
+                            .respond
+                            .send(Some(pending.options[index - 1].clone()));
+                    } else {
+                        self.question = Some(pending);
+                    }
+                }
+                _ => {
+                    self.question = Some(pending);
+                }
+            }
             return;
         }
 
@@ -417,6 +495,26 @@ impl App {
             Paragraph::new(prompt).style(Style::default().fg(Color::Yellow)),
             chunks[2],
         );
+
+        if let Some(pending) = &self.question {
+            let popup = centered(area, 70, 9);
+            frame.render_widget(Clear, popup);
+            let mut text = format!("{}\n\n", pending.question);
+            for (index, option) in pending.options.iter().enumerate() {
+                text.push_str(&format!("{}. {option}\n", index + 1));
+            }
+            text.push_str(&format!("\n> {}", pending.answer));
+            frame.render_widget(
+                Paragraph::new(text)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("question: Enter / Esc"),
+                    )
+                    .wrap(Wrap { trim: true }),
+                popup,
+            );
+        }
 
         if let Some((request, _)) = &self.approval {
             let popup = centered(area, 70, 7);
@@ -546,6 +644,61 @@ mod tests {
         );
         assert!(answer.blocking_recv().expect("answer"));
         assert!(app.approval.is_none());
+    }
+
+    #[test]
+    fn question_accepts_a_typed_answer() {
+        let mut app = app();
+        let (respond, answer) = oneshot::channel();
+        app.apply(UiEvent::Question {
+            question: "Color?".into(),
+            options: Vec::new(),
+            respond,
+        });
+        let (commands, _receiver) = mpsc::channel();
+        let cancel = Mutex::new(None);
+        for character in "blue".chars() {
+            app.handle_key(
+                KeyEvent::new(
+                    KeyCode::Char(character),
+                    crossterm::event::KeyModifiers::NONE,
+                ),
+                &commands,
+                &cancel,
+            );
+        }
+        app.handle_key(
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE),
+            &commands,
+            &cancel,
+        );
+        assert_eq!(
+            answer.blocking_recv().expect("answer"),
+            Some("blue".to_owned())
+        );
+        assert!(app.question.is_none());
+    }
+
+    #[test]
+    fn question_options_are_selected_by_digit() {
+        let mut app = app();
+        let (respond, answer) = oneshot::channel();
+        app.apply(UiEvent::Question {
+            question: "Pick".into(),
+            options: vec!["a".into(), "b".into()],
+            respond,
+        });
+        let (commands, _receiver) = mpsc::channel();
+        let cancel = Mutex::new(None);
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('2'), crossterm::event::KeyModifiers::NONE),
+            &commands,
+            &cancel,
+        );
+        assert_eq!(
+            answer.blocking_recv().expect("answer"),
+            Some("b".to_owned())
+        );
     }
 
     #[test]

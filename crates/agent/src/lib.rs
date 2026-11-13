@@ -132,7 +132,14 @@ impl ApprovalPolicy {
                 }
                 _ => Decision::Allow,
             },
-            "todo" | "present" => Decision::Allow,
+            "todo" | "present" | "ask_user" => Decision::Allow,
+            "apply_patch" => {
+                if self.mode == PermissionMode::ReadOnly {
+                    Decision::Ask("file modifications are disabled".into())
+                } else {
+                    Decision::Allow
+                }
+            }
             "write" | "edit" => {
                 let Some(path) = input["path"].as_str() else {
                     return Decision::Deny("path is required".into());
@@ -206,6 +213,12 @@ pub trait AgentObserver: Send + Sync {
     async fn on_tool_start(&self, _call: &ToolCallInfo) {}
 
     async fn on_tool_end(&self, _call: &ToolCallInfo, _outcome: &ToolOutcome) {}
+
+    /// Asks the active interface a question. `None` means the interface cannot
+    /// answer; `ask_user` then fails closed.
+    async fn on_question(&self, _question: &str, _options: &[String]) -> Option<String> {
+        None
+    }
 }
 
 pub struct NullObserver;
@@ -549,17 +562,35 @@ impl Agent {
                             spill_dir: self.store.root().join("spills"),
                             cancel: cancel.clone(),
                         };
-                        match self
-                            .tools
-                            .execute(&call.name, call.input.clone(), &ctx)
-                            .await
-                        {
-                            Ok(outcome) => outcome,
-                            Err(dshr_tools::ToolError::Cancelled) => {
-                                self.end_turn(&turn, TurnEndReason::Cancelled)?;
-                                return Err(AgentError::Cancelled);
+                        if call.name == "ask_user" {
+                            let question = call.input["question"]
+                                .as_str()
+                                .unwrap_or("Question from the agent");
+                            let options: Vec<String> = call.input["options"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+                                .collect();
+                            match observer.on_question(question, &options).await {
+                                Some(answer) => ToolOutcome::text(answer),
+                                None => {
+                                    ToolOutcome::error("ask_user is unavailable in this interface")
+                                }
                             }
-                            Err(error) => ToolOutcome::error(error.to_string()),
+                        } else {
+                            match self
+                                .tools
+                                .execute(&call.name, call.input.clone(), &ctx)
+                                .await
+                            {
+                                Ok(outcome) => outcome,
+                                Err(dshr_tools::ToolError::Cancelled) => {
+                                    self.end_turn(&turn, TurnEndReason::Cancelled)?;
+                                    return Err(AgentError::Cancelled);
+                                }
+                                Err(error) => ToolOutcome::error(error.to_string()),
+                            }
                         }
                     }
                     Err(AgentError::Denied(reason)) => {
@@ -744,6 +775,75 @@ mod tests {
         }));
     }
 
+    struct AnsweringObserver;
+
+    #[async_trait]
+    impl AgentObserver for AnsweringObserver {
+        async fn on_question(&self, question: &str, options: &[String]) -> Option<String> {
+            assert_eq!(question, "Color?");
+            assert_eq!(options, vec!["red".to_owned(), "blue".to_owned()]);
+            Some("blue".to_owned())
+        }
+    }
+
+    #[tokio::test]
+    async fn ask_user_is_answered_by_the_observer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut agent = agent(
+            &dir,
+            vec![
+                tool_response(
+                    "ask_user",
+                    json!({"question": "Color?", "options": ["red", "blue"]}),
+                ),
+                text_response("picked"),
+            ],
+            policy(&dir, PermissionMode::DangerFull, Arc::new(AutoApprover)),
+            4,
+        );
+        let report = agent
+            .run_turn("ask", CancellationToken::new(), &AnsweringObserver)
+            .await
+            .expect("turn");
+        assert_eq!(report.text, "picked");
+        let result = agent
+            .session()
+            .events
+            .iter()
+            .find_map(|event| match event {
+                SessionEvent::ToolResult { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+            .expect("tool result");
+        assert_eq!(result, "blue");
+    }
+
+    #[tokio::test]
+    async fn ask_user_fails_closed_without_an_interface() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut agent = agent(
+            &dir,
+            vec![
+                tool_response("ask_user", json!({"question": "Color?"})),
+                text_response("no answer"),
+            ],
+            policy(&dir, PermissionMode::DangerFull, Arc::new(AutoApprover)),
+            4,
+        );
+        agent
+            .run_turn("ask", CancellationToken::new(), &NullObserver)
+            .await
+            .expect("turn");
+        let failed = agent.session().events.iter().any(|event| {
+            matches!(
+                event,
+                SessionEvent::ToolResult { content, is_error: true, .. }
+                    if content.contains("unavailable")
+            )
+        });
+        assert!(failed);
+    }
+
     #[tokio::test]
     async fn denied_bash_becomes_error_result() {
         let dir = tempfile::tempdir().expect("tempdir");
@@ -908,6 +1008,44 @@ mod tests {
             .check("bash", &json!({"command": "echo hi"}))
             .await
             .expect("bash");
+    }
+
+    #[tokio::test]
+    async fn ask_user_is_always_allowed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for mode in [
+            PermissionMode::ReadOnly,
+            PermissionMode::WorkspaceWrite,
+            PermissionMode::DangerFull,
+        ] {
+            let policy = policy(&dir, mode, Arc::new(DenyApprover));
+            policy
+                .check("ask_user", &json!({"question": "Color?"}))
+                .await
+                .expect("ask_user");
+        }
+    }
+
+    #[tokio::test]
+    async fn apply_patch_asks_in_read_only_mode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let read_only = policy(&dir, PermissionMode::ReadOnly, Arc::new(DenyApprover));
+        let error = read_only
+            .check(
+                "apply_patch",
+                &json!({"patch": "*** Begin Patch\n*** End Patch"}),
+            )
+            .await
+            .expect_err("read only");
+        assert!(matches!(error, AgentError::Denied(_)));
+        let workspace_write = policy(&dir, PermissionMode::WorkspaceWrite, Arc::new(DenyApprover));
+        workspace_write
+            .check(
+                "apply_patch",
+                &json!({"patch": "*** Begin Patch\n*** End Patch"}),
+            )
+            .await
+            .expect("workspace write");
     }
 
     #[tokio::test]

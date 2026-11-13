@@ -91,6 +91,8 @@ struct Runtime {
     cancel: Mutex<Option<CancellationToken>>,
     approvals: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
     approval_counter: Arc<AtomicU64>,
+    questions: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    question_counter: Arc<AtomicU64>,
     busy: AtomicBool,
 }
 
@@ -102,6 +104,8 @@ impl Runtime {
             cancel: Mutex::new(None),
             approvals: Arc::new(Mutex::new(HashMap::new())),
             approval_counter: Arc::new(AtomicU64::new(1)),
+            questions: Arc::new(Mutex::new(HashMap::new())),
+            question_counter: Arc::new(AtomicU64::new(1)),
             busy: AtomicBool::new(false),
         }
     }
@@ -127,6 +131,11 @@ pub enum ServerEvent {
         summary: String,
         reason: String,
     },
+    Question {
+        id: String,
+        question: String,
+        options: Vec<String>,
+    },
     Done {
         session_id: String,
         text: String,
@@ -144,6 +153,8 @@ pub enum ServerEvent {
 
 struct BroadcastObserver {
     tx: broadcast::Sender<ServerEvent>,
+    questions: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    counter: Arc<AtomicU64>,
 }
 
 #[async_trait]
@@ -167,6 +178,23 @@ impl AgentObserver for BroadcastObserver {
             name: call.name.clone(),
             ok: !outcome.is_error,
         });
+    }
+
+    async fn on_question(&self, question: &str, options: &[String]) -> Option<String> {
+        let id = format!("q_{}", self.counter.fetch_add(1, Ordering::SeqCst));
+        let (respond, answer) = oneshot::channel();
+        self.questions.lock().await.insert(id.clone(), respond);
+        let _ = self.tx.send(ServerEvent::Question {
+            id: id.clone(),
+            question: question.to_owned(),
+            options: options.to_vec(),
+        });
+        let answer = tokio::time::timeout(Duration::from_secs(300), answer)
+            .await
+            .ok()
+            .and_then(Result::ok);
+        self.questions.lock().await.remove(&id);
+        answer
     }
 }
 
@@ -278,6 +306,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/sessions/{id}/approvals/{approval_id}",
             post(resolve_approval),
+        )
+        .route(
+            "/v1/sessions/{id}/questions/{question_id}",
+            post(resolve_question),
         )
         .route("/v1/rpc", post(rpc))
         .layer(CorsLayer::permissive())
@@ -416,7 +448,11 @@ async fn start_turn(
     let tx = runtime.tx.clone();
     let runtime = Arc::clone(&runtime);
     tokio::spawn(async move {
-        let observer = BroadcastObserver { tx: tx.clone() };
+        let observer = BroadcastObserver {
+            tx: tx.clone(),
+            questions: Arc::clone(&runtime.questions),
+            counter: Arc::clone(&runtime.question_counter),
+        };
         let result = agent.run_turn(&body.prompt, cancel, &observer).await;
         match result {
             Ok(report) => {
@@ -557,6 +593,29 @@ async fn resolve_approval(
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct QuestionAnswer {
+    answer: String,
+}
+
+async fn resolve_question(
+    State(state): State<AppState>,
+    Path((id, question_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<QuestionAnswer>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let runtime = state.runtime(&id).await;
+    let sender = runtime.questions.lock().await.remove(&question_id);
+    match sender {
+        Some(sender) => {
+            let _ = sender.send(body.answer);
+            Ok(Json(json!({"resolved": question_id})))
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
 async fn session_events(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -673,4 +732,45 @@ async fn style_css() -> Response {
         include_str!("../../web/dist/style.css"),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn question_observer_waits_for_the_answer() {
+        let (tx, mut receiver) = broadcast::channel(8);
+        let questions = Arc::new(Mutex::new(HashMap::new()));
+        let counter = Arc::new(AtomicU64::new(1));
+        let observer = BroadcastObserver {
+            tx,
+            questions: Arc::clone(&questions),
+            counter,
+        };
+        let pending = tokio::spawn(async move {
+            observer
+                .on_question("Which file?", &["a.rs".to_owned(), "b.rs".to_owned()])
+                .await
+        });
+        let event = receiver.recv().await.expect("event");
+        let ServerEvent::Question {
+            id,
+            question,
+            options,
+        } = event
+        else {
+            panic!("expected a question event");
+        };
+        assert_eq!(question, "Which file?");
+        assert_eq!(options, vec!["a.rs", "b.rs"]);
+        questions
+            .lock()
+            .await
+            .remove(&id)
+            .expect("question")
+            .send("a.rs".to_owned())
+            .expect("answer");
+        assert_eq!(pending.await.expect("task"), Some("a.rs".to_owned()));
+    }
 }

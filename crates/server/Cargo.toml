@@ -27,5 +27,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 dshr-llm-mock.workspace = true
+bytes = "1"
+reqwest.workspace = true
 tempfile.workspace = true
 tower = "0.5"

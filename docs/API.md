@@ -21,8 +21,9 @@ dshr serve --bind 127.0.0.1 --port 55678
 | GET | `/v1/sessions/{id}/events` | SSE | поток `ServerEvent` |
 | POST | `/v1/sessions/{id}/cancel` | `{}` | `{cancelled}` |
 | POST | `/v1/sessions/{id}/approvals/{approval_id}` | `{approved}` | `{resolved}` |
+| POST | `/v1/sessions/{id}/questions/{question_id}` | `{answer}` | `{resolved}` |
 
-`ServerEvent` (JSON, поле `type`): `text`, `tool_start`, `tool_end`, `approval`, `done`, `cancelled`, `error`.
+`ServerEvent` (JSON, поле `type`): `text`, `tool_start`, `tool_end`, `approval`, `question`, `done`, `cancelled`, `error`.
 
 Пример:
 

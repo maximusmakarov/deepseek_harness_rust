@@ -58,6 +58,13 @@ struct ApprovalInfo {
     reason: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct QuestionInfo {
+    id: String,
+    question: String,
+    options: Vec<String>,
+}
+
 thread_local! {
     static SOURCE: RefCell<Option<(EventSource, Closure<dyn FnMut(MessageEvent)>)>> =
         const { RefCell::new(None) };
@@ -174,6 +181,7 @@ fn connect_events(
     busy: RwSignal<bool>,
     status: RwSignal<String>,
     approval: RwSignal<Option<ApprovalInfo>>,
+    question: RwSignal<Option<QuestionInfo>>,
 ) {
     let url = format!(
         "/v1/sessions/{session}/events?token={}",
@@ -214,6 +222,18 @@ fn connect_events(
                         text: format!("{} {name}", if ok { "✓" } else { "✗" }),
                     });
                 });
+            }
+            "question" => {
+                question.set(Some(QuestionInfo {
+                    id: value["id"].as_str().unwrap_or_default().to_owned(),
+                    question: value["question"].as_str().unwrap_or_default().to_owned(),
+                    options: value["options"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|option| option.as_str().map(ToOwned::to_owned))
+                        .collect(),
+                }));
             }
             "approval" => {
                 approval.set(Some(ApprovalInfo {
@@ -278,6 +298,8 @@ fn App() -> impl IntoView {
     let busy = RwSignal::new(false);
     let streaming = RwSignal::new(false);
     let approval = RwSignal::new(None::<ApprovalInfo>);
+    let question = RwSignal::new(None::<QuestionInfo>);
+    let answer = RwSignal::new(String::new());
 
     let refresh_sessions = move || {
         let value = token.get_untracked();
@@ -332,7 +354,7 @@ fn App() -> impl IntoView {
                 Err(error) => status.set(format!("error: {error}")),
             }
         });
-        connect_events(id, value, messages, streaming, busy, status, approval);
+        connect_events(id, value, messages, streaming, busy, status, approval, question);
     };
 
     let new_session = move || {
@@ -399,6 +421,26 @@ fn App() -> impl IntoView {
                 &format!("/v1/sessions/{session}/cancel"),
                 &value,
                 &serde_json::json!({}),
+            )
+            .await;
+        });
+    };
+
+    let answer_question = move |value_for_answer: String| {
+        let Some(info) = question.get_untracked() else {
+            return;
+        };
+        let Some(session) = current.get_untracked() else {
+            return;
+        };
+        let token_value = token.get_untracked();
+        question.set(None);
+        answer.set(String::new());
+        spawn_local(async move {
+            let _ = post_json::<Value>(
+                &format!("/v1/sessions/{session}/questions/{}", info.id),
+                &token_value,
+                &serde_json::json!({"answer": value_for_answer}),
             )
             .await;
         });
@@ -486,6 +528,32 @@ fn App() -> impl IntoView {
                 </form>
             </section>
         </main>
+        {move || question.get().map(|info| view! {
+            <dialog open>
+                <h3>"Question"</h3>
+                <p>{info.question.clone()}</p>
+                <div class="row">
+                    {info.options.iter().map(|option| {
+                        let option = option.clone();
+                        view! {
+                            <button on:click=move |_| answer_question(option.clone())>
+                                {option.clone()}
+                            </button>
+                        }
+                    }).collect_view()}
+                </div>
+                <div class="row">
+                    <input
+                        placeholder="Answer"
+                        prop:value=move || answer.get()
+                        on:input=move |event| answer.set(event_target_value(&event))
+                    />
+                    <button on:click=move |_| answer_question(answer.get_untracked())>
+                        "Send"
+                    </button>
+                </div>
+            </dialog>
+        })}
         {move || approval.get().map(|info| view! {
             <dialog open>
                 <h3>"Approval required"</h3>
