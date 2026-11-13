@@ -162,7 +162,7 @@ impl AcpServer {
                                             "close": {}
                                         },
                                         "promptCapabilities": {
-                                            "image": false,
+                                            "image": true,
                                             "audio": false,
                                             "embeddedContext": false
                                         }
@@ -297,8 +297,8 @@ impl AcpServer {
                         send_error(&writer, id, -32602, "sessionId is required").await?;
                         continue;
                     };
-                    let prompt = prompt_text(&params["prompt"]);
-                    if prompt.trim().is_empty() {
+                    let prompt = prompt_content(&params["prompt"]);
+                    if prompt.is_empty() {
                         send_error(&writer, id, -32602, "prompt is empty").await?;
                         continue;
                     }
@@ -320,7 +320,7 @@ impl AcpServer {
                         let result = server
                             .run_prompt(
                                 &session_id,
-                                &prompt,
+                                prompt,
                                 cancel,
                                 Arc::clone(&writer),
                                 prompt_rpc,
@@ -378,7 +378,7 @@ impl AcpServer {
     async fn run_prompt(
         &self,
         session_id: &str,
-        prompt: &str,
+        prompt: Vec<dshr_llm::ContentBlock>,
         cancel: CancellationToken,
         writer: Arc<Mutex<BufWriter<impl tokio::io::AsyncWrite + Unpin + Send + 'static>>>,
         rpc: Arc<dyn ClientRpc>,
@@ -415,7 +415,7 @@ impl AcpServer {
             policy,
             config,
         );
-        match agent.run_turn(prompt, cancel, &observer).await {
+        match agent.run_turn_with_content(prompt, cancel, &observer).await {
             Ok(_) => Ok(()),
             Err(AgentError::Cancelled) => Err(PromptError::Cancelled),
             Err(error) => Err(PromptError::Failed(error.to_string())),
@@ -574,21 +574,19 @@ where
     .await
 }
 
-fn prompt_text(value: &Value) -> String {
+fn prompt_content(value: &Value) -> Vec<dshr_llm::ContentBlock> {
     value
         .as_array()
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter_map(|block| {
-                    if block["type"].as_str() == Some("text") {
-                        block["text"].as_str()
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
+        .into_iter()
+        .flatten()
+        .filter_map(|block| match block["type"].as_str() {
+            Some("text") => block["text"].as_str().map(dshr_llm::ContentBlock::text),
+            Some("image") => {
+                let media_type = block["mimeType"].as_str()?.to_owned();
+                let data = block["data"].as_str()?.to_owned();
+                Some(dshr_llm::ContentBlock::Image { media_type, data })
+            }
+            _ => None,
         })
-        .unwrap_or_default()
+        .collect()
 }

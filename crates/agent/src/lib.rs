@@ -389,6 +389,17 @@ impl Agent {
         cancel: CancellationToken,
         observer: &dyn AgentObserver,
     ) -> Result<TurnReport, AgentError> {
+        self.run_turn_with_content(vec![ContentBlock::text(input)], cancel, observer)
+            .await
+    }
+
+    /// Runs a turn with explicit user content blocks (text, images, ...).
+    pub async fn run_turn_with_content(
+        &mut self,
+        content: Vec<ContentBlock>,
+        cancel: CancellationToken,
+        observer: &dyn AgentObserver,
+    ) -> Result<TurnReport, AgentError> {
         let turn = TurnId::new();
         self.append(SessionEvent::TurnStart {
             seq: self.session.next_seq(),
@@ -399,7 +410,7 @@ impl Agent {
             seq: self.session.next_seq(),
             at: now_rfc3339(),
             turn: turn.clone(),
-            content: vec![ContentBlock::text(input)],
+            content,
         })?;
 
         let mut usage = Usage::default();

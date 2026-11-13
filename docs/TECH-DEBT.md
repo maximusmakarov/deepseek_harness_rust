@@ -36,7 +36,7 @@
 | P2 | Leptos UI | Vanilla Web UI; SDK и rate-limit уже есть. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
-| P2 | ACP image/MCP | Permissions, fs, terminal, load/resume/close есть; image/audio и клиентские MCP — нет. |
+| P2 | ACP audio/MCP | Permissions, fs, terminal, load/resume/close, image есть; audio и клиентские MCP — нет. |
 | P3 | i18n остатка CLI | Основные help/выводы ru/en; часть аргументов, ошибок и export — en. |
 | P2 | MCP OAuth refresh/elicitation | Только client-credentials без refresh. |
 | P3 | WASM signature | Memory cap и sha256 есть; криптографической подписи нет. |

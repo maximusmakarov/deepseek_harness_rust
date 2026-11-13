@@ -736,3 +736,104 @@ async fn resumes_and_closes_a_session() {
     let closed = read_json(&mut reader).await;
     assert!(closed["result"].is_object());
 }
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn accepts_image_prompts() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Arc::new(SessionStore::new(dir.path().join("sessions")));
+    let provider = Arc::new(ScriptedProvider::new(
+        "test-model",
+        vec![vec![
+            StreamChunk::Start {
+                model: "test-model".into(),
+            },
+            StreamChunk::TextDelta {
+                text: "image seen".into(),
+            },
+            StreamChunk::Done {
+                stop_reason: StopReason::EndTurn,
+            },
+        ]],
+    ));
+    let server = AcpServer::new(
+        provider,
+        Arc::new(ToolRegistry::new()),
+        Arc::clone(&store),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 2,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("initialize");
+    let initialized = read_json(&mut reader).await;
+    assert_eq!(
+        initialized["result"]["agentCapabilities"]["promptCapabilities"]["image"],
+        true
+    );
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":dir.path()}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("session");
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":3,"method":"session/prompt",
+                    "params":{
+                        "sessionId":session_id,
+                        "prompt":[
+                            {"type":"text","text":"what is this"},
+                            {"type":"image","data":"aGk=","mimeType":"image/png"}
+                        ]
+                    }
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("prompt");
+    let mut stop = None;
+    while stop.is_none() {
+        let message = read_json(&mut reader).await;
+        if message["id"] == 3 {
+            stop = message["result"]["stopReason"]
+                .as_str()
+                .map(ToOwned::to_owned);
+        }
+    }
+    assert_eq!(stop.as_deref(), Some("end_turn"));
+    let session = store.open(session_id).expect("session");
+    assert!(session.events.iter().any(|event| matches!(
+        event,
+        dshr_session::SessionEvent::UserMessage { content, .. }
+            if content.iter().any(|block| matches!(block, dshr_llm::ContentBlock::Image { .. }))
+    )));
+}
