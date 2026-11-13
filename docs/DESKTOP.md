@@ -17,8 +17,14 @@ CARGO_TARGET_DIR=target cargo build --release --manifest-path crates/desktop/Car
 Крейт вынесен из workspace (как `crates/web`), чтобы Tauri/WebKit не попадали в
 Linux-CI; на macOS его тесты запускаются отдельным шагом CI.
 
-`DSHR_BIN` задаёт путь к `dshr`, иначе берётся соседний бинарь или `PATH`.
-Серверный процесс завершается вместе с окном.
+`DSHR_BIN` задаёт путь к `dshr`, иначе берётся соседний бинарь или `PATH`;
+`DSH_HOME` задаёт home, `DSHR_DESKTOP_PORT` — фиксированный порт (0 = случайный).
+Закрытие окна скрывает его в трей, а Quit завершает сервер.
+
+Трей: Show/Hide, Open in browser, Open terminal, Export diagnostics…, Profile
+(список `default` + `<home>/profiles/*`, переключение через `desktop-profile` и
+рестарт shell) и Quit. `--export-diagnostics` собирает `system-info.txt`,
+`desktop.log`, вывод `dshr doctor` и упаковывает в `dshr-diagnostics-*.tar.gz`.
 
 Сборка `.app` (macOS):
 
@@ -28,8 +34,9 @@ scripts/package-desktop.sh 0.1.0
 ./dist/dshr.app/Contents/MacOS/dshr-desktop --check
 ```
 
-`--check` проверяет запуск sidecar-сервера без окна. Трей и автообновление пока не
-настроены — это следующий срез desktop.
+`--check` проверяет запуск sidecar-сервера без окна. Автообновление, recovery-окна и
+режимы окна (compatibility/extended/enhanced) пока не реализованы — это следующий
+срез desktop; матрица — [PARITY.md](PARITY.md).
 
 ## PWA
 

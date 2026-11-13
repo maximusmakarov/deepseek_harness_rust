@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-234 теста; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, полный Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+235 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, полный Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -98,7 +98,8 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/INSTALL.md](docs/INSTALL.md) | Готовые бинарники, Homebrew, systemd/launchd, Docker | Для установки |
 | [docs/RELEASE.md](docs/RELEASE.md) | Архивы, SHA256SUMS, Ed25519-подпись, provenance | Для релизов |
 | [docs/CONFIG.md](docs/CONFIG.md) | Слои и `ui.language` | Для настройки |
-| [docs/DESKTOP.md](docs/DESKTOP.md) | PWA-установка, статус Tauri | Для desktop |
+| [docs/DESKTOP.md](docs/DESKTOP.md) | Tauri, трей, профили, PWA, диагностика | Для desktop |
+| [docs/PARITY.md](docs/PARITY.md) | Матрица паритета с DSH Desktop | Для планирования паритета |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
