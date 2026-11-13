@@ -10,6 +10,7 @@ mod linux;
 mod windows;
 
 /// Runs `work` on a helper thread and fails closed if it does not finish.
+#[cfg(target_os = "windows")]
 pub fn run_with_timeout<T, F>(timeout: std::time::Duration, work: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -92,7 +93,7 @@ fn platform_execute(
     windows::execute(mode, workspace, network, program, args)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::run_with_timeout;
     use std::time::Duration;
