@@ -8,11 +8,14 @@
 webview. Токен подставляется в URL (`?token=…`) и сохраняется в `localStorage`.
 
 ```sh
-cargo build -p dshr-desktop --release
+CARGO_TARGET_DIR=target cargo build --release --manifest-path crates/desktop/Cargo.toml
 ./target/release/dshr-desktop
 # headless-проверка без окна:
 ./target/release/dshr-desktop --check
 ```
+
+Крейт вынесен из workspace (как `crates/web`), чтобы Tauri/WebKit не попадали в
+Linux-CI; на macOS его тесты запускаются отдельным шагом CI.
 
 `DSHR_BIN` задаёт путь к `dshr`, иначе берётся соседний бинарь или `PATH`.
 Серверный процесс завершается вместе с окном.

@@ -1,18 +1,21 @@
 [package]
 name = "dshr-desktop"
 description = "Thin Tauri desktop shell over dshr serve"
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-uuid.workspace = true
+uuid = { version = "1", features = ["v4"] }
 
 [[bin]]
 name = "dshr-desktop"
 path = "src/main.rs"
+
+[workspace]

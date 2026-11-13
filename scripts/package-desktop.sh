@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Build a macOS .app bundle for the Tauri desktop shell.
 # Usage: scripts/package-desktop.sh [version]
-# Requires: cargo build --release -p dshr-cli -p dshr-desktop (run by this script).
+# Requires: cargo build --release -p dshr-cli (run by this script).
 
 version="${1:-0.1.0}"
 export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
@@ -15,7 +15,8 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 
-cargo build --release -p dshr-cli -p dshr-desktop
+cargo build --release -p dshr-cli
+CARGO_TARGET_DIR="$root/target" cargo build --release --manifest-path "$root/crates/desktop/Cargo.toml"
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"

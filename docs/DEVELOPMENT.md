@@ -26,6 +26,11 @@ cd crates/web && trunk build --release
 Rebuild the UI and commit `dist` whenever the frontend changes; `cargo test -p dshr-server`
 checks that the wasm asset is served.
 
+The Tauri shell (`crates/desktop`) is also outside the workspace, so Linux CI does not
+need WebKitGTK. Build it with
+`CARGO_TARGET_DIR=target cargo build --release --manifest-path crates/desktop/Cargo.toml`;
+macOS CI runs its tests separately.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on macOS/Ubuntu/Windows: fmt, clippy, nextest, doc tests; separate `cargo-deny` and `coverage` jobs. Failed nextest/clippy output is annotated and uploaded on failure.

@@ -77,6 +77,9 @@ jobs:
             echo "::error title=nextest::nextest.log is missing"
           fi
       - run: cargo test --workspace --doc
+      - name: desktop check
+        if: matrix.os == 'macos-latest'
+        run: cargo test --manifest-path crates/desktop/Cargo.toml
 
   deny:
     name: cargo-deny

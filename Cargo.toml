@@ -34,7 +34,6 @@ members = [
     "crates/agent",
     "crates/tui",
     "crates/cli",
-    "crates/desktop",
 ]
 
 [workspace.package]
