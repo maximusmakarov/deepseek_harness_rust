@@ -49,7 +49,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 |---|---|---|
 | Бинарные архивы 5 таргетов, SHA256SUMS, Ed25519, provenance | есть | ✅ |
 | Homebrew: бинарная формула | есть; ghcr-бутылки нет | ⚠️ |
-| Reproducible builds | нет | ❌ |
+| Reproducible builds | архивы детерминированы (mtime/uid/gid/sort); бинарь побайтово не воспроизводим | ⚠️ |
 | Desktop в release CI | macOS `.app` zip | ✅ |
 | Windows/Linux desktop packages | нет | ❌ |
 
