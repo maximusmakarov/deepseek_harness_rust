@@ -25,7 +25,7 @@
 | Не было i18n | TUI ru/en — [ADR-035](adr/035-tui-i18n.md) |
 | Не было desktop | PWA-манифест — [ADR-036](adr/036-pwa-desktop.md) |
 | MCP prompts отсутствовали | `list_prompts`/`get_prompt` — [ADR-028](adr/028-mcp-http-resources.md) |
-| MCP sampling отсутствовал | stdio `sampling/createMessage` — [ADR-028](adr/028-mcp-http-resources.md) |
+| MCP sampling отсутствовал | stdio + HTTP GET-SSE `sampling/createMessage` — [ADR-028](adr/028-mcp-http-resources.md) |
 
 ## Открыто
 

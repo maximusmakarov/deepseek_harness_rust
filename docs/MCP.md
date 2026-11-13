@@ -42,18 +42,18 @@ dshr plugin list
 
 ## Sampling
 
-Stdio-сервер может запросить генерацию через `sampling/createMessage`. Harness объявляет capability только если у него есть провайдер, вызывает модель и возвращает:
+Сервер может запросить генерацию через `sampling/createMessage` по stdio или HTTP. Для HTTP клиент держит GET-SSE поток и отвечает POST-ом; capability объявляется только при наличии провайдера. Harness вызывает модель и возвращает:
 
 ```json
 {"role":"assistant","content":{"type":"text","text":"..."},"model":"...","stopReason":"endTurn"}
 ```
 
-Обрабатываются запросы, приходящие во время ожидания ответа на вызов клиента; полностью асинхронный server-initiated цикл (запрос вне клиентского вызова) не реализован.
+HTTP sampling работает через GET-SSE вне клиентского вызова; stdio — во время ожидания ответа.
 
 ## Границы
 
-- Нет GET-SSE потока, elicitation и OAuth.
-- Sampling — только stdio; HTTP sampling не поддерживается (нет server-initiated канала).
+- Нет elicitation и OAuth.
+- GET-SSE используется для HTTP sampling; прочие server-notifications игнорируются.
 - Prompts поддерживаются для stdio и HTTP.
 - HTTP-сессия живёт в памяти клиента; реконнект — новый `initialize`.
 - MCP-серверы запускаются как обычные процессы/соединения без собственного sandbox.

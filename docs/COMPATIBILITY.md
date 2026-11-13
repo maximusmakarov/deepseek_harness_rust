@@ -11,7 +11,7 @@
 | Сессии | JSONL, resume, fork/rewind/title/search, FTS5 | ✅ |
 | Промпт/AGENTS/skills/compaction | deterministic, discovery, compaction | ✅ |
 | Инструменты | read/write/edit/glob/grep/bash/todo/present | ✅ |
-| MCP | stdio/HTTP tools/resources/prompts/sampling | ✅ |
+| MCP | stdio/HTTP tools/resources/prompts/sampling (GET-SSE) | ✅ |
 | Web | `web_fetch` SSRF, Brave search | ✅ |
 | Jobs | background, output, kill | ✅ |
 | Субагенты/workflows/teams | spawn, DAG, durable board | ✅ |

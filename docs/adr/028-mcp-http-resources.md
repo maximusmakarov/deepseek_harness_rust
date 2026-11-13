@@ -17,6 +17,10 @@ M4 закрыл только stdio-tools. Для удалённых MCP-серв
 6. **Sampling:** stdio-клиент обрабатывает `sampling/createMessage` во время ожидания ответа и вызывает провайдера; HTTP sampling нет. Полностью асинхронный server-initiated цикл — нет.
 7. **Границы:** нет GET-SSE, elicitation, OAuth.
 
+## Реализация HTTP sampling
+
+GET-SSE поток открывается при наличии провайдера; `sampling/createMessage` обрабатывается и отправляется POST-ом. Elicitation/OAuth не реализованы.
+
 ## Последствия
 
 - Удалённые MCP-серверы и ресурсы доступны без отдельного SDK.

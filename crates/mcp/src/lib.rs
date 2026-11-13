@@ -401,10 +401,14 @@ pub struct McpHttpClient {
     client: reqwest::Client,
     session_id: Mutex<Option<String>>,
     next_id: AtomicU64,
+    sampling: Option<Arc<dyn LlmProvider>>,
 }
 
 impl McpHttpClient {
-    pub async fn connect(spec: McpServerSpec) -> Result<Self, McpError> {
+    pub async fn connect(
+        spec: McpServerSpec,
+        sampling: Option<Arc<dyn LlmProvider>>,
+    ) -> Result<Arc<Self>, McpError> {
         let url = spec
             .url
             .clone()
@@ -420,8 +424,13 @@ impl McpHttpClient {
             client,
             session_id: Mutex::new(None),
             next_id: AtomicU64::new(1),
+            sampling,
         };
+        let this = Arc::new(this);
         this.initialize().await?;
+        if this.sampling.is_some() {
+            tokio::spawn(start_http_sse_listener(Arc::clone(&this)));
+        }
         Ok(this)
     }
 
@@ -585,6 +594,28 @@ impl McpHttpClient {
         }
     }
 
+    async fn post_json(&self, value: &Value) -> Result<(), McpError> {
+        let mut request = self
+            .client
+            .post(&self.url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(value);
+        for (key, value) in &self.headers {
+            request = request.header(key, value);
+        }
+        if let Some(session) = self.session_id.lock().await.as_deref() {
+            request = request.header("Mcp-Session-Id", session);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|error| McpError::Io(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(McpError::Io(format!("HTTP {}", response.status())));
+        }
+        Ok(())
+    }
+
     async fn capture_session(&self, response: &reqwest::Response) {
         if let Some(session) = response
             .headers()
@@ -594,6 +625,65 @@ impl McpHttpClient {
             *self.session_id.lock().await = Some(session.to_owned());
         }
     }
+}
+
+async fn start_http_sse_listener(client: Arc<McpHttpClient>) {
+    let mut request = client
+        .client
+        .get(&client.url)
+        .header(reqwest::header::ACCEPT, "text/event-stream");
+    for (key, value) in &client.headers {
+        request = request.header(key, value);
+    }
+    if let Some(session) = client.session_id.lock().await.as_deref() {
+        request = request.header("Mcp-Session-Id", session);
+    }
+    let Ok(response) = request.send().await else {
+        return;
+    };
+    if !response.status().is_success() {
+        return;
+    }
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    while let Some(chunk) = stream.next().await {
+        let Ok(chunk) = chunk else {
+            break;
+        };
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(position) = buffer.find("\n\n") {
+            let event = buffer[..position].to_owned();
+            buffer.drain(..position + 2);
+            handle_sse_event(&client, &event).await;
+        }
+    }
+}
+
+async fn handle_sse_event(client: &Arc<McpHttpClient>, event: &str) {
+    let Some(data) = parse_sse_data(event) else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&data) else {
+        return;
+    };
+    if value["method"].as_str() != Some("sampling/createMessage") || value.get("id").is_none() {
+        return;
+    }
+    let Some(provider) = &client.sampling else {
+        return;
+    };
+    let response = sampling_response(provider, value["id"].clone(), value["params"].clone()).await;
+    let _ = client.post_json(&response).await;
+}
+
+fn parse_sse_data(event: &str) -> Option<String> {
+    let data = event
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("data:"))
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!data.is_empty()).then_some(data)
 }
 
 fn extract_response(value: Value, id: u64) -> Result<Value, McpError> {
@@ -1130,14 +1220,14 @@ pub async fn connect_server(
     connect_server_with_sampling(spec, None).await
 }
 
-/// Connects a stdio server with a sampling provider; HTTP sampling is not supported.
+/// Connects a server with a sampling provider (stdio and HTTP).
 pub async fn connect_server_with_sampling(
     spec: McpServerSpec,
     sampling: Option<Arc<dyn LlmProvider>>,
 ) -> Result<(McpBackend, Vec<Arc<dyn dshr_tools::Tool>>), McpError> {
     let name = spec.name.clone();
     let (backend, tools) = if spec.url.is_some() {
-        let client = Arc::new(McpHttpClient::connect(spec).await?);
+        let client = McpHttpClient::connect(spec, sampling).await?;
         let tools = client.list_tools().await?;
         (McpBackend::Http(client), tools)
     } else {
@@ -1157,4 +1247,18 @@ pub async fn connect_server_with_sampling(
     adapters.push(Arc::new(McpListPromptsTool::new(backend.clone(), &name)));
     adapters.push(Arc::new(McpGetPromptTool::new(backend.clone(), &name)));
     Ok((backend, adapters))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_sse_data;
+
+    #[test]
+    fn joins_multiline_sse_data() {
+        assert_eq!(
+            parse_sse_data("event: message\ndata: {\"a\":1}\ndata: {\"b\":2}"),
+            Some("{\"a\":1}\n{\"b\":2}".to_owned())
+        );
+        assert_eq!(parse_sse_data("event: ping"), None);
+    }
 }
