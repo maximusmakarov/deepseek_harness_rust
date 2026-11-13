@@ -14,13 +14,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use dshr_llm::ToolDef;
+use dshr_llm::{LlmProvider, Message, Request, StreamChunk, ToolDef};
 use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
+use futures_util::StreamExt;
 use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PROTOCOL_VERSION: &str = "2024-11-05";
@@ -149,10 +151,14 @@ pub struct McpClient {
     stdout: BufReader<ChildStdout>,
     next_id: u64,
     name: String,
+    sampling: Option<Arc<dyn LlmProvider>>,
 }
 
 impl McpClient {
-    pub async fn connect(spec: McpServerSpec) -> Result<Self, McpError> {
+    pub async fn connect(
+        spec: McpServerSpec,
+        sampling: Option<Arc<dyn LlmProvider>>,
+    ) -> Result<Self, McpError> {
         let mut command = Command::new(&spec.command);
         command
             .args(&spec.args)
@@ -192,6 +198,7 @@ impl McpClient {
             stdout: BufReader::new(stdout),
             next_id: 1,
             name: spec.name,
+            sampling,
         };
         client.initialize().await?;
         Ok(client)
@@ -342,13 +349,31 @@ impl McpClient {
                 return Ok(value["result"].clone());
             }
 
-            // A server request we do not implement: answer instead of hanging.
             if value.get("id").is_some() && value["method"].is_string() {
-                let response = json!({
-                    "jsonrpc": "2.0",
-                    "id": value["id"].clone(),
-                    "error": {"code": -32601, "message": "method not supported by dshr"}
-                });
+                let method = value["method"].as_str().unwrap_or_default();
+                let response = if method == "sampling/createMessage" {
+                    match &self.sampling {
+                        Some(provider) => {
+                            sampling_response(
+                                provider,
+                                value["id"].clone(),
+                                value["params"].clone(),
+                            )
+                            .await
+                        }
+                        None => json!({
+                            "jsonrpc": "2.0",
+                            "id": value["id"].clone(),
+                            "error": {"code": -32601, "message": "sampling is not enabled"}
+                        }),
+                    }
+                } else {
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": value["id"].clone(),
+                        "error": {"code": -32601, "message": "method not supported by dshr"}
+                    })
+                };
                 self.write_message(&response).await?;
             }
         }
@@ -1012,6 +1037,84 @@ impl Tool for McpReadResourceTool {
     }
 }
 
+async fn sampling_response(provider: &Arc<dyn LlmProvider>, id: Value, params: Value) -> Value {
+    let mut messages = Vec::new();
+    if let Some(items) = params["messages"].as_array() {
+        for item in items {
+            let text = if let Some(text) = item["content"]["text"].as_str() {
+                text.to_owned()
+            } else {
+                item["content"]
+                    .as_array()
+                    .map(|blocks| {
+                        blocks
+                            .iter()
+                            .filter_map(|block| block["text"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default()
+            };
+            if item["role"].as_str() == Some("assistant") {
+                messages.push(Message::assistant(text));
+            } else {
+                messages.push(Message::user(text));
+            }
+        }
+    }
+    if messages.is_empty() {
+        return json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32602, "message": "sampling request has no messages"}
+        });
+    }
+    let request = Request {
+        model: provider.model().to_owned(),
+        system: params["systemPrompt"].as_str().map(ToOwned::to_owned),
+        messages,
+        max_tokens: params["maxTokens"]
+            .as_u64()
+            .unwrap_or(1024)
+            .clamp(1, u32::MAX as u64) as u32,
+        ..Request::default()
+    };
+    let mut stream = match provider.stream(request, CancellationToken::new()).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            return json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": -32000, "message": error.to_string()}
+            });
+        }
+    };
+    let mut text = String::new();
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(StreamChunk::TextDelta { text: delta }) => text.push_str(&delta),
+            Ok(_) => {}
+            Err(error) => {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {"code": -32000, "message": error.to_string()}
+                });
+            }
+        }
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "role": "assistant",
+            "content": {"type": "text", "text": text},
+            "model": provider.model(),
+            "stopReason": "endTurn"
+        }
+    })
+}
+
 fn normalize_schema(schema: &Value) -> Value {
     if schema.is_object() {
         schema.clone()
@@ -1024,13 +1127,21 @@ fn normalize_schema(schema: &Value) -> Value {
 pub async fn connect_server(
     spec: McpServerSpec,
 ) -> Result<(McpBackend, Vec<Arc<dyn dshr_tools::Tool>>), McpError> {
+    connect_server_with_sampling(spec, None).await
+}
+
+/// Connects a stdio server with a sampling provider; HTTP sampling is not supported.
+pub async fn connect_server_with_sampling(
+    spec: McpServerSpec,
+    sampling: Option<Arc<dyn LlmProvider>>,
+) -> Result<(McpBackend, Vec<Arc<dyn dshr_tools::Tool>>), McpError> {
     let name = spec.name.clone();
     let (backend, tools) = if spec.url.is_some() {
         let client = Arc::new(McpHttpClient::connect(spec).await?);
         let tools = client.list_tools().await?;
         (McpBackend::Http(client), tools)
     } else {
-        let client = Arc::new(Mutex::new(McpClient::connect(spec).await?));
+        let client = Arc::new(Mutex::new(McpClient::connect(spec, sampling).await?));
         let tools = client.lock().await.list_tools().await?;
         (McpBackend::Stdio(client), tools)
     };

@@ -26,7 +26,7 @@ pub async fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
     if !skills.is_empty() {
         tools.register_arc(std::sync::Arc::new(skills.tool()));
     }
-    crate::mcp_setup::register(&mut tools, &config).await;
+    crate::mcp_setup::register(&mut tools, &config, None).await;
     dshr_office::register_tools(&mut tools);
     dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
 

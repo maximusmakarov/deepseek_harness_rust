@@ -19,13 +19,13 @@
 | Office-документы не поддерживались | docx/xlsx/pptx tools — [ADR-030](adr/030-office.md) |
 | CUA/browser отсутствовал | headless Chrome tools — [ADR-031](adr/031-browser-cua.md) |
 | MCP prompts отсутствовали | `list_prompts`/`get_prompt` — [ADR-028](adr/028-mcp-http-resources.md) |
+| MCP sampling отсутствовал | stdio `sampling/createMessage` — [ADR-028](adr/028-mcp-http-resources.md) |
 
 ## Открыто
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
 | P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
-| P2 | MCP sampling | Prompts добавлены; server-initiated sampling нет. |
 | P2 | WASM/sidecar плагины | MCP — единственный плагинный путь. |
 | P2 | Поиск | Скан; FTS5/Tantivy только после бенчмарк-гейта [ADR-016](adr/016-search-backend.md). |
 | P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |

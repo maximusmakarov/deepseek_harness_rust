@@ -40,9 +40,20 @@ dshr plugin list
 - `mcp__<server>__list_prompts` — список prompts и их аргументов.
 - `mcp__<server>__get_prompt` — получить prompt по имени (`name`, `arguments`) и вернуть сообщения.
 
+## Sampling
+
+Stdio-сервер может запросить генерацию через `sampling/createMessage`. Harness объявляет capability только если у него есть провайдер, вызывает модель и возвращает:
+
+```json
+{"role":"assistant","content":{"type":"text","text":"..."},"model":"...","stopReason":"endTurn"}
+```
+
+Обрабатываются запросы, приходящие во время ожидания ответа на вызов клиента; полностью асинхронный server-initiated цикл (запрос вне клиентского вызова) не реализован.
+
 ## Границы
 
-- Нет GET-SSE потока, sampling, elicitation и OAuth.
-- Prompts поддерживаются для stdio и HTTP; sampling отложен: требует server-initiated цикла.
+- Нет GET-SSE потока, elicitation и OAuth.
+- Sampling — только stdio; HTTP sampling не поддерживается (нет server-initiated канала).
+- Prompts поддерживаются для stdio и HTTP.
 - HTTP-сессия живёт в памяти клиента; реконнект — новый `initialize`.
 - MCP-серверы запускаются как обычные процессы/соединения без собственного sandbox.

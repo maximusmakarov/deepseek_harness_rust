@@ -1,12 +1,17 @@
 use dshr_config::Config;
-use dshr_mcp::{McpServerSpec, connect_server};
+use dshr_llm::LlmProvider;
+use dshr_mcp::{McpServerSpec, connect_server_with_sampling};
 use dshr_tools::ToolRegistry;
 
 /// Connects configured MCP servers and registers their namespaced tools.
 ///
 /// A failing server is logged and skipped: partial availability is better than
 /// refusing to start the harness.
-pub async fn register(registry: &mut ToolRegistry, config: &Config) {
+pub async fn register(
+    registry: &mut ToolRegistry,
+    config: &Config,
+    sampling: Option<std::sync::Arc<dyn LlmProvider>>,
+) {
     for server in config.mcp.servers.iter().filter(|server| server.enabled) {
         let spec = McpServerSpec {
             name: server.name.clone(),
@@ -17,7 +22,7 @@ pub async fn register(registry: &mut ToolRegistry, config: &Config) {
             url: server.url.clone(),
             headers: server.headers.clone(),
         };
-        match connect_server(spec).await {
+        match connect_server_with_sampling(spec, sampling.clone()).await {
             Ok((_client, tools)) => {
                 let count = tools.len();
                 for tool in tools {

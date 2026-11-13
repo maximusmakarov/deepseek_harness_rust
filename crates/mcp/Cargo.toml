@@ -15,6 +15,7 @@ async-trait.workspace = true
 dshr-core.workspace = true
 dshr-llm.workspace = true
 dshr-tools.workspace = true
+futures-util.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -24,4 +25,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 axum = "0.8"
+dshr-llm-mock.workspace = true
+tokio-util.workspace = true
 tempfile.workspace = true

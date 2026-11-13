@@ -14,7 +14,8 @@ M4 закрыл только stdio-tools. Для удалённых MCP-серв
 3. **Единый backend:** `McpBackend::{Stdio, Http}`; адаптеры инструментов и ресурсов не зависят от транспорта.
 4. **Resources и prompts:** для каждого сервера регистрируются `list_resources`, `read_resource`, `list_prompts`, `get_prompt`; текстовые contents склеиваются, binary помечается.
 5. **Плагины:** `plugin add --url` пишет HTTP-сервер в конфиг.
-6. **Границы:** нет GET-SSE, sampling, elicitation, OAuth; prompts есть, server-initiated цикл — нет.
+6. **Sampling:** stdio-клиент обрабатывает `sampling/createMessage` во время ожидания ответа и вызывает провайдера; HTTP sampling нет. Полностью асинхронный server-initiated цикл — нет.
+7. **Границы:** нет GET-SSE, elicitation, OAuth.
 
 ## Последствия
 

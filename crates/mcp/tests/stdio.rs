@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dshr_core::SessionId;
-use dshr_mcp::{McpServerSpec, connect_server};
+use dshr_llm::{StopReason, StreamChunk};
+use dshr_llm_mock::ScriptedProvider;
+use dshr_mcp::{McpServerSpec, connect_server, connect_server_with_sampling};
 use dshr_tools::{Tool, ToolCtx, ToolRegistry};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -37,4 +39,40 @@ async fn connects_lists_and_calls_tools() {
         .await
         .expect("call");
     assert_eq!(outcome.content, "echo: hi");
+
+    let provider = Arc::new(ScriptedProvider::new(
+        "mock-model",
+        vec![vec![
+            StreamChunk::Start {
+                model: "mock-model".into(),
+            },
+            StreamChunk::TextDelta {
+                text: "sampled answer".into(),
+            },
+            StreamChunk::Done {
+                stop_reason: StopReason::EndTurn,
+            },
+        ]],
+    ));
+    let spec = McpServerSpec {
+        name: "mock".into(),
+        command: env!("CARGO_BIN_EXE_mock_mcp").into(),
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: None,
+        url: None,
+        headers: BTreeMap::new(),
+    };
+    let (backend, _tools) = connect_server_with_sampling(spec, Some(provider))
+        .await
+        .expect("connect with sampling");
+    let sampled = backend
+        .call_tool("echo", json!({"text": "sample"}))
+        .await
+        .expect("sample");
+    assert!(
+        sampled.content.contains("sampled answer"),
+        "{}",
+        sampled.content
+    );
 }
