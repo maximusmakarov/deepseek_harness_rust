@@ -36,7 +36,7 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::Ru, "sessions") => "Список, просмотр и экспорт сессий",
         (Lang::Ru, "tui") => "Интерактивный терминальный UI",
         (Lang::Ru, "prompt") => "Напечатать собранный системный промпт",
-        (Lang::Ru, "plugin") => "Управление MCP-плагинами",
+        (Lang::Ru, "plugin") => "Плагины MCP и подпись WASM",
         (Lang::Ru, "release") => "Подпись и проверка релизных артефактов",
         (Lang::Ru, "release.keygen") => "Сгенерировать пару ключей Ed25519",
         (Lang::Ru, "release.sign") => "Подписать релизный артефакт",
@@ -50,6 +50,11 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::Ru, "serve") => "HTTP/SSE сервер и встроенный Web UI",
         (Lang::Ru, "schedule") => "Управление cron-расписаниями",
         (Lang::Ru, "acp") => "ACP v1 сервер через stdio",
+        (Lang::Ru, "sessions.id") => "ID сессии",
+        (Lang::Ru, "sessions.format") => "Формат: markdown или json",
+        (Lang::Ru, "sessions.at") => "Последний копируемый номер события",
+        (Lang::Ru, "sessions.turn") => "Сколько ходов оставить",
+        (Lang::Ru, "sessions.title_value") => "Новый заголовок",
         (Lang::Ru, "sessions.list") => "Список сессий",
         (Lang::Ru, "sessions.show") => "Показать сессию",
         (Lang::Ru, "sessions.export") => "Экспортировать сессию",
@@ -98,7 +103,7 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (_, "sessions") => "List, show, or export sessions",
         (_, "tui") => "Interactive terminal UI",
         (_, "prompt") => "Print the assembled system prompt",
-        (_, "plugin") => "Manage MCP plugins",
+        (_, "plugin") => "MCP plugins and WASM signing",
         (_, "release") => "Sign and verify release artifacts",
         (_, "release.keygen") => "Generate an Ed25519 key pair",
         (_, "release.sign") => "Sign a release artifact",
@@ -136,7 +141,13 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::Ru, "plugin.list") => "Список MCP-плагинов",
         (Lang::Ru, "plugin.add") => "Добавить или заменить MCP-плагин",
         (Lang::Ru, "plugin.remove") => "Удалить MCP-плагин",
+        (Lang::Ru, "plugin.keygen") => "Сгенерировать пару ключей Ed25519 для WASM-плагинов",
+        (Lang::Ru, "plugin.sign") => "Подписать манифест WASM-плагина",
+        (Lang::Ru, "plugin.verify") => "Проверить подпись манифеста WASM-плагина",
         (Lang::Ru, "plugin.json") => "Вывести JSON",
+        (Lang::Ru, "plugin.manifest") => "Путь к манифесту плагина (*.yaml)",
+        (Lang::Ru, "plugin.key") => "Файл секретного ключа из `plugin keygen`",
+        (Lang::Ru, "plugin.out") => "Куда записать секретный ключ (hex); публичный печатается",
         (Lang::Ru, "plugin.name") => "Имя плагина/сервера",
         (Lang::Ru, "plugin.command") => "Команда запуска stdio-сервера",
         (Lang::Ru, "plugin.args") => "Аргумент (можно повторять)",
@@ -191,7 +202,15 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::En, "plugin.list") => "List configured MCP plugins",
         (Lang::En, "plugin.add") => "Add or replace an MCP plugin",
         (Lang::En, "plugin.remove") => "Remove an MCP plugin",
+        (Lang::En, "plugin.keygen") => "Generate an Ed25519 key pair for WASM plugins",
+        (Lang::En, "plugin.sign") => "Sign a WASM plugin manifest",
+        (Lang::En, "plugin.verify") => "Verify a WASM plugin manifest signature",
         (Lang::En, "plugin.json") => "Emit JSON",
+        (Lang::En, "plugin.manifest") => "Path to the plugin manifest (*.yaml)",
+        (Lang::En, "plugin.key") => "Secret key file written by `plugin keygen`",
+        (Lang::En, "plugin.out") => {
+            "Where to write the secret key (hex); the public key is printed"
+        }
         (Lang::En, "plugin.name") => "Plugin/server name",
         (Lang::En, "plugin.command") => "Command to launch a stdio server",
         (Lang::En, "plugin.args") => "Argument (repeatable)",
@@ -388,6 +407,30 @@ pub fn localize(mut command: Command, lang: Lang) -> Command {
                             s = s.mut_arg(arg, |a| a.help(t(lang, key)));
                         }
                     }
+                    "show" => {
+                        s = s.mut_arg("id", |a| a.help(t(lang, "sessions.id")));
+                    }
+                    "export" => {
+                        for (arg, key) in [("id", "sessions.id"), ("format", "sessions.format")] {
+                            s = s.mut_arg(arg, |a| a.help(t(lang, key)));
+                        }
+                    }
+                    "fork" => {
+                        for (arg, key) in [("id", "sessions.id"), ("at", "sessions.at")] {
+                            s = s.mut_arg(arg, |a| a.help(t(lang, key)));
+                        }
+                    }
+                    "rewind" => {
+                        for (arg, key) in [("id", "sessions.id"), ("turn", "sessions.turn")] {
+                            s = s.mut_arg(arg, |a| a.help(t(lang, key)));
+                        }
+                    }
+                    "title" => {
+                        for (arg, key) in [("id", "sessions.id"), ("title", "sessions.title_value")]
+                        {
+                            s = s.mut_arg(arg, |a| a.help(t(lang, key)));
+                        }
+                    }
                     _ => {}
                 }
                 s
@@ -419,6 +462,30 @@ pub fn localize(mut command: Command, lang: Lang) -> Command {
                 lang,
                 "plugin",
                 &["name"],
+            )
+        });
+        c = c.mut_subcommand("keygen", |keygen| {
+            with_args(
+                keygen.about(t(lang, "plugin.keygen")),
+                lang,
+                "plugin",
+                &["out"],
+            )
+        });
+        c = c.mut_subcommand("sign", |sign| {
+            with_args(
+                sign.about(t(lang, "plugin.sign")),
+                lang,
+                "plugin",
+                &["manifest", "key"],
+            )
+        });
+        c = c.mut_subcommand("verify", |verify| {
+            with_args(
+                verify.about(t(lang, "plugin.verify")),
+                lang,
+                "plugin",
+                &["manifest", "key"],
             )
         });
         c

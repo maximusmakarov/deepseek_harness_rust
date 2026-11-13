@@ -167,6 +167,46 @@ impl Lang {
     }
 
     #[must_use]
+    pub fn role_user(self) -> &'static str {
+        match self {
+            Self::Ru => "Пользователь",
+            Self::En => "User",
+        }
+    }
+
+    #[must_use]
+    pub fn role_assistant(self) -> &'static str {
+        match self {
+            Self::Ru => "Ассистент",
+            Self::En => "Assistant",
+        }
+    }
+
+    #[must_use]
+    pub fn untitled(self) -> &'static str {
+        match self {
+            Self::Ru => "(без названия)",
+            Self::En => "(untitled)",
+        }
+    }
+
+    #[must_use]
+    pub fn sessions_rewound(self, id: &str, turns: usize, events: usize) -> String {
+        match self {
+            Self::Ru => format!("{id}: {turns} ход(ов), {events} событ(ий)"),
+            Self::En => format!("{id}: {turns} turn(s), {events} event(s)"),
+        }
+    }
+
+    #[must_use]
+    pub fn session_title(self, id: &str, title: &str) -> String {
+        match self {
+            Self::Ru => format!("{id}: {title}"),
+            Self::En => format!("{id}: {title}"),
+        }
+    }
+
+    #[must_use]
     pub fn release_signed(self, path: &str) -> String {
         match self {
             Self::Ru => format!("подпись записана: {path}"),

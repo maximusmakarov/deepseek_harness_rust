@@ -302,25 +302,38 @@ impl SessionStore {
     }
 
     pub fn export_markdown(&self, session: &Session) -> Result<String> {
+        self.export_markdown_with(session, &MarkdownLabels::default())
+    }
+
+    pub fn export_markdown_with(
+        &self,
+        session: &Session,
+        labels: &MarkdownLabels,
+    ) -> Result<String> {
         let mut out = String::new();
         out.push_str(&format!(
-            "# Session {}\n\n- created: {}\n- provider: {}\n- model: {}\n- cwd: {}\n\n",
+            "# {} {}\n\n- {}: {}\n- {}: {}\n- {}: {}\n- {}: {}\n\n",
+            labels.session,
             session.header.id,
+            labels.created,
             session.header.created_at,
+            labels.provider,
             session.header.provider,
+            labels.model,
             session.header.model,
+            labels.cwd,
             session.header.cwd
         ));
         for event in &session.events {
             match event {
                 SessionEvent::UserMessage { content, .. } => {
-                    out.push_str("## User\n\n");
-                    out.push_str(&render_blocks(content));
+                    out.push_str(&format!("## {}\n\n", labels.user));
+                    out.push_str(&render_blocks(content, labels));
                     out.push_str("\n\n");
                 }
                 SessionEvent::AssistantMessage { content, .. } => {
-                    out.push_str("## Assistant\n\n");
-                    out.push_str(&render_blocks(content));
+                    out.push_str(&format!("## {}\n\n", labels.assistant));
+                    out.push_str(&render_blocks(content, labels));
                     out.push_str("\n\n");
                 }
                 _ => {}
@@ -420,13 +433,50 @@ fn read_events(path: &Path) -> Result<Vec<SessionEvent>> {
     Ok(events)
 }
 
-fn render_blocks(blocks: &[ContentBlock]) -> String {
+/// Human-readable labels for Markdown export.
+#[derive(Debug, Clone)]
+pub struct MarkdownLabels {
+    pub session: &'static str,
+    pub created: &'static str,
+    pub provider: &'static str,
+    pub model: &'static str,
+    pub cwd: &'static str,
+    pub user: &'static str,
+    pub assistant: &'static str,
+    pub thinking: &'static str,
+    pub result: &'static str,
+    pub image: &'static str,
+    pub audio: &'static str,
+}
+
+impl Default for MarkdownLabels {
+    fn default() -> Self {
+        Self {
+            session: "Session",
+            created: "created",
+            provider: "provider",
+            model: "model",
+            cwd: "cwd",
+            user: "User",
+            assistant: "Assistant",
+            thinking: "thinking",
+            result: "result",
+            image: "image",
+            audio: "audio",
+        }
+    }
+}
+
+fn render_blocks(blocks: &[ContentBlock], labels: &MarkdownLabels) -> String {
     let mut out = String::new();
     for block in blocks {
         match block {
             ContentBlock::Text { text } => out.push_str(text),
             ContentBlock::Thinking { text } => {
-                out.push_str("<details><summary>thinking</summary>\n\n");
+                out.push_str(&format!(
+                    "<details><summary>{}</summary>\n\n",
+                    labels.thinking
+                ));
                 out.push_str(text);
                 out.push_str("\n\n</details>\n");
             }
@@ -434,10 +484,14 @@ fn render_blocks(blocks: &[ContentBlock]) -> String {
                 out.push_str(&format!("`{name}` → `{input}`\n"));
             }
             ContentBlock::ToolResult { content, .. } => {
-                out.push_str(&format!("result: {content}\n"));
+                out.push_str(&format!("{}: {content}\n", labels.result));
             }
-            ContentBlock::Image { .. } => out.push_str("[image]\n"),
-            ContentBlock::Audio { .. } => out.push_str("[audio]\n"),
+            ContentBlock::Image { .. } => {
+                out.push_str(&format!("[{}]\n", labels.image));
+            }
+            ContentBlock::Audio { .. } => {
+                out.push_str(&format!("[{}]\n", labels.audio));
+            }
         }
     }
     out
@@ -555,6 +609,27 @@ mod tests {
         assert!(markdown.contains("## User"));
         assert!(markdown.contains("hi"));
         assert!(markdown.contains("## Assistant"));
+    }
+
+    #[test]
+    fn exports_markdown_with_labels() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path());
+        let mut session = create(&store);
+        round_trip(&store, &mut session);
+        let labels = MarkdownLabels {
+            session: "Сессия",
+            created: "создана",
+            user: "Пользователь",
+            assistant: "Ассистент",
+            ..MarkdownLabels::default()
+        };
+        let markdown = store
+            .export_markdown_with(&session, &labels)
+            .expect("export");
+        assert!(markdown.contains("# Сессия"), "{markdown}");
+        assert!(markdown.contains("создана:"), "{markdown}");
+        assert!(markdown.contains("## Пользователь"), "{markdown}");
     }
 
     #[test]

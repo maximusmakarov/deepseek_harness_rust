@@ -41,7 +41,7 @@
 | P2 | Leptos UI | Vanilla Web UI; SDK и rate-limit уже есть. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
-| P3 | i18n остатка CLI | Основные help/выводы ru/en; часть аргументов, ошибок и export — en. |
+| P3 | i18n остатка CLI | Help, sessions/show/export, plugin/release — ru/en; сообщения ошибок и часть справки остаются en. |
 | P2 | MCP elicitation | OAuth refresh (expiry + 401 retry) есть; `elicitation/create` не поддержан. |
 | P2 | Cordis/npm-совместимость | ADR-013 принят, но runtime pack, JS-шина и capability-аудит не реализованы; сейчас есть WASM и MCP-sidecar. |
 | P3 | ghcr-бутылки и reproducible builds | Бинарная формула, суммы и подпись есть; `brew bottle` и байтовая воспроизводимость — нет — [ADR-039](adr/039-release-artifacts.md). |

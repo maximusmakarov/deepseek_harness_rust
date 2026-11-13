@@ -2,9 +2,9 @@ use clap::{Args, Subcommand};
 use dshr_config::ConfigLoader;
 use dshr_core::{DshrError, Result};
 use dshr_i18n::current;
-use dshr_llm::ContentBlock;
+use dshr_llm::{ContentBlock, Role};
 use dshr_search::SessionSearchIndex;
-use dshr_session_jsonl::SessionStore;
+use dshr_session_jsonl::{MarkdownLabels, SessionStore};
 
 #[derive(Debug, Args)]
 pub struct SessionsArgs {
@@ -109,10 +109,12 @@ fn fork(store: &SessionStore, id: &str, at: Option<u64>) -> Result<u8> {
 fn rewind(store: &SessionStore, id: &str, turn: usize) -> Result<u8> {
     let session = store.rewind(id, turn)?;
     println!(
-        "{}: {} turn(s), {} event(s)",
-        session.header.id,
-        session.summary().turns,
-        session.events.len()
+        "{}",
+        current().sessions_rewound(
+            session.header.id.as_str(),
+            session.summary().turns,
+            session.events.len()
+        )
     );
     Ok(0)
 }
@@ -120,9 +122,15 @@ fn rewind(store: &SessionStore, id: &str, turn: usize) -> Result<u8> {
 fn set_title(store: &SessionStore, id: &str, title: &str) -> Result<u8> {
     let session = store.set_title(id, title)?;
     println!(
-        "{}: {}",
-        session.header.id,
-        session.header.title.as_deref().unwrap_or("(untitled)")
+        "{}",
+        current().session_title(
+            session.header.id.as_str(),
+            session
+                .header
+                .title
+                .as_deref()
+                .unwrap_or(current().untitled())
+        )
     );
     Ok(0)
 }
@@ -213,7 +221,15 @@ fn show(store: &SessionStore, id: &str) -> Result<u8> {
     println!();
 
     for message in session.derive_messages() {
-        println!("## {:?}", message.role);
+        println!(
+            "## {}",
+            match message.role {
+                Role::User => lang.role_user(),
+                Role::Assistant => lang.role_assistant(),
+                Role::System => "System",
+                Role::Tool => "Tool",
+            }
+        );
         println!();
         println!("{}", text_of(&message.content));
         println!();
@@ -225,7 +241,27 @@ fn export(store: &SessionStore, id: &str, format: &str) -> Result<u8> {
     let session = store.open(id)?;
     let text = match format {
         "json" => store.export_json(&session)?,
-        "markdown" | "md" => store.export_markdown(&session)?,
+        "markdown" | "md" => {
+            let lang = current();
+            let labels = if lang.is_ru() {
+                MarkdownLabels {
+                    session: "Сессия",
+                    created: "создана",
+                    provider: "провайдер",
+                    model: "модель",
+                    cwd: "каталог",
+                    user: "Пользователь",
+                    assistant: "Ассистент",
+                    thinking: "размышления",
+                    result: "результат",
+                    image: "изображение",
+                    audio: "аудио",
+                }
+            } else {
+                MarkdownLabels::default()
+            };
+            store.export_markdown_with(&session, &labels)?
+        }
         other => {
             return Err(DshrError::invalid_input(format!(
                 "unknown export format '{other}'; expected markdown or json"

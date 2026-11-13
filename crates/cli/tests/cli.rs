@@ -1198,7 +1198,7 @@ fn cli_help_and_outputs_follow_lang() {
         .args(["--home", home, "--lang", "ru", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Управление MCP-плагинами"));
+        .stdout(predicate::str::contains("Плагины MCP и подпись WASM"));
 
     dshr()
         .args(["--home", home, "--lang", "ru", "sessions", "list"])
