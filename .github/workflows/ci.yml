@@ -44,6 +44,17 @@ jobs:
             done
           fi
           exit "$status"
+      - name: nextest diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f nextest.log ]; then
+            tail -120 nextest.log | while IFS= read -r line; do
+              echo "::error title=nextest::${line}"
+            done
+          else
+            echo "::error title=nextest::nextest.log is missing"
+          fi
       - run: cargo test --workspace --doc
 
   deny:
