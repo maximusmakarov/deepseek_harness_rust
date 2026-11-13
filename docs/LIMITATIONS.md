@@ -37,7 +37,7 @@
 - Windows: изоляция процесса принципиально сложнее; Job Objects не дают файловой изоляции уровня Seatbelt.
 - Гарантировать «ноль побегов» на всех ОС нельзя; можно гарантировать fail-closed и набор тестов.
 
-**Обход:** macOS Seatbelt, Linux Landlock + seccomp, Windows AppContainer включены; сеть Linux — deny, Windows — `Partial`. Fallback — контейнер/VM-провайдер. Уровень гарантий документируется по ОС.
+**Обход:** macOS Seatbelt и Linux Landlock + seccomp включены; Windows по умолчанию fail-closed, AppContainer — экспериментальный opt-in (`DSHR_WINDOWS_SANDBOX`). Fallback — контейнер/VM-провайдер. Уровень гарантий документируется по ОС.
 
 ### 2.4. Совместимость Cordis: что работает, а что нет
 

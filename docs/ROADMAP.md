@@ -119,7 +119,7 @@
 
 ## M5 — Песочница + плагины + композиция (15–25 ИД)
 
-**Статус:** ядро выполнено; добавлены Linux Landlock + seccomp и Windows AppContainer. Отложено: WASM/sidecar, hot reload, capability audit.
+**Статус:** ядро выполнено; Linux Landlock + seccomp; Windows AppContainer — experimental opt-in, по умолчанию fail-closed. Отложено: Windows sandbox, WASM/sidecar, hot reload, capability audit.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|

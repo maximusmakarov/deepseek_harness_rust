@@ -3,6 +3,10 @@
 - **Статус:** Accepted
 - **Дата:** 2026-11-13
 
+## Статус: experimental / opt-in
+
+AppContainer реализован, но setup на каждый запуск слишком медленный; по умолчанию Windows остаётся fail-closed, включение — `DSHR_WINDOWS_SANDBOX=1`.
+
 ## Контекст
 
 Windows оставался fail-closed: `bash`/jobs не работали. Полноценный AppContainer FFI (security capabilities, ACL, CreateProcess) — большой и рискованный код; писать его без Windows-раннера в цикле разработки опасно.

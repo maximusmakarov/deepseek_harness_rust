@@ -643,7 +643,7 @@ fn plugin_manager_adds_lists_and_removes_mcp_servers() {
         .stdout(predicate::str::contains("(no plugins)"));
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn sandbox_blocks_writes_outside_workspace() {
     let home = tempfile::tempdir().expect("home");
@@ -944,7 +944,7 @@ fn schedule_run_due_executes_and_advances() {
     assert_eq!(sessions[0]["title"], "schedule: sch_test");
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn sandbox_allows_workspace_write() {
     let home = tempfile::tempdir().expect("home");

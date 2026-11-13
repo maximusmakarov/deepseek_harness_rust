@@ -201,7 +201,7 @@ impl SandboxBackend for WindowsBackend {
     }
 
     fn available(&self) -> bool {
-        self.wrapper.is_file()
+        std::env::var_os("DSHR_WINDOWS_SANDBOX").is_some() && self.wrapper.is_file()
     }
 
     fn confine(

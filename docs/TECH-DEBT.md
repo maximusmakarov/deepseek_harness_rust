@@ -12,7 +12,7 @@
 | Два scheduler-демона могли работать одновременно | lock-файл `schedules.lock` — [ADR-025](adr/025-guardrails.md) |
 | Безымянные сессии после `run` | заголовок из первой строки prompt |
 | LSP-навигация отсутствовала | `dshr-lsp` — [ADR-023](adr/023-lsp.md) |
-| Windows shell не работал (fail-closed) | AppContainer через `sandboxrs-windows` — [ADR-026](adr/026-windows-appcontainer.md) |
+| Windows shell не работал (fail-closed) | AppContainer — экспериментальный opt-in; по умолчанию fail-closed |
 | Linux network не ограничивался | seccomp-bpf deny сетевых syscalls — [ADR-027](adr/027-linux-seccomp-network.md) |
 | MCP HTTP/resources отсутствовали | Streamable HTTP + resource tools — [ADR-028](adr/028-mcp-http-resources.md) |
 | Team-доска терялась, workflow не повторялся | durable state + `retries` — [ADR-029](adr/029-durable-teams-retries.md) |
