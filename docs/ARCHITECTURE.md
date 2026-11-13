@@ -575,6 +575,8 @@ defaults → profile (набор бандлов) → user config.yaml → --patc
 
 ## 15. Сервер и SDK
 
+ACP v1 — [ADR-034](adr/034-acp.md).
+
 Реализация — `dshr-server`; границы M6 — [ADR-019](adr/019-server-ui.md).
 
 ### 15.1. API

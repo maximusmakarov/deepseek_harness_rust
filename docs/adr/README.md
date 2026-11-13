@@ -37,5 +37,6 @@
 | [031](031-browser-cua.md) | Browser/CUA: headless Chrome | Accepted |
 | [032](032-wasm-plugins.md) | WASM-плагины: wasmi и JSON ABI | Accepted |
 | [033](033-opentelemetry.md) | OpenTelemetry: OTLP/HTTP traces | Accepted |
+| [034](034-acp.md) | ACP v1 server | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

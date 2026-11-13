@@ -977,6 +977,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "dshr-acp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dshr-agent",
+ "dshr-compaction",
+ "dshr-core",
+ "dshr-llm",
+ "dshr-llm-mock",
+ "dshr-session",
+ "dshr-session-jsonl",
+ "dshr-tools",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "dshr-agent"
 version = "0.1.0"
 dependencies = [
@@ -1022,6 +1043,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "dshr-acp",
  "dshr-agent",
  "dshr-browser",
  "dshr-compaction",

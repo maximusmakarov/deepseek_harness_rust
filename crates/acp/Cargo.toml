@@ -1,0 +1,26 @@
+[package]
+name = "dshr-acp"
+description = "Agent Client Protocol v1 server over stdio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+dshr-agent.workspace = true
+dshr-compaction.workspace = true
+dshr-core.workspace = true
+dshr-llm.workspace = true
+dshr-session-jsonl.workspace = true
+dshr-tools.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+dshr-llm-mock.workspace = true
+dshr-session.workspace = true
+tempfile.workspace = true

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod acp_cmd;
 mod config_cmd;
 mod doctor;
 mod lsp_setup;
@@ -74,6 +75,8 @@ enum Command {
     Serve(serve_cmd::ServeArgs),
     /// Manage and run cron schedules
     Schedule(schedule_cmd::ScheduleArgs),
+    /// Run the ACP v1 server over stdio
+    Acp(acp_cmd::AcpArgs),
 }
 
 #[tokio::main]
@@ -110,5 +113,6 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Plugin(args) => plugin_cmd::execute(&loader, &args),
         Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
         Command::Schedule(args) => schedule_cmd::execute(&loader, &args).await,
+        Command::Acp(args) => acp_cmd::execute(&loader, &args).await,
     }
 }

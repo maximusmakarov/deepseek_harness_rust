@@ -25,6 +25,7 @@ members = [
     "crates/browser",
     "crates/search",
     "crates/wasm",
+    "crates/acp",
     "crates/compaction",
     "crates/agent",
     "crates/tui",
@@ -61,6 +62,7 @@ dshr-office = { path = "crates/office" }
 dshr-browser = { path = "crates/browser" }
 dshr-search = { path = "crates/search" }
 dshr-wasm = { path = "crates/wasm" }
+dshr-acp = { path = "crates/acp" }
 dshr-compaction = { path = "crates/compaction" }
 dshr-agent = { path = "crates/agent" }
 dshr-tui = { path = "crates/tui" }
@@ -84,7 +86,7 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 time = { version = "0.3", features = ["formatting"] }
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs", "io-util", "net", "process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "fs", "io-util", "io-std", "net", "process"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 assert_cmd = "2"
