@@ -31,8 +31,8 @@
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
-| P0 | Windows sandbox | AppContainer setup зависает на CI; по умолчанию fail-closed, opt-in `DSHR_WINDOWS_SANDBOX` не работает. Нужен Win32/low-integrity backend или persistent daemon. |
-| P1 | Сеть Windows | Зависит от Windows sandbox; enforcement `Partial`. |
+| Deferred | Windows sandbox | Отложено по решению пользователя. По умолчанию fail-closed; experimental `DSHR_WINDOWS_SANDBOX` не работает (setup зависает). Нужен Win32/low-integrity backend или persistent daemon. |
+| Deferred | Сеть Windows | Отложено вместе с Windows sandbox; enforcement `Partial`. |
 | P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |

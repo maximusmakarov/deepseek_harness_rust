@@ -22,7 +22,7 @@
 | WASM-плагины | wasmi JSON ABI, fuel | ✅ |
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
-| Windows sandbox | AppContainer opt-in не работает; default fail-closed | ⚠️ blocked |
+| Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |
 | Desktop | PWA (standalone), Tauri нет | ⚠️ частично |
 | i18n | TUI ru/en (`ui.language`); CLI/help — en | ⚠️ частично |
 | MCP OAuth | client-credentials | ⚠️ без refresh/elicitation |
