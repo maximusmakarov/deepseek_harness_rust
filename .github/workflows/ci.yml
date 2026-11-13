@@ -35,11 +35,17 @@ jobs:
         shell: bash
         run: |
           if [ -f clippy.log ]; then
-            tail -80 clippy.log | while IFS= read -r line; do
+            wc -l clippy.log
+            grep -iE "error|warning" clippy.log | tail -60 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
           true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: clippy-log
+          path: clippy.log
       - uses: taiki-e/install-action@nextest
       - name: nextest
         shell: bash
