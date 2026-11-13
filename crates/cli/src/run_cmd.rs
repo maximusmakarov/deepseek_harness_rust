@@ -104,7 +104,17 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         Some(id) => store.open(id)?,
         None => {
             let created = store.create(provider.name(), provider.model(), &cwd)?;
-            let title = args
+            let generated = if config.session.auto_title
+                && !matches!(provider.name(), "replay" | "scripted" | "mock")
+            {
+                dshr_agent::generate_title(provider.as_ref(), &args.prompt)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            let fallback = args
                 .prompt
                 .lines()
                 .next()
@@ -113,6 +123,9 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
                 .chars()
                 .take(60)
                 .collect::<String>();
+            let title = generated
+                .filter(|title| !title.is_empty())
+                .unwrap_or(fallback);
             if title.is_empty() {
                 created
             } else {

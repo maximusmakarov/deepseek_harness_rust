@@ -82,6 +82,8 @@ impl Default for ModelConfig {
 pub struct SessionConfig {
     /// Session store root. `None` resolves to `<home>/sessions`.
     pub dir: Option<PathBuf>,
+    /// Ask the provider for a short title on the first prompt.
+    pub auto_title: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

@@ -8,6 +8,7 @@ model:
   name: deepseek-flash
 session:
   dir: ~/.dshr/sessions
+  auto_title: true   # LLM-заголовок при первом prompt (run)
 tools:
   output_limit_chars: 30000
 ui:

@@ -19,6 +19,9 @@ use serde_json::Value;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
+mod title;
+pub use title::generate_title;
+
 #[derive(Debug, Error)]
 pub enum AgentError {
     #[error("cancelled")]
