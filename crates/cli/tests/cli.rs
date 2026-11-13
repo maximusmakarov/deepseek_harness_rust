@@ -1139,3 +1139,52 @@ fn plugin_manager_supports_http_servers() {
     let servers: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
     assert_eq!(servers[0]["url"], "https://mcp.example.com/mcp");
 }
+
+#[test]
+fn sessions_reindex_and_fts_search() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().to_str().expect("utf8");
+    let cassette = dir.path().join("fts.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[[
+          {"type":"start","model":"deepseek-flash"},
+          {"type":"text_delta","text":"fts unique needle"},
+          {"type":"done","stop_reason":"end_turn"}
+        ]]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hello",
+        ])
+        .assert()
+        .success();
+
+    dshr()
+        .args(["--home", home, "sessions", "reindex"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("indexed"));
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "sessions",
+            "search",
+            "unique needle",
+            "--fts",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("unique needle"));
+}

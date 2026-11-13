@@ -183,7 +183,7 @@ pub trait LlmAdapter: Send + Sync {
 
 ## 5. Журнал сессий
 
-Поиск: скан сейчас, индекс по бенчмарк-гейту — [ADR-016](adr/016-search-backend.md).
+Поиск: скан по умолчанию, FTS5 opt-in по гейту — [ADR-016](adr/016-search-backend.md), [docs/SEARCH.md](SEARCH.md).
 
 ### 5.1. События
 

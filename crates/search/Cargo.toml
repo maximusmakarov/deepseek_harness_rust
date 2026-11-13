@@ -1,0 +1,20 @@
+[package]
+name = "dshr-search"
+description = "SQLite FTS5 session search index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+dshr-core.workspace = true
+dshr-session-jsonl.workspace = true
+rusqlite = { version = "0.42", default-features = false, features = ["bundled-full"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+dshr-core.workspace = true
+dshr-llm.workspace = true
+dshr-session.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true

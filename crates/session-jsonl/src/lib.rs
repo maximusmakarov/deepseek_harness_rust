@@ -344,7 +344,7 @@ fn write_events(path: &Path, events: &[SessionEvent]) -> Result<()> {
     Ok(())
 }
 
-fn event_text(event: &SessionEvent) -> String {
+pub fn event_text(event: &SessionEvent) -> String {
     match event {
         SessionEvent::UserMessage { content, .. }
         | SessionEvent::AssistantMessage { content, .. } => content

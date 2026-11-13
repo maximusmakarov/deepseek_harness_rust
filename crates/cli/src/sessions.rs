@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 use dshr_config::ConfigLoader;
 use dshr_core::{DshrError, Result};
 use dshr_llm::ContentBlock;
+use dshr_search::SessionSearchIndex;
 use dshr_session_jsonl::SessionStore;
 
 #[derive(Debug, Args)]
@@ -64,7 +65,12 @@ pub enum SessionsAction {
         /// Emit JSON
         #[arg(long)]
         json: bool,
+        /// Use the SQLite FTS5 index instead of a scan
+        #[arg(long)]
+        fts: bool,
     },
+    /// Build or rebuild the FTS5 search index
+    Reindex,
 }
 
 pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
@@ -83,7 +89,13 @@ pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
         SessionsAction::Fork { id, at } => fork(&store, id, *at),
         SessionsAction::Rewind { id, turn } => rewind(&store, id, *turn),
         SessionsAction::Title { id, title } => set_title(&store, id, title),
-        SessionsAction::Search { query, limit, json } => search(&store, query, *limit, *json),
+        SessionsAction::Search {
+            query,
+            limit,
+            json,
+            fts,
+        } => search(&store, query, *limit, *json, *fts),
+        SessionsAction::Reindex => reindex(&store),
     }
 }
 
@@ -114,8 +126,21 @@ fn set_title(store: &SessionStore, id: &str, title: &str) -> Result<u8> {
     Ok(0)
 }
 
-fn search(store: &SessionStore, query: &str, limit: usize, json: bool) -> Result<u8> {
-    let hits = store.search(query, limit)?;
+fn search(store: &SessionStore, query: &str, limit: usize, json: bool, fts: bool) -> Result<u8> {
+    let hits = if fts && query.chars().count() >= 3 {
+        let mut index = SessionSearchIndex::open(store.root())
+            .map_err(|error| DshrError::config(error.to_string()))?;
+        if !SessionSearchIndex::exists(store.root()) {
+            index
+                .rebuild(store)
+                .map_err(|error| DshrError::config(error.to_string()))?;
+        }
+        index
+            .search(query, limit)
+            .map_err(|error| DshrError::config(error.to_string()))?
+    } else {
+        store.search(query, limit)?
+    };
     if json {
         let encoded = serde_json::to_string_pretty(&hits)
             .map_err(|error| DshrError::config(format!("serialize hits: {error}")))?;
@@ -128,6 +153,16 @@ fn search(store: &SessionStore, query: &str, limit: usize, json: bool) -> Result
             );
         }
     }
+    Ok(0)
+}
+
+fn reindex(store: &SessionStore) -> Result<u8> {
+    let mut index = SessionSearchIndex::open(store.root())
+        .map_err(|error| DshrError::config(error.to_string()))?;
+    let count = index
+        .rebuild(store)
+        .map_err(|error| DshrError::config(error.to_string()))?;
+    println!("indexed {count} events");
     Ok(0)
 }
 

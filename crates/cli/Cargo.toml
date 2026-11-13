@@ -29,6 +29,7 @@ dshr-office.workspace = true
 dshr-prompt.workspace = true
 dshr-sandbox.workspace = true
 dshr-schedule.workspace = true
+dshr-search.workspace = true
 dshr-server.workspace = true
 chrono.workspace = true
 dshr-session.workspace = true

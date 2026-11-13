@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v3.1 · 13.11.2026 · **M0–M6 выполнены; M7; MCP sampling; Windows sandbox deferred**
+**Статус:** план v3.2 · 13.11.2026 · **M0–M6 выполнены; M7; FTS-поиск**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -14,7 +14,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 
 - **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…024.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
-- **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search.
+- **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search; опциональный FTS5-индекс.
 - **Контекст:** детерминированный промпт, `AGENTS.md`, skills, compaction с событием журнала.
 - **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, web, worktrees, LSP, Office, browser/CUA.
 - **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты, общий бюджет токенов, allowlist инструментов.
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + встроенный Web UI, JSON-RPC.
 
-184 теста; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+185 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -87,6 +87,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/MCP.md](docs/MCP.md) | stdio/HTTP MCP, resources, plugin add | Для внешних инструментов |
 | [docs/OFFICE.md](docs/OFFICE.md) | docx/xlsx/pptx чтение и создание | Для документов |
 | [docs/BROWSER.md](docs/BROWSER.md) | Chrome/CUA: навигация, скриншоты, действия | Для браузера |
+| [docs/SEARCH.md](docs/SEARCH.md) | Гейт, benchmark, FTS5, reindex | Для поиска |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
@@ -221,9 +222,9 @@ docs/adr              001–031
 ## 9. Что дальше
 
 **P2 — оставшиеся эпики:**
-1. MCP prompts/sampling.
-2. WASM/sidecar, FTS-поиск.
-3. Desktop-оболочка (Tauri), OTel, ACP, i18n.
+1. WASM/sidecar.
+2. Desktop-оболочка (Tauri), OTel, ACP, i18n.
+3. Windows sandbox (persistent helper).
 4. Сеть Windows (AppContainer Partial).
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).
