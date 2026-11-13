@@ -57,8 +57,8 @@ HTTP sampling работает через GET-SSE вне клиентского 
 
 ## Границы
 
-- Нет elicitation; OAuth client-credentials поддерживается.
-- OAuth: client-credentials, токен запрашивается при подключении; refresh/expiry не реализованы.
+- Нет elicitation.
+- OAuth: client-credentials при подключении, затем `refresh_token` по истечении `expires_in` (запас 30 с) и однократный retry после `401`. Если сервер вернул новый `refresh_token`, он сохраняется; `scope` передаётся в обоих grant-ах.
 - GET-SSE используется для HTTP sampling; прочие server-notifications игнорируются.
 - Prompts поддерживаются для stdio и HTTP.
 - HTTP-сессия живёт в памяти клиента; реконнект — новый `initialize`.

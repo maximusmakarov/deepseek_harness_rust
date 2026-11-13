@@ -24,7 +24,7 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-axum = "0.8"
+axum = { version = "0.8", features = ["form"] }
 dshr-llm-mock.workspace = true
 tokio-util.workspace = true
 tempfile.workspace = true

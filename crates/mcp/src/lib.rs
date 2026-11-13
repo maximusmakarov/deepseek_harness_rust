@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dshr_llm::{LlmProvider, Message, Request, StreamChunk, ToolDef};
@@ -412,6 +412,56 @@ pub struct McpHttpClient {
     session_id: Mutex<Option<String>>,
     next_id: AtomicU64,
     sampling: Option<Arc<dyn LlmProvider>>,
+    oauth: Option<Arc<OAuthState>>,
+}
+
+const OAUTH_SKEW: Duration = Duration::from_secs(30);
+
+struct OAuthToken {
+    access: String,
+    refresh: Option<String>,
+    expires_at: Option<Instant>,
+}
+
+struct OAuthState {
+    spec: McpOAuthSpec,
+    token: Mutex<Option<OAuthToken>>,
+}
+
+impl OAuthState {
+    fn new(spec: McpOAuthSpec) -> Self {
+        Self {
+            spec,
+            token: Mutex::new(None),
+        }
+    }
+
+    async fn access_token(&self, client: &reqwest::Client) -> Result<String, McpError> {
+        let mut guard = self.token.lock().await;
+        let expired = match guard.as_ref() {
+            Some(token) => token
+                .expires_at
+                .is_some_and(|at| at <= Instant::now() + OAUTH_SKEW),
+            None => true,
+        };
+        if !expired {
+            let token = guard.as_ref().expect("token present");
+            return Ok(token.access.clone());
+        }
+        let refresh = guard.as_ref().and_then(|token| token.refresh.clone());
+        let next = fetch_oauth_token(client, &self.spec, refresh.as_deref()).await?;
+        let access = next.access.clone();
+        *guard = Some(next);
+        Ok(access)
+    }
+
+    /// Marks the cached token stale while keeping the refresh token.
+    async fn invalidate(&self) {
+        let mut guard = self.token.lock().await;
+        if let Some(token) = guard.as_mut() {
+            token.expires_at = Some(Instant::now());
+        }
+    }
 }
 
 impl McpHttpClient {
@@ -427,19 +477,24 @@ impl McpHttpClient {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|error| McpError::Io(error.to_string()))?;
-        let mut headers = spec.headers;
-        if let Some(oauth) = &spec.oauth {
-            let token = fetch_oauth_token(&client, oauth).await?;
-            headers.insert("Authorization".into(), format!("Bearer {token}"));
-        }
+        let oauth = match spec.oauth {
+            Some(oauth) => {
+                let state = Arc::new(OAuthState::new(oauth));
+                // Prime the token so connection errors surface at startup.
+                state.access_token(&client).await?;
+                Some(state)
+            }
+            None => None,
+        };
         let this = Self {
             name: spec.name,
             url,
-            headers,
+            headers: spec.headers,
             client,
             session_id: Mutex::new(None),
             next_id: AtomicU64::new(1),
             sampling,
+            oauth,
         };
         let this = Arc::new(this);
         this.initialize().await?;
@@ -566,25 +621,43 @@ impl McpHttpClient {
             "method": method,
             "params": params
         });
-        let mut request = self
-            .client
-            .post(&self.url)
-            .header(
-                reqwest::header::ACCEPT,
-                "application/json, text/event-stream",
-            )
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(&body);
-        for (key, value) in &self.headers {
-            request = request.header(key, value);
-        }
-        if let Some(session) = self.session_id.lock().await.as_deref() {
-            request = request.header("Mcp-Session-Id", session);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| McpError::Io(error.to_string()))?;
+        let mut refreshed = false;
+        let response = loop {
+            let mut request = self
+                .client
+                .post(&self.url)
+                .header(
+                    reqwest::header::ACCEPT,
+                    "application/json, text/event-stream",
+                )
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .json(&body);
+            for (key, value) in &self.headers {
+                request = request.header(key, value);
+            }
+            if let Some(oauth) = &self.oauth {
+                let token = oauth.access_token(&self.client).await?;
+                request = request.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
+            }
+            if let Some(session) = self.session_id.lock().await.as_deref() {
+                request = request.header("Mcp-Session-Id", session);
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|error| McpError::Io(error.to_string()))?;
+            if response.status() == reqwest::StatusCode::UNAUTHORIZED
+                && self.oauth.is_some()
+                && !refreshed
+            {
+                refreshed = true;
+                if let Some(oauth) = &self.oauth {
+                    oauth.invalidate().await;
+                }
+                continue;
+            }
+            break response;
+        };
         self.capture_session(&response).await;
         let status = response.status();
         let content_type = response
@@ -610,25 +683,42 @@ impl McpHttpClient {
     }
 
     async fn post_json(&self, value: &Value) -> Result<(), McpError> {
-        let mut request = self
-            .client
-            .post(&self.url)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(value);
-        for (key, value) in &self.headers {
-            request = request.header(key, value);
+        let mut refreshed = false;
+        loop {
+            let mut request = self
+                .client
+                .post(&self.url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .json(value);
+            for (key, value) in &self.headers {
+                request = request.header(key, value);
+            }
+            if let Some(oauth) = &self.oauth {
+                let token = oauth.access_token(&self.client).await?;
+                request = request.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
+            }
+            if let Some(session) = self.session_id.lock().await.as_deref() {
+                request = request.header("Mcp-Session-Id", session);
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|error| McpError::Io(error.to_string()))?;
+            if response.status() == reqwest::StatusCode::UNAUTHORIZED
+                && self.oauth.is_some()
+                && !refreshed
+            {
+                refreshed = true;
+                if let Some(oauth) = &self.oauth {
+                    oauth.invalidate().await;
+                }
+                continue;
+            }
+            if !response.status().is_success() {
+                return Err(McpError::Io(format!("HTTP {}", response.status())));
+            }
+            return Ok(());
         }
-        if let Some(session) = self.session_id.lock().await.as_deref() {
-            request = request.header("Mcp-Session-Id", session);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| McpError::Io(error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(McpError::Io(format!("HTTP {}", response.status())));
-        }
-        Ok(())
     }
 
     async fn capture_session(&self, response: &reqwest::Response) {
@@ -645,12 +735,17 @@ impl McpHttpClient {
 async fn fetch_oauth_token(
     client: &reqwest::Client,
     oauth: &McpOAuthSpec,
-) -> Result<String, McpError> {
-    let mut form = vec![
-        ("grant_type", "client_credentials".to_owned()),
-        ("client_id", oauth.client_id.clone()),
-        ("client_secret", oauth.client_secret.clone()),
-    ];
+    refresh: Option<&str>,
+) -> Result<OAuthToken, McpError> {
+    let mut form = vec![("client_id", oauth.client_id.clone())];
+    match refresh {
+        Some(refresh) => {
+            form.push(("grant_type", "refresh_token".to_owned()));
+            form.push(("refresh_token", refresh.to_owned()));
+        }
+        None => form.push(("grant_type", "client_credentials".to_owned())),
+    }
+    form.push(("client_secret", oauth.client_secret.clone()));
     if let Some(scope) = &oauth.scope {
         form.push(("scope", scope.clone()));
     }
@@ -670,10 +765,20 @@ async fn fetch_oauth_token(
     }
     let value: Value = serde_json::from_str(&text)
         .map_err(|error| McpError::Protocol(format!("invalid OAuth token: {error}")))?;
-    value["access_token"]
+    let access = value["access_token"]
         .as_str()
         .map(ToOwned::to_owned)
-        .ok_or_else(|| McpError::Protocol("OAuth response has no access_token".into()))
+        .ok_or_else(|| McpError::Protocol("OAuth response has no access_token".into()))?;
+    Ok(OAuthToken {
+        access,
+        refresh: value["refresh_token"]
+            .as_str()
+            .map(ToOwned::to_owned)
+            .or_else(|| refresh.map(ToOwned::to_owned)),
+        expires_at: value["expires_in"]
+            .as_u64()
+            .map(|seconds| Instant::now() + Duration::from_secs(seconds)),
+    })
 }
 
 async fn start_http_sse_listener(client: Arc<McpHttpClient>) {
@@ -683,6 +788,12 @@ async fn start_http_sse_listener(client: Arc<McpHttpClient>) {
         .header(reqwest::header::ACCEPT, "text/event-stream");
     for (key, value) in &client.headers {
         request = request.header(key, value);
+    }
+    if let Some(oauth) = &client.oauth {
+        let Ok(token) = oauth.access_token(&client.client).await else {
+            return;
+        };
+        request = request.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
     }
     if let Some(session) = client.session_id.lock().await.as_deref() {
         request = request.header("Mcp-Session-Id", session);
