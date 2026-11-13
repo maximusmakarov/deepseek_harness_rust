@@ -14,7 +14,7 @@
 | [008](008-token-meter.md) | Счётчик токенов | Accepted |
 | [009](009-sandbox-scope.md) | Сеть и exec в политике песочницы | Accepted |
 | [010](010-deepseek-wire.md) | DeepSeek official — Anthropic Messages | Accepted |
-| [011](011-desktop.md) | Desktop — Tauri над `dshr serve` | Proposed |
+| [011](011-desktop.md) | Desktop — Tauri над `dshr serve` | Accepted (реализовано) |
 | [012](012-yaml-parser.md) | YAML-парсер: serde-saphyr | Accepted |
 | [013](013-cordis-compat.md) | Совместимость с npm/Cordis-плагинами рядом с WASM | Accepted |
 | [014](014-tool-approvals.md) | Инструменты, approvals и агентный цикл | Accepted |

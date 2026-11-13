@@ -25,7 +25,7 @@
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |
-| Desktop | PWA (standalone), Tauri нет | ⚠️ частично |
+| Desktop | Tauri v2-оболочка (loopback `dshr serve`) + PWA | ✅ |
 | Дистрибутивы | архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула | ⚠️ без ghcr-бутылок и reproducible builds |
 | i18n | TUI ru/en; CLI `--lang`/`DSHR_LANG` (основные help/выводы) | ⚠️ частично |
 | MCP OAuth | client-credentials | ⚠️ без refresh/elicitation |

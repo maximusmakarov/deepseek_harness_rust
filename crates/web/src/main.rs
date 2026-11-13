@@ -68,6 +68,19 @@ fn main() {
     leptos::mount::mount_to_body(App);
 }
 
+fn initial_token() -> String {
+    if let Some(window) = web_sys::window()
+        && let Ok(search) = window.location().search()
+        && let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search)
+        && let Some(token) = params.get("token")
+    {
+        let token = token.trim().to_owned();
+        store_token(&token);
+        return token;
+    }
+    stored_token()
+}
+
 fn stored_token() -> String {
     web_sys::window()
         .and_then(|window| window.local_storage().ok().flatten())
@@ -256,7 +269,7 @@ fn connect_events(
 
 #[component]
 fn App() -> impl IntoView {
-    let token = RwSignal::new(stored_token());
+    let token = RwSignal::new(initial_token());
     let status = RwSignal::new(String::from("offline"));
     let sessions = RwSignal::new(Vec::<SessionSummary>::new());
     let messages = RwSignal::new(Vec::<ChatItem>::new());
