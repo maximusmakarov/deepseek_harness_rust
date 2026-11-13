@@ -44,7 +44,6 @@ pub(crate) fn apply_grants(
     Ok(())
 }
 
-
 #[cfg(windows)]
 fn grant_recursive(
     path: &Path,
