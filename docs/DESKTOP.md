@@ -26,7 +26,10 @@ Linux-CI; на macOS его тесты запускаются отдельным
 safe mode / Restart normally,
 New profile…, Export diagnostics…, Check for updates…, Profile (список
 `default` + `<home>/profiles/*`, переключение через `desktop-profile` и рестарт
-shell) и Quit. Safe mode пишет маркер `<home>/desktop-safe-mode` и передаёт `--safe-mode` серверу
+shell) и Quit. Окно: трей Window → Compatibility/Enhanced и Material (macOS vibrancy, прозрачность).
+Настройки хранятся в `<home>/desktop-window.json`; смена перезапускает shell.
+
+Safe mode пишет маркер `<home>/desktop-safe-mode` и передаёт `--safe-mode` серверу
 (пропускает MCP/Cordis/WASM-плагины); «Restart normally» убирает маркер.
 
 Первый запуск создаёт home, `desktop-profile=default` и README. Если провайдер не

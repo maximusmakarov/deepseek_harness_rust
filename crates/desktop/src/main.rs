@@ -99,11 +99,33 @@ fn main() {
             });
 
             let url = format!("http://127.0.0.1:{port}/?token={token}");
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse()?))
-                .title("dshr")
-                .inner_size(1280.0, 860.0)
-                .min_inner_size(720.0, 480.0)
-                .build()?;
+            let window_settings = load_window_settings(&home);
+            let mut builder =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse()?))
+                    .title("dshr")
+                    .inner_size(1280.0, 860.0)
+                    .min_inner_size(720.0, 480.0);
+            #[cfg(target_os = "macos")]
+            {
+                if window_settings.mode == "enhanced" {
+                    builder = builder
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true);
+                }
+                if window_settings.material {
+                    builder = builder.transparent(true);
+                }
+            }
+            let window = builder.build()?;
+            #[cfg(target_os = "macos")]
+            if window_settings.material {
+                use window_vibrancy::{NSVisualEffectMaterial, apply_vibrancy};
+                if let Err(error) =
+                    apply_vibrancy(&window, NSVisualEffectMaterial::Sidebar, None, Some(16.0))
+                {
+                    eprintln!("vibrancy: {error}");
+                }
+            }
 
             build_tray(app, &home, &profile)?;
             let _ = window;
@@ -165,11 +187,60 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
-    let safe_restart =
-        MenuItem::with_id(app, "safe-restart", "Restart in safe mode", true, None::<&str>)?;
-    let normal_restart =
-        MenuItem::with_id(app, "normal-restart", "Restart normally", true, None::<&str>)?;
+    let safe_restart = MenuItem::with_id(
+        app,
+        "safe-restart",
+        "Restart in safe mode",
+        true,
+        None::<&str>,
+    )?;
+    let normal_restart = MenuItem::with_id(
+        app,
+        "normal-restart",
+        "Restart normally",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+
+    let window_settings = load_window_settings(home);
+    let window_menu = Submenu::new(app, "Window", true)?;
+    let mode_compat = MenuItem::with_id(
+        app,
+        "window:mode:compatibility",
+        if window_settings.mode == "compatibility" {
+            "✓ Compatibility"
+        } else {
+            "Compatibility"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let mode_enhanced = MenuItem::with_id(
+        app,
+        "window:mode:enhanced",
+        if window_settings.mode == "enhanced" {
+            "✓ Enhanced"
+        } else {
+            "Enhanced"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let material = MenuItem::with_id(
+        app,
+        "window:material",
+        if window_settings.material {
+            "✓ Material"
+        } else {
+            "Material"
+        },
+        true,
+        None::<&str>,
+    )?;
+    window_menu.append(&mode_compat)?;
+    window_menu.append(&mode_enhanced)?;
+    window_menu.append(&material)?;
 
     let profiles = Submenu::new(app, "Profile", true)?;
     for name in list_profiles(home) {
@@ -188,6 +259,7 @@ fn build_tray(
             &show,
             &hide,
             &profiles,
+            &window_menu,
             &new_profile,
             &browser,
             &terminal,
@@ -307,6 +379,20 @@ fn build_tray(
             "quit" => {
                 stop_server(app);
                 app.exit(0);
+            }
+            other if other.starts_with("window:") => {
+                let home = home_dir();
+                let mut settings = load_window_settings(&home);
+                match other {
+                    "window:mode:compatibility" => settings.mode = "compatibility".to_owned(),
+                    "window:mode:enhanced" => settings.mode = "enhanced".to_owned(),
+                    "window:material" => settings.material = !settings.material,
+                    _ => return,
+                }
+                if save_window_settings(&home, &settings).is_ok() {
+                    stop_server(app);
+                    app.restart();
+                }
             }
             other if other.starts_with("profile:") => {
                 let name = other.trim_start_matches("profile:").to_owned();
@@ -745,6 +831,48 @@ fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Err
     Ok(format!("http://127.0.0.1:{port}/?token=…"))
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct WindowSettings {
+    #[serde(default = "default_window_mode")]
+    mode: String,
+    #[serde(default)]
+    material: bool,
+}
+
+fn default_window_mode() -> String {
+    "compatibility".to_owned()
+}
+
+impl Default for WindowSettings {
+    fn default() -> Self {
+        Self {
+            mode: default_window_mode(),
+            material: false,
+        }
+    }
+}
+
+fn window_settings_path(home: &Path) -> PathBuf {
+    home.join("desktop-window.json")
+}
+
+fn load_window_settings(home: &Path) -> WindowSettings {
+    let Ok(text) = std::fs::read_to_string(window_settings_path(home)) else {
+        return WindowSettings::default();
+    };
+    let mut settings: WindowSettings = serde_json::from_str(&text).unwrap_or_default();
+    if !matches!(settings.mode.as_str(), "compatibility" | "enhanced") {
+        settings.mode = default_window_mode();
+    }
+    settings
+}
+
+fn save_window_settings(home: &Path, settings: &WindowSettings) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
+    std::fs::write(window_settings_path(home), text)
+        .map_err(|error| format!("write desktop-window.json: {error}"))
+}
+
 #[derive(Clone, Debug, Default)]
 struct ProviderSettings {
     provider: Option<String>,
@@ -1139,6 +1267,27 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn saves_and_loads_window_settings() {
+        let dir = std::env::temp_dir().join(format!("dshr-window-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let settings = WindowSettings {
+            mode: "enhanced".into(),
+            material: true,
+        };
+        save_window_settings(&dir, &settings).expect("save");
+        let loaded = load_window_settings(&dir);
+        assert_eq!(loaded.mode, "enhanced");
+        assert!(loaded.material);
+        std::fs::write(
+            dir.join("desktop-window.json"),
+            r#"{"mode":"bogus","material":false}"#,
+        )
+        .expect("write");
+        assert_eq!(load_window_settings(&dir).mode, "compatibility");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
