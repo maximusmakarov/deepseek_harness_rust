@@ -35,10 +35,11 @@ jobs:
         shell: bash
         run: |
           if [ -f clippy.log ]; then
-            grep -E "^error" -A6 clippy.log | head -80 | while IFS= read -r line; do
+            tail -80 clippy.log | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
+          true
       - uses: taiki-e/install-action@nextest
       - name: nextest
         shell: bash
