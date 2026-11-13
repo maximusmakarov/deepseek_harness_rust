@@ -23,10 +23,10 @@ dshr acp --cassette test.json --model deepseek-flash
 
 Терминал: при `clientCapabilities.terminal=true` инструмент `bash` выполняет `terminal/create` → `wait_for_exit` → `output` → `release`; иначе локальный sandbox.
 
-Сессии: `session/load` объявлен (`loadSession: true`) и проигрывает историю `user_message_chunk`/`agent_message_chunk`; `cwd` должен совпадать с сохранённым.
+Сессии: `session/load` объявлен (`loadSession: true`) и проигрывает историю `user_message_chunk`/`agent_message_chunk`; `cwd` должен совпадать с сохранённым. `session/resume` открывает сессию без replay; `session/close` отменяет активный turn и идемпотентен.
 Инструменты выполняются локально. При `workspace-write` опасные вызовы (shell, запись вне workspace) отправляют клиенту `session/request_permission`; клиент выбирает `allow-once`/`reject-once`. Без ответа через 300 с — отказ. `--danger` отключает запросы.
 
-Не поддержано: изображения/аудио, MCP-серверы от клиента, `session/resume`/`close`.
+Не поддержано: изображения/аудио, MCP-серверы от клиента.
 
 `session/request_permission` реализован как запрос от агента клиенту; ответ `selected` + `optionId=allow-once` разрешает вызов.
 
