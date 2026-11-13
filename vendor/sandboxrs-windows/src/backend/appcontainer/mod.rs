@@ -71,8 +71,15 @@ pub(crate) fn build_state(
     identity: &str,
     plan: &FilesystemPlan,
 ) -> Result<AppContainerSandbox, SandboxError> {
-    let profile = rappct::AppContainerProfile::ensure(identity, identity, Some("sandboxrs"))
-        .map_err(map_rappct_error)?;
+    // dshr fork: deriving the SID avoids `CreateAppContainerProfile`, which
+    // hangs on some Windows runners. A registered profile is not required to
+    // launch with the SID or to grant ACLs.
+    let sid = rappct::profile::derive_sid_from_name(identity).map_err(map_rappct_error)?;
+    let profile = rappct::AppContainerProfile {
+        name: identity.to_owned(),
+        sid,
+    };
+    let _ = profile.clone().delete();
     let sandbox = AppContainerSandbox {
         profile: profile.clone(),
     };
