@@ -90,6 +90,7 @@ impl ToolRegistry {
         registry.register(crate::tools::ReadTool);
         registry.register(crate::tools::WriteTool);
         registry.register(crate::tools::EditTool);
+        registry.register(crate::tools::ApplyPatchTool);
         registry.register(crate::tools::GlobTool);
         registry.register(crate::tools::GrepTool);
         registry.register(crate::tools::BashTool::default());

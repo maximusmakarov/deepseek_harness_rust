@@ -14,6 +14,7 @@ mod test_support;
 
 pub use registry::{Tool, ToolCtx, ToolError, ToolOutcome, ToolRegistry, resolve_path};
 pub use tools::{
-    BashTool, EditTool, GlobTool, GrepTool, PresentTool, ReadTool, TodoTool, WebFetchTool,
-    WebSearchTool, WorktreeCreateTool, WorktreeListTool, WorktreeRemoveTool, WriteTool,
+    ApplyPatchTool, BashTool, EditTool, GlobTool, GrepTool, PresentTool, ReadTool, TodoTool,
+    WebFetchTool, WebSearchTool, WorktreeCreateTool, WorktreeListTool, WorktreeRemoveTool,
+    WriteTool,
 };

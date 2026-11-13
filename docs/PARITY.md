@@ -30,7 +30,8 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 |---|---|---|
 | LLM-провайдеры, tool-loop, сессии, resume/fork/rewind, compaction | DeepSeek + OpenAI-совместимые | ✅ |
 | Инструменты fs/shell/search/todo/present/web | есть | ✅ |
-| `apply_patch`, `ask_user`, persistent bash, diff-view | нет | ❌ |
+| `apply_patch` (DSH-формат) | есть, multi-file add/update/delete/move | ✅ |
+| `ask_user`, persistent bash, diff-view | нет | ❌ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh | есть; elicitation нет | ⚠️ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; optional methods (`session/list`, modes) нет | ⚠️ |
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | есть; hot reload, grants/audit, client half нет | ⚠️ |
@@ -53,7 +54,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 ## Приоритеты паритета
 
 P0 (закрыто 14.11): трей и close-to-tray, профили в desktop, фиксированный порт,
-экспорт диагностики. Осталось: `ask_user`, `apply_patch`, setup/onboarding, обновления.
+экспорт диагностики, `apply_patch`. Осталось: `ask_user`, setup/onboarding, обновления.
 P1: setup/onboarding, запуск с папкой, обновления, npm/Cordis install/update,
 плагин-маркет, elicitation, Windows sandbox.
 P2: режимы окна/материалы, recovery-окна, reproducible builds, ghcr-бутылки.
