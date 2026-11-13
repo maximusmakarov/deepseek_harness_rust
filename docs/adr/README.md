@@ -40,5 +40,6 @@
 | [034](034-acp.md) | ACP v1 server | Accepted |
 | [035](035-tui-i18n.md) | TUI i18n ru/en | Accepted |
 | [036](036-pwa-desktop.md) | Desktop через PWA, Tauri отложен | Accepted |
+| [037](037-http-rate-limit.md) | HTTP rate limit per token | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

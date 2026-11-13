@@ -38,6 +38,7 @@ fn state(dir: &std::path::Path) -> AppState {
             max_steps: 4,
             max_tokens: 64,
             output_limit: 10_000,
+            rate_limit_per_min: 0,
         },
         provider,
         Arc::new(ToolRegistry::new()),
@@ -239,4 +240,56 @@ async fn serves_pwa_assets() {
         .await
         .expect("body");
     assert!(String::from_utf8_lossy(&body).contains("/manifest.webmanifest"));
+}
+
+#[tokio::test]
+async fn rate_limits_api_requests() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let config = ServerConfig {
+        bind: "127.0.0.1:0".parse().expect("addr"),
+        token: "test-token".into(),
+        workspace: PathBuf::from(dir.path()),
+        mode: PermissionMode::DangerFull,
+        system_prompt: "test".into(),
+        max_steps: 4,
+        max_tokens: 64,
+        output_limit: 10_000,
+        rate_limit_per_min: 1,
+    };
+    let app = router(AppState::new(
+        config,
+        Arc::new(ScriptedProvider::new("test-model", vec![])),
+        Arc::new(ToolRegistry::new()),
+        Arc::new(SessionStore::new(dir.path().join("sessions"))),
+    ));
+
+    let first = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/sessions")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("first");
+    assert_eq!(first.status(), StatusCode::UNAUTHORIZED);
+
+    let second = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/sessions")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("second");
+    assert_eq!(second.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        second
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok()),
+        Some("60")
+    );
 }

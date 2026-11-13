@@ -56,6 +56,10 @@ pub struct ServeArgs {
 
     #[arg(long, default_value_t = 2048)]
     pub max_tokens: u32,
+
+    /// Requests per minute per bearer token (0 disables)
+    #[arg(long, env = "DSHR_RATE_LIMIT", default_value_t = 0)]
+    pub rate_limit: u32,
 }
 
 pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
@@ -138,6 +142,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
             max_steps: args.max_steps.max(1),
             max_tokens: args.max_tokens,
             output_limit: config.tools.output_limit_chars,
+            rate_limit_per_min: args.rate_limit,
         },
         provider,
         Arc::new(tools),

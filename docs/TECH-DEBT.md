@@ -33,7 +33,7 @@
 |---|---|---|
 | Deferred | Windows sandbox | Отложено по решению пользователя. По умолчанию fail-closed; experimental `DSHR_WINDOWS_SANDBOX` не работает (setup зависает). Нужен Win32/low-integrity backend или persistent daemon. |
 | Deferred | Сеть Windows | Отложено вместе с Windows sandbox; enforcement `Partial`. |
-| P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |
+| P2 | SDK/Leptos | JSON-RPC-подмножество и vanilla UI; rate-limit уже есть. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P2 | ACP image/MCP | Permissions, fs, terminal, load/resume/close есть; image/audio и клиентские MCP — нет. |

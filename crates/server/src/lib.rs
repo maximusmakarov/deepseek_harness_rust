@@ -3,14 +3,17 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::hash::{Hash, Hasher};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
@@ -40,6 +43,8 @@ pub struct ServerConfig {
     pub max_steps: usize,
     pub max_tokens: u32,
     pub output_limit: usize,
+    /// Requests per minute per bearer token; 0 disables the limiter.
+    pub rate_limit_per_min: u32,
 }
 
 #[derive(Clone)]
@@ -49,6 +54,7 @@ pub struct AppState {
     tools: Arc<ToolRegistry>,
     store: Arc<SessionStore>,
     runtimes: Arc<Mutex<HashMap<String, Arc<Runtime>>>>,
+    rate_limit: Arc<RateLimit>,
 }
 
 impl AppState {
@@ -59,12 +65,14 @@ impl AppState {
         tools: Arc<ToolRegistry>,
         store: Arc<SessionStore>,
     ) -> Self {
+        let rate_limit_per_min = config.rate_limit_per_min;
         Self {
             config: Arc::new(config),
             provider,
             tools,
             store,
             runtimes: Arc::new(Mutex::new(HashMap::new())),
+            rate_limit: Arc::new(RateLimit::new(rate_limit_per_min)),
         }
     }
 
@@ -186,6 +194,71 @@ impl Approver for HttpApprover {
     }
 }
 
+struct RateLimit {
+    limit: u32,
+    buckets: std::sync::Mutex<HashMap<u64, Bucket>>,
+}
+
+struct Bucket {
+    window: Instant,
+    count: u32,
+}
+
+impl RateLimit {
+    fn new(limit: u32) -> Self {
+        Self {
+            limit,
+            buckets: std::sync::Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn allow(&self, key: &str) -> bool {
+        if self.limit == 0 {
+            return true;
+        }
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        let key = hasher.finish();
+        let now = Instant::now();
+        let mut buckets = self.buckets.lock().expect("rate limiter poisoned");
+        let bucket = buckets.entry(key).or_insert(Bucket {
+            window: now,
+            count: 0,
+        });
+        if now.duration_since(bucket.window) >= Duration::from_secs(60) {
+            bucket.window = now;
+            bucket.count = 0;
+        }
+        if bucket.count >= self.limit {
+            return false;
+        }
+        bucket.count += 1;
+        true
+    }
+}
+
+async fn rate_limit(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let path = request.uri().path();
+    if !path.starts_with("/v1/") || path == "/v1/health" || state.config.rate_limit_per_min == 0 {
+        return next.run(request).await;
+    }
+    let key = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("anonymous");
+    if state.rate_limit.allow(key) {
+        next.run(request).await
+    } else {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, "60")],
+            Json(json!({"error": "rate limit exceeded"})),
+        )
+            .into_response()
+    }
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index))
@@ -207,6 +280,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/rpc", post(rpc))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn_with_state(state.clone(), rate_limit))
         .with_state(state)
 }
 
