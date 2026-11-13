@@ -13,6 +13,7 @@ pub type ChunkStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, LlmError>> 
 pub struct Capabilities {
     pub tools: bool,
     pub vision: bool,
+    pub audio: bool,
     pub reasoning: bool,
 }
 
@@ -21,6 +22,7 @@ impl Default for Capabilities {
         Self {
             tools: true,
             vision: false,
+            audio: false,
             reasoning: true,
         }
     }

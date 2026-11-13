@@ -41,6 +41,11 @@ pub enum ContentBlock {
         /// Base64-encoded payload.
         data: String,
     },
+    Audio {
+        media_type: String,
+        /// Base64-encoded payload.
+        data: String,
+    },
 }
 
 impl ContentBlock {

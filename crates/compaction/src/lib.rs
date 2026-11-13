@@ -63,7 +63,7 @@ pub fn estimate_tokens(messages: &[Message]) -> usize {
                         (name.len() + input.to_string().len()) / 4 + 8
                     }
                     ContentBlock::ToolResult { content, .. } => content.chars().count() / 4 + 8,
-                    ContentBlock::Image { .. } => 1000,
+                    ContentBlock::Image { .. } | ContentBlock::Audio { .. } => 1000,
                 })
                 .sum::<usize>()
         })
@@ -161,6 +161,7 @@ fn render_transcript(messages: &[Message]) -> String {
                     out.push_str(&format!("[tool result: {content}]\n"));
                 }
                 ContentBlock::Image { .. } => out.push_str("[image]\n"),
+                ContentBlock::Audio { .. } => out.push_str("[audio]\n"),
             }
         }
         out.push('\n');

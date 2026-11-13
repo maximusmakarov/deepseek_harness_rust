@@ -174,6 +174,7 @@ impl LlmProvider for ReplayProvider {
 pub struct ScriptedProvider {
     model: String,
     responses: Mutex<VecDeque<Vec<StreamChunk>>>,
+    capabilities: Capabilities,
 }
 
 impl ScriptedProvider {
@@ -182,7 +183,15 @@ impl ScriptedProvider {
         Self {
             model: model.into(),
             responses: Mutex::new(responses.into()),
+            capabilities: Capabilities::default(),
         }
+    }
+
+    /// Overrides the advertised capabilities (for example to enable audio).
+    #[must_use]
+    pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
+        self.capabilities = capabilities;
+        self
     }
 }
 
@@ -197,7 +206,7 @@ impl LlmProvider for ScriptedProvider {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::default()
+        self.capabilities
     }
 
     async fn stream(

@@ -437,6 +437,7 @@ fn render_blocks(blocks: &[ContentBlock]) -> String {
                 out.push_str(&format!("result: {content}\n"));
             }
             ContentBlock::Image { .. } => out.push_str("[image]\n"),
+            ContentBlock::Audio { .. } => out.push_str("[audio]\n"),
         }
     }
     out

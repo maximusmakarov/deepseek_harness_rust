@@ -1020,3 +1020,330 @@ async fn connects_http_session_mcp_servers() {
     assert!(text.contains("mcp done"), "{text}");
     assert_eq!(stop.as_deref(), Some("end_turn"));
 }
+
+#[tokio::test]
+async fn connects_stdio_session_mcp_servers() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let provider = Arc::new(ScriptedProvider::new(
+        "test-model",
+        vec![
+            vec![
+                StreamChunk::Start {
+                    model: "test-model".into(),
+                },
+                StreamChunk::ToolUseStart {
+                    index: 0,
+                    id: "call-stdio".into(),
+                    name: "mcp__stdio__echo".into(),
+                },
+                StreamChunk::ToolInputDelta {
+                    index: 0,
+                    json: r#"{"text":"hi"}"#.into(),
+                },
+                StreamChunk::Done {
+                    stop_reason: StopReason::ToolUse,
+                },
+            ],
+            vec![
+                StreamChunk::Start {
+                    model: "test-model".into(),
+                },
+                StreamChunk::TextDelta {
+                    text: "stdio done".into(),
+                },
+                StreamChunk::Done {
+                    stop_reason: StopReason::EndTurn,
+                },
+            ],
+        ],
+    ));
+    let server = AcpServer::new(
+        provider,
+        Arc::new(ToolRegistry::new()),
+        Arc::new(SessionStore::new(dir.path().join("sessions"))),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 3,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("initialize");
+    let initialized = read_json(&mut reader).await;
+    assert_eq!(
+        initialized["result"]["agentCapabilities"]["mcpCapabilities"]["http"],
+        true
+    );
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":2,"method":"session/new",
+                    "params":{
+                        "cwd":dir.path(),
+                        "mcpServers":[{
+                            "name":"stdio",
+                            "command":env!("CARGO_BIN_EXE_mock_acp_mcp"),
+                            "args":[],
+                            "env":[]
+                        }]
+                    }
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("session");
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":3,"method":"session/prompt",
+                    "params":{"sessionId":session_id,"prompt":[{"type":"text","text":"use stdio mcp"}]}
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("prompt");
+
+    let mut text = String::new();
+    let mut stop = None;
+    while stop.is_none() {
+        let message = read_json(&mut reader).await;
+        if message["method"] == "session/request_permission" {
+            let request_id = message["id"].clone();
+            client_write
+                .write_all(
+                    format!(
+                        "{}\n",
+                        json!({"jsonrpc":"2.0","id":request_id,"result":{"outcome":{"outcome":"selected","optionId":"allow-once"}}})
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("permission");
+        }
+        if message["method"] == "session/update"
+            && message["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+        {
+            text.push_str(
+                message["params"]["update"]["content"]["text"]
+                    .as_str()
+                    .unwrap_or_default(),
+            );
+        }
+        if message["id"] == 3 {
+            stop = message["result"]["stopReason"]
+                .as_str()
+                .map(ToOwned::to_owned);
+        }
+    }
+    assert!(text.contains("stdio done"), "{text}");
+    assert_eq!(stop.as_deref(), Some("end_turn"));
+}
+
+#[tokio::test]
+async fn accepts_audio_prompts_when_provider_supports() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let provider = Arc::new(
+        ScriptedProvider::new(
+            "test-model",
+            vec![vec![
+                StreamChunk::Start {
+                    model: "test-model".into(),
+                },
+                StreamChunk::TextDelta {
+                    text: "audio heard".into(),
+                },
+                StreamChunk::Done {
+                    stop_reason: StopReason::EndTurn,
+                },
+            ]],
+        )
+        .with_capabilities(dshr_llm::Capabilities {
+            audio: true,
+            ..dshr_llm::Capabilities::default()
+        }),
+    );
+    let store = Arc::new(SessionStore::new(dir.path().join("sessions")));
+    let server = AcpServer::new(
+        provider,
+        Arc::new(ToolRegistry::new()),
+        Arc::clone(&store),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 2,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("initialize");
+    let initialized = read_json(&mut reader).await;
+    assert_eq!(
+        initialized["result"]["agentCapabilities"]["promptCapabilities"]["audio"],
+        true
+    );
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":dir.path()}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("session");
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":3,"method":"session/prompt",
+                    "params":{
+                        "sessionId":session_id,
+                        "prompt":[
+                            {"type":"text","text":"transcribe"},
+                            {"type":"audio","data":"aGk=","mimeType":"audio/wav"}
+                        ]
+                    }
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("prompt");
+    let mut stop = None;
+    while stop.is_none() {
+        let message = read_json(&mut reader).await;
+        if message["id"] == 3 {
+            stop = message["result"]["stopReason"]
+                .as_str()
+                .map(ToOwned::to_owned);
+        }
+    }
+    assert_eq!(stop.as_deref(), Some("end_turn"));
+    let session = store.open(session_id).expect("session");
+    assert!(session.events.iter().any(|event| matches!(
+        event,
+        dshr_session::SessionEvent::UserMessage { content, .. }
+            if content.iter().any(|block| matches!(block, dshr_llm::ContentBlock::Audio { .. }))
+    )));
+}
+
+#[tokio::test]
+async fn rejects_audio_prompts_when_provider_lacks_support() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let provider = Arc::new(ScriptedProvider::new(
+        "test-model",
+        vec![vec![StreamChunk::Done {
+            stop_reason: StopReason::EndTurn,
+        }]],
+    ));
+    let server = AcpServer::new(
+        provider,
+        Arc::new(ToolRegistry::new()),
+        Arc::new(SessionStore::new(dir.path().join("sessions"))),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 2,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("initialize");
+    let initialized = read_json(&mut reader).await;
+    assert_eq!(
+        initialized["result"]["agentCapabilities"]["promptCapabilities"]["audio"],
+        false
+    );
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":dir.path()}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("session");
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":3,"method":"session/prompt",
+                    "params":{
+                        "sessionId":session_id,
+                        "prompt":[{"type":"audio","data":"aGk=","mimeType":"audio/wav"}]
+                    }
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("prompt");
+    let response = read_json(&mut reader).await;
+    assert_eq!(response["id"], 3);
+    let message = response["error"]["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(message.contains("audio"), "{message}");
+}

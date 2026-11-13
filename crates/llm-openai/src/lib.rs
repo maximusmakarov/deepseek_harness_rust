@@ -152,6 +152,7 @@ impl LlmProvider for OpenAiProvider {
         Capabilities {
             tools: true,
             vision: true,
+            audio: true,
             reasoning: true,
         }
     }
@@ -277,6 +278,13 @@ fn request_body(request: &Request, default_max_tokens: u32) -> Value {
                             "type": "image_url",
                             "image_url": {"url": format!("data:{media_type};base64,{data}")},
                         })),
+                        ContentBlock::Audio { media_type, data } => Some(json!({
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": data,
+                                "format": audio_format(media_type),
+                            },
+                        })),
                         _ => None,
                     })
                     .collect();
@@ -318,6 +326,15 @@ fn request_body(request: &Request, default_max_tokens: u32) -> Value {
     }
 
     body
+}
+
+/// OpenAI audio parts take a bare format (`wav`, `mp3`), not a MIME type.
+fn audio_format(media_type: &str) -> &str {
+    match media_type.rsplit('/').next().unwrap_or_default() {
+        "mpeg" | "mp3" => "mp3",
+        "x-wav" | "wave" | "wav" => "wav",
+        other => other,
+    }
 }
 
 fn text_of(blocks: &[ContentBlock]) -> String {
@@ -472,6 +489,52 @@ mod tests {
         assert_eq!(body["messages"][1]["role"], "user");
         assert_eq!(body["tools"][0]["type"], "function");
         assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn maps_audio_parts_to_input_audio() {
+        let mut request = request();
+        request.messages = vec![Message {
+            role: dshr_llm::Role::User,
+            content: vec![
+                dshr_llm::ContentBlock::text("transcribe"),
+                dshr_llm::ContentBlock::Audio {
+                    media_type: "audio/wav".into(),
+                    data: "aGk=".into(),
+                },
+            ],
+        }];
+        let body = request_body(&request, 64);
+        let parts = body["messages"][1]["content"].as_array().expect("parts");
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[1]["type"], "input_audio");
+        assert_eq!(parts[1]["input_audio"]["data"], "aGk=");
+        assert_eq!(parts[1]["input_audio"]["format"], "wav");
+
+        request.messages = vec![Message {
+            role: dshr_llm::Role::User,
+            content: vec![dshr_llm::ContentBlock::Audio {
+                media_type: "audio/mpeg".into(),
+                data: "aGk=".into(),
+            }],
+        }];
+        let body = request_body(&request, 64);
+        assert_eq!(
+            body["messages"][1]["content"][0]["input_audio"]["format"],
+            "mp3"
+        );
+    }
+
+    #[test]
+    fn advertises_audio_capability() {
+        let provider = OpenAiProvider::new(OpenAiConfig {
+            base_url: "https://example.test/v1".into(),
+            model: "audio-model".into(),
+            api_key: "test".into(),
+            max_tokens: 64,
+        })
+        .expect("provider");
+        assert!(provider.capabilities().audio);
     }
 
     #[test]

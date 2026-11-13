@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v5.1 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA**
+**Статус:** план v5.2 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-205 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+211 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: desktop (Tauri), WASM component model/WIT и подпись, Leptos UI, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -240,7 +240,8 @@ docs/adr              001–036
 
 **Осталось:**
 1. Windows sandbox (persistent helper), сеть Windows.
-2. ACP fs/terminal, WASM component model/WIT, MCP GET-SSE/OAuth.
-3. Tauri-оболочка (отложена).
+2. WASM component model/WIT, криптоподпись плагинов.
+3. Leptos UI и Tauri-оболочка (PWA уже есть).
+4. Стабильные бинарные дистрибутивы: бутылки Homebrew и подпись релизов.
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

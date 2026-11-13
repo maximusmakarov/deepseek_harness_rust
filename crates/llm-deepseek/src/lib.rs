@@ -234,6 +234,7 @@ impl LlmProvider for DeepSeekProvider {
         Capabilities {
             tools: true,
             vision: true,
+            audio: false,
             reasoning: true,
         }
     }
@@ -243,7 +244,7 @@ impl LlmProvider for DeepSeekProvider {
         request: Request,
         cancel: CancellationToken,
     ) -> Result<ChunkStream, LlmError> {
-        let body = request_body(&request, self.config.max_tokens);
+        let body = request_body(&request, self.config.max_tokens)?;
         let url = format!("{}/v1/messages", self.config.base_url.trim_end_matches('/'));
         let response = self.send_with_retry(&url, &body, &cancel).await?;
         let mut bytes = response.bytes_stream();
@@ -304,7 +305,7 @@ fn models_url(base_url: &str) -> String {
     format!("{root}/models")
 }
 
-fn request_body(request: &Request, default_max_tokens: u32) -> Value {
+fn request_body(request: &Request, default_max_tokens: u32) -> Result<Value, LlmError> {
     let mut messages = Vec::new();
     for message in &request.messages {
         let role = match message.role {
@@ -312,6 +313,15 @@ fn request_body(request: &Request, default_max_tokens: u32) -> Value {
             Role::User | Role::Tool => "user",
             Role::Assistant => "assistant",
         };
+        if message
+            .content
+            .iter()
+            .any(|block| matches!(block, ContentBlock::Audio { .. }))
+        {
+            return Err(LlmError::Config(
+                "the Anthropic Messages API does not accept audio content".into(),
+            ));
+        }
         let content: Vec<Value> = message.content.iter().filter_map(block_to_wire).collect();
         if content.is_empty() {
             continue;
@@ -351,7 +361,7 @@ fn request_body(request: &Request, default_max_tokens: u32) -> Value {
         );
     }
 
-    body
+    Ok(body)
 }
 
 fn block_to_wire(block: &ContentBlock) -> Option<Value> {
@@ -383,6 +393,8 @@ fn block_to_wire(block: &ContentBlock) -> Option<Value> {
             "type": "image",
             "source": {"type": "base64", "media_type": media_type, "data": data},
         })),
+        // Rejected in `request_body`; kept here for match exhaustiveness.
+        ContentBlock::Audio { .. } => None,
     }
 }
 
@@ -520,12 +532,29 @@ mod tests {
             }],
             stop_sequences: vec!["STOP".into()],
         };
-        let body = request_body(&request, 64);
+        let body = request_body(&request, 64).expect("body");
         assert_eq!(body["model"], "deepseek-flash");
         assert_eq!(body["max_tokens"], 32);
         assert_eq!(body["system"], "be brief");
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["tools"][0]["name"], "read");
+    }
+
+    #[test]
+    fn rejects_audio_content() {
+        let request = Request {
+            model: "deepseek-flash".into(),
+            messages: vec![Message {
+                role: Role::User,
+                content: vec![ContentBlock::Audio {
+                    media_type: "audio/wav".into(),
+                    data: "aGk=".into(),
+                }],
+            }],
+            ..Request::default()
+        };
+        let error = request_body(&request, 64).expect_err("audio must be rejected");
+        assert!(error.to_string().contains("audio"), "{error}");
     }
 
     #[test]
@@ -661,7 +690,7 @@ mod tests {
             max_tokens: 0,
             ..Request::default()
         };
-        assert_eq!(request_body(&request, 64)["max_tokens"], 64);
+        assert_eq!(request_body(&request, 64).expect("body")["max_tokens"], 64);
     }
 
     #[test]

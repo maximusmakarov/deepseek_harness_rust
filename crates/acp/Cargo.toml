@@ -6,6 +6,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "mock_acp_mcp"
+path = "src/bin/mock_acp_mcp.rs"
+
 [dependencies]
 async-trait.workspace = true
 dshr-agent.workspace = true

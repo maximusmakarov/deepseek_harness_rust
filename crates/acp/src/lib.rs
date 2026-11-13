@@ -166,8 +166,12 @@ impl AcpServer {
                                         },
                                         "promptCapabilities": {
                                             "image": true,
-                                            "audio": false,
+                                            "audio": self.provider.capabilities().audio,
                                             "embeddedContext": false
+                                        },
+                                        "mcpCapabilities": {
+                                            "http": true,
+                                            "sse": false
                                         }
                                     },
                                     "agentInfo": {
@@ -305,7 +309,15 @@ impl AcpServer {
                         send_error(&writer, id, -32602, "sessionId is required").await?;
                         continue;
                     };
-                    let prompt = prompt_content(&params["prompt"]);
+                    let prompt =
+                        match prompt_content(&params["prompt"], self.provider.capabilities().audio)
+                        {
+                            Ok(prompt) => prompt,
+                            Err(message) => {
+                                send_error(&writer, id, -32602, &message).await?;
+                                continue;
+                            }
+                        };
                     if prompt.is_empty() {
                         send_error(&writer, id, -32602, "prompt is empty").await?;
                         continue;
@@ -603,28 +615,46 @@ async fn connect_acp_mcp(server: &Value) -> Result<Vec<Arc<dyn dshr_tools::Tool>
     let name = server["name"]
         .as_str()
         .ok_or_else(|| "mcp server name is required".to_owned())?;
-    let Some(url) = server["url"].as_str().filter(|value| !value.is_empty()) else {
-        return Err(format!(
-            "MCP server {name}: only HTTP servers are supported (url is required)"
-        ));
-    };
-    let mut headers = std::collections::BTreeMap::new();
-    if let Some(values) = server["headers"].as_array() {
-        for value in values {
-            if let (Some(key), Some(value)) = (value["name"].as_str(), value["value"].as_str()) {
-                headers.insert(key.to_owned(), value.to_owned());
-            }
+    let transport = server["type"].as_str().unwrap_or_default();
+    let spec = if transport == "http" || (transport.is_empty() && server["url"].is_string()) {
+        let Some(url) = server["url"].as_str().filter(|value| !value.is_empty()) else {
+            return Err(format!("MCP server {name}: url is required for HTTP"));
+        };
+        McpServerSpec {
+            name: name.to_owned(),
+            command: String::new(),
+            args: Vec::new(),
+            env: std::collections::BTreeMap::new(),
+            cwd: None,
+            url: Some(url.to_owned()),
+            headers: env_pairs(&server["headers"]),
+            oauth: None,
         }
-    }
-    let spec = McpServerSpec {
-        name: name.to_owned(),
-        command: String::new(),
-        args: Vec::new(),
-        env: std::collections::BTreeMap::new(),
-        cwd: None,
-        url: Some(url.to_owned()),
-        headers,
-        oauth: None,
+    } else if transport == "sse" {
+        return Err(format!(
+            "MCP server {name}: SSE transport is not supported; use http or stdio"
+        ));
+    } else {
+        let Some(command) = server["command"].as_str().filter(|value| !value.is_empty()) else {
+            return Err(format!(
+                "MCP server {name}: command is required for stdio transport"
+            ));
+        };
+        McpServerSpec {
+            name: name.to_owned(),
+            command: command.to_owned(),
+            args: server["args"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+                .collect(),
+            env: env_pairs(&server["env"]),
+            cwd: None,
+            url: None,
+            headers: std::collections::BTreeMap::new(),
+            oauth: None,
+        }
     };
     let (_backend, adapters) = connect_server(spec)
         .await
@@ -632,19 +662,59 @@ async fn connect_acp_mcp(server: &Value) -> Result<Vec<Arc<dyn dshr_tools::Tool>
     Ok(adapters)
 }
 
-fn prompt_content(value: &Value) -> Vec<dshr_llm::ContentBlock> {
-    value
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|block| match block["type"].as_str() {
-            Some("text") => block["text"].as_str().map(dshr_llm::ContentBlock::text),
-            Some("image") => {
-                let media_type = block["mimeType"].as_str()?.to_owned();
-                let data = block["data"].as_str()?.to_owned();
-                Some(dshr_llm::ContentBlock::Image { media_type, data })
+fn env_pairs(value: &Value) -> std::collections::BTreeMap<String, String> {
+    let mut pairs = std::collections::BTreeMap::new();
+    if let Some(values) = value.as_array() {
+        for pair in values {
+            if let (Some(name), Some(value)) = (pair["name"].as_str(), pair["value"].as_str()) {
+                pairs.insert(name.to_owned(), value.to_owned());
             }
-            _ => None,
-        })
-        .collect()
+        }
+    }
+    pairs
+}
+
+fn prompt_content(
+    value: &Value,
+    audio_supported: bool,
+) -> Result<Vec<dshr_llm::ContentBlock>, String> {
+    let mut blocks = Vec::new();
+    for block in value.as_array().into_iter().flatten() {
+        match block["type"].as_str() {
+            Some("text") => {
+                if let Some(text) = block["text"].as_str() {
+                    blocks.push(dshr_llm::ContentBlock::text(text));
+                }
+            }
+            Some("image") => {
+                let media_type = block["mimeType"]
+                    .as_str()
+                    .ok_or_else(|| "image block requires mimeType".to_owned())?;
+                let data = block["data"]
+                    .as_str()
+                    .ok_or_else(|| "image block requires data".to_owned())?;
+                blocks.push(dshr_llm::ContentBlock::Image {
+                    media_type: media_type.to_owned(),
+                    data: data.to_owned(),
+                });
+            }
+            Some("audio") => {
+                if !audio_supported {
+                    return Err("the configured provider does not support audio prompts".to_owned());
+                }
+                let media_type = block["mimeType"]
+                    .as_str()
+                    .ok_or_else(|| "audio block requires mimeType".to_owned())?;
+                let data = block["data"]
+                    .as_str()
+                    .ok_or_else(|| "audio block requires data".to_owned())?;
+                blocks.push(dshr_llm::ContentBlock::Audio {
+                    media_type: media_type.to_owned(),
+                    data: data.to_owned(),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(blocks)
 }
