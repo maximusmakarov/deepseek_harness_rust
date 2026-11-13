@@ -8,6 +8,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -63,7 +64,19 @@ fn main() {
             let home = home_dir();
             let first_run = ensure_home(&home);
             let profile = current_profile(&home);
-            let (port, token, child) = match start_server(&home, &profile, folder.as_deref()) {
+            let provider = match ensure_provider(&home, true) {
+                Ok(provider) => provider,
+                Err(error) => {
+                    show_error("Provider setup", &error);
+                    return Err(error.into());
+                }
+            };
+            let (port, token, child) = match start_server(
+                &home,
+                &profile,
+                folder.as_deref(),
+                provider.as_ref(),
+            ) {
                 Ok(started) => started,
                 Err(error) => {
                     show_error(
@@ -129,6 +142,7 @@ fn build_tray(
     let browser = MenuItem::with_id(app, "browser", "Open in browser", true, None::<&str>)?;
     let terminal = MenuItem::with_id(app, "terminal", "Open terminal", true, None::<&str>)?;
     let new_profile = MenuItem::with_id(app, "new-profile", "New profile…", true, None::<&str>)?;
+    let provider = MenuItem::with_id(app, "provider", "Provider setup…", true, None::<&str>)?;
     let config_folder = MenuItem::with_id(
         app,
         "config-folder",
@@ -166,6 +180,7 @@ fn build_tray(
             &new_profile,
             &browser,
             &terminal,
+            &provider,
             &config_folder,
             &updates,
             &diagnostics,
@@ -202,6 +217,19 @@ fn build_tray(
             }
             "terminal" => open_terminal(),
             "config-folder" => open_reveal(&home_dir()),
+            "provider" => {
+                let home = home_dir();
+                match prompt_provider_setup() {
+                    Ok(settings) => match save_provider_settings(&home, &settings) {
+                        Ok(()) => {
+                            stop_server(app);
+                            app.restart();
+                        }
+                        Err(error) => show_error("Provider setup", &error),
+                    },
+                    Err(error) => show_error("Provider setup", &error),
+                }
+            }
             "new-profile" => {
                 if let Some(name) = prompt_text("New profile", "Profile name", "") {
                     let home = home_dir();
@@ -255,6 +283,7 @@ fn start_server(
     home: &Path,
     profile: &str,
     folder: Option<&Path>,
+    provider: Option<&ProviderSettings>,
 ) -> Result<(u16, String, Child), Box<dyn std::error::Error>> {
     let port = desktop_port()?;
     let token = format!(
@@ -282,20 +311,34 @@ fn start_server(
     if let Some(folder) = folder {
         command.current_dir(folder);
     }
+    let mut arguments = vec![
+        "--home".to_owned(),
+        home.display().to_string(),
+        "--profile".to_owned(),
+        profile.to_owned(),
+        "serve".to_owned(),
+        "--bind".to_owned(),
+        "127.0.0.1".to_owned(),
+        "--port".to_owned(),
+        port.to_string(),
+        "--token".to_owned(),
+        token.clone(),
+    ];
+    if let Some(provider) = provider {
+        if let Some(route) = &provider.provider {
+            arguments.push("--provider".to_owned());
+            arguments.push(route.clone());
+        }
+        if let Some(model) = &provider.model {
+            arguments.push("--model".to_owned());
+            arguments.push(model.clone());
+        }
+    }
+    if let Some(provider) = provider {
+        command.envs(&provider.env);
+    }
     let child = command
-        .args([
-            "--home",
-            &home.display().to_string(),
-            "--profile",
-            profile,
-            "serve",
-            "--bind",
-            "127.0.0.1",
-            "--port",
-            &port.to_string(),
-            "--token",
-            &token,
-        ])
+        .args(&arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err))
@@ -531,10 +574,197 @@ fn open_terminal() {
 fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Error>> {
     let home = home_dir();
     let profile = current_profile(&home);
-    let (port, _token, mut child) = start_server(&home, &profile, folder)?;
+    let provider = ensure_provider(&home, false)?;
+    let (port, _token, mut child) = start_server(&home, &profile, folder, provider.as_ref())?;
     let _ = child.kill();
     let _ = child.wait();
     Ok(format!("http://127.0.0.1:{port}/?token=…"))
+}
+
+#[derive(Clone, Debug, Default)]
+struct ProviderSettings {
+    provider: Option<String>,
+    model: Option<String>,
+    env: BTreeMap<String, String>,
+}
+
+fn desktop_env_path(home: &Path) -> PathBuf {
+    home.join("desktop.env")
+}
+
+fn has_process_credentials() -> bool {
+    [
+        "DEEPSEEK_API_KEY",
+        "DSH_DEEPSEEK_TOKEN",
+        "OPENAI_API_KEY",
+        "ROUTERAI_API_KEY",
+    ]
+    .iter()
+    .any(|key| std::env::var_os(key).is_some())
+}
+
+fn load_provider_settings(home: &Path) -> Option<ProviderSettings> {
+    let text = std::fs::read_to_string(desktop_env_path(home)).ok()?;
+    let mut settings = ProviderSettings::default();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key.trim() {
+            "DSHR_DESKTOP_PROVIDER" => settings.provider = Some(value.trim().to_owned()),
+            "DSHR_DESKTOP_MODEL" => settings.model = Some(value.trim().to_owned()),
+            key => {
+                settings.env.insert(key.to_owned(), value.trim().to_owned());
+            }
+        }
+    }
+    Some(settings)
+}
+
+fn save_provider_settings(home: &Path, settings: &ProviderSettings) -> Result<(), String> {
+    let mut text = String::from("# dshr desktop provider settings\n");
+    if let Some(provider) = &settings.provider {
+        text.push_str(&format!("DSHR_DESKTOP_PROVIDER={provider}\n"));
+    }
+    if let Some(model) = &settings.model {
+        text.push_str(&format!("DSHR_DESKTOP_MODEL={model}\n"));
+    }
+    for (key, value) in &settings.env {
+        text.push_str(&format!("{key}={value}\n"));
+    }
+    std::fs::write(desktop_env_path(home), text)
+        .map_err(|error| format!("write desktop.env: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            desktop_env_path(home),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .map_err(|error| format!("chmod desktop.env: {error}"))?;
+    }
+    Ok(())
+}
+
+fn ensure_provider(home: &Path, interactive: bool) -> Result<Option<ProviderSettings>, String> {
+    if has_process_credentials() {
+        return Ok(None);
+    }
+    if let Some(settings) = load_provider_settings(home) {
+        return Ok(Some(settings));
+    }
+    if !interactive {
+        return Err(
+            "provider is not configured: set DEEPSEEK_API_KEY/OPENAI_API_KEY or run the app once"
+                .to_owned(),
+        );
+    }
+    let settings = prompt_provider_setup()?;
+    save_provider_settings(home, &settings)?;
+    Ok(Some(settings))
+}
+
+fn prompt_provider_setup() -> Result<ProviderSettings, String> {
+    let choice = prompt_choice(
+        "Provider setup",
+        "Which provider should dshr use?",
+        &["DeepSeek", "OpenAI-compatible"],
+    )?
+    .ok_or_else(|| "provider setup cancelled".to_owned())?;
+    let (route, model_default, key_env) = if choice == 0 {
+        ("deepseek-account", "deepseek-flash", "DEEPSEEK_API_KEY")
+    } else {
+        ("openai-compatible", "gpt-4o-mini", "OPENAI_API_KEY")
+    };
+    let model = prompt_text("Provider setup", "Model", model_default)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| model_default.to_owned());
+    let key = prompt_secret("Provider setup", "API key")?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "API key is required".to_owned())?;
+    let mut env = BTreeMap::new();
+    env.insert(key_env.to_owned(), key.trim().to_owned());
+    if route == "openai-compatible" {
+        let base = prompt_text("Provider setup", "Base URL", "https://api.openai.com/v1")
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_owned());
+        env.insert("OPENAI_BASE_URL".to_owned(), base);
+    }
+    Ok(ProviderSettings {
+        provider: Some(route.to_owned()),
+        model: Some(model),
+        env,
+    })
+}
+
+fn prompt_choice(title: &str, prompt: &str, options: &[&str]) -> Result<Option<usize>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let buttons = options
+            .iter()
+            .map(|option| format!("\"{}\"", escape_osascript(option)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let script = format!(
+            "display dialog \"{}\" buttons {{{}, \"Cancel\"}} default button 1 with title \"{}\"",
+            escape_osascript(prompt),
+            buttons,
+            escape_osascript(title)
+        );
+        let output = Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|error| format!("osascript: {error}"))?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        Ok(options
+            .iter()
+            .position(|option| text.contains(&format!("button returned:{option}"))))
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = (title, prompt, options);
+        Err("provider setup dialogs are implemented on macOS; set env variables".to_owned())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (title, prompt, options);
+        Err("provider setup dialogs are implemented on macOS; set env variables".to_owned())
+    }
+}
+
+fn prompt_secret(title: &str, prompt: &str) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = format!(
+            "display dialog \"{}\" default answer \"\" with hidden answer buttons {{\"Cancel\", \"OK\"}} default button \"OK\" with title \"{}\"",
+            escape_osascript(prompt),
+            escape_osascript(title)
+        );
+        let output = Command::new("osascript")
+            .args(["-e", &script])
+            .output()
+            .map_err(|error| format!("osascript: {error}"))?;
+        if !output.status.success() {
+            return Ok(None);
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        Ok(text
+            .split("text returned:")
+            .nth(1)
+            .map(|value| value.trim().to_owned()))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (title, prompt);
+        Err("provider setup dialogs are implemented on macOS; set env variables".to_owned())
+    }
 }
 
 fn ensure_home(home: &Path) -> bool {
@@ -719,6 +949,23 @@ mod tests {
         assert_ne!(port, 0);
         let listener = TcpListener::bind(("127.0.0.1", port)).expect("rebind");
         drop(listener);
+    }
+
+    #[test]
+    fn saves_and_loads_provider_settings() {
+        let dir = std::env::temp_dir().join(format!("dshr-provider-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let settings = ProviderSettings {
+            provider: Some("deepseek-account".into()),
+            model: Some("deepseek-flash".into()),
+            env: BTreeMap::from([("DEEPSEEK_API_KEY".to_owned(), "secret".to_owned())]),
+        };
+        save_provider_settings(&dir, &settings).expect("save");
+        let loaded = load_provider_settings(&dir).expect("load");
+        assert_eq!(loaded.provider.as_deref(), Some("deepseek-account"));
+        assert_eq!(loaded.model.as_deref(), Some("deepseek-flash"));
+        assert_eq!(loaded.env["DEEPSEEK_API_KEY"], "secret");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

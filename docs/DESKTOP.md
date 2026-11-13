@@ -25,8 +25,11 @@ Linux-CI; на macOS его тесты запускаются отдельным
 Трей: Show/Hide, Open in browser, Open terminal, Open config folder,
 New profile…, Export diagnostics…, Check for updates…, Profile (список
 `default` + `<home>/profiles/*`, переключение через `desktop-profile` и рестарт
-shell) и Quit. Первый запуск создаёт home, `desktop-profile=default` и README;
-ошибка старта сервера показывается нативным диалогом с подсказкой про провайдера. `--export-diagnostics` собирает `system-info.txt`,
+shell) и Quit. Первый запуск создаёт home, `desktop-profile=default` и README. Если провайдер не
+настроен в окружении, при старте открывается нативный setup (провайдер, модель,
+API key, base URL для OpenAI-совместимого); настройки пишутся в `<home>/desktop.env`
+с правами `0600` и передаются дочернему `dshr serve`. Tray → Provider setup… меняет
+их и перезапускает shell. Ошибка старта показывается нативным диалогом. `--export-diagnostics` собирает `system-info.txt`,
 `desktop.log`, вывод `dshr doctor` и упаковывает в `dshr-diagnostics-*.tar.gz`.
 
 Сборка `.app` (macOS):
