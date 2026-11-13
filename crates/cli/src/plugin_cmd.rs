@@ -96,6 +96,23 @@ pub enum NpmAction {
         #[arg(long)]
         json: bool,
     },
+    /// Search the npm registry for Cordis plugins
+    Search {
+        /// Registry query
+        query: String,
+        /// Maximum number of hits
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show npm package metadata
+    Info {
+        /// Package name
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
@@ -122,7 +139,133 @@ fn npm(loader: &ConfigLoader, action: &NpmAction) -> Result<u8> {
         NpmAction::Remove { name } => npm_remove(loader, name),
         NpmAction::Update { name } => npm_update(loader, name.as_deref()),
         NpmAction::List { json } => npm_list(loader, *json),
+        NpmAction::Search { query, limit, json } => npm_search(query, *limit, *json),
+        NpmAction::Info { name, json } => npm_info(name, *json),
     }
+}
+
+#[derive(Debug, PartialEq)]
+struct PackageHit {
+    name: String,
+    version: String,
+    description: String,
+}
+
+fn npm_search(query: &str, limit: usize, json: bool) -> Result<u8> {
+    let url = format!(
+        "https://registry.npmjs.org/-/v1/search?text={}&size={}",
+        percent_encode(query),
+        limit.clamp(1, 100)
+    );
+    let body = fetch_url(&url)?;
+    let hits = parse_search(&body);
+    if hits.is_empty() {
+        println!("no packages");
+        return Ok(0);
+    }
+    if json {
+        let encoded = serde_json::to_string_pretty(
+            &hits
+                .iter()
+                .map(|hit| {
+                    json!({
+                        "name": hit.name,
+                        "version": hit.version,
+                        "description": hit.description
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|error| DshrError::config(error.to_string()))?;
+        println!("{encoded}");
+        return Ok(0);
+    }
+    for hit in hits {
+        println!("{}@{} — {}", hit.name, hit.version, hit.description);
+    }
+    Ok(0)
+}
+
+fn npm_info(name: &str, json: bool) -> Result<u8> {
+    let url = format!("https://registry.npmjs.org/{}", percent_encode(name));
+    let body = fetch_url(&url)?;
+    let value: Value = serde_json::from_str(&body)
+        .map_err(|error| DshrError::config(format!("invalid registry response: {error}")))?;
+    let latest = value["dist-tags"]["latest"].as_str().unwrap_or("unknown");
+    let entry = &value["versions"][latest];
+    let summary = json!({
+        "name": name,
+        "version": latest,
+        "description": entry["description"].as_str().or_else(|| value["description"].as_str()).unwrap_or(""),
+        "homepage": entry["homepage"].as_str().or_else(|| value["homepage"].as_str()).unwrap_or(""),
+        "repository": entry["repository"]["url"].as_str().unwrap_or(""),
+        "tarball": entry["dist"]["tarball"].as_str().unwrap_or("")
+    });
+    if json {
+        let encoded = serde_json::to_string_pretty(&summary)
+            .map_err(|error| DshrError::config(error.to_string()))?;
+        println!("{encoded}");
+    } else {
+        println!("{}@{}", name, latest);
+        println!("{}", summary["description"].as_str().unwrap_or(""));
+        if !summary["homepage"].as_str().unwrap_or("").is_empty() {
+            println!("homepage: {}", summary["homepage"].as_str().unwrap_or(""));
+        }
+        if !summary["repository"].as_str().unwrap_or("").is_empty() {
+            println!(
+                "repository: {}",
+                summary["repository"].as_str().unwrap_or("")
+            );
+        }
+    }
+    Ok(0)
+}
+
+fn fetch_url(url: &str) -> Result<String> {
+    let output = std::process::Command::new("curl")
+        .args(["-fsSL", "-H", "User-Agent: dshr-cli", url])
+        .output()
+        .map_err(|error| DshrError::invalid_input(format!("curl: {error}")))?;
+    if !output.status.success() {
+        return Err(DshrError::invalid_input(format!(
+            "registry request failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            b' ' => out.push_str("%20"),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+fn parse_search(body: &str) -> Vec<PackageHit> {
+    let Ok(value) = serde_json::from_str::<Value>(body) else {
+        return Vec::new();
+    };
+    value["objects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|object| {
+            let package = &object["package"];
+            Some(PackageHit {
+                name: package["name"].as_str()?.to_owned(),
+                version: package["version"].as_str().unwrap_or("").to_owned(),
+                description: package["description"].as_str().unwrap_or("").to_owned(),
+            })
+        })
+        .collect()
 }
 
 fn npm_binary() -> String {
@@ -530,6 +673,26 @@ mod tests {
         assert!(package_name("file:../plugin").is_none());
         assert!(package_name("./plugin").is_none());
         assert!(package_name("https://example.test/plugin.tgz").is_none());
+    }
+
+    #[test]
+    fn parses_npm_search_results() {
+        let body = r#"{"objects":[
+            {"package":{"name":"cordis","version":"3.0.0","description":"plugin framework"}},
+            {"package":{"name":"@scope/cordis-tool","version":"1.2.3","description":"tool"}}
+        ]}"#;
+        let hits = parse_search(body);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].name, "cordis");
+        assert_eq!(hits[1].version, "1.2.3");
+        assert!(parse_search("not json").is_empty());
+    }
+
+    #[test]
+    fn encodes_registry_queries() {
+        assert_eq!(percent_encode("cordis plugin"), "cordis%20plugin");
+        assert_eq!(percent_encode("@scope/name"), "%40scope%2Fname");
+        assert_eq!(percent_encode("a+b"), "a%2Bb");
     }
 
     #[test]

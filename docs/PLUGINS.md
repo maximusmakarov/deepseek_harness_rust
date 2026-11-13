@@ -125,6 +125,14 @@ dshr plugin npm remove name
 dshr plugin npm list
 ```
 
+Поиск по реестру npm и метаданные:
+
+```sh
+dshr plugin npm search cordis
+dshr plugin npm search cordis --limit 5 --json
+dshr plugin npm info cordis
+```
+
 Пакет ставится в `<home>/cordis/packages/<profile>/<name>` (для `default` — без
 подкаталога профиля); запись `plugins.cordis`
 (entry — абсолютный путь к каталогу пакета, `enabled: true`) пишется в user config, а
