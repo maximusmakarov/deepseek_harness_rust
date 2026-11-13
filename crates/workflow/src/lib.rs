@@ -31,6 +31,9 @@ pub struct WorkflowStep {
     pub prompt: String,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    /// Number of retries after the first attempt.
+    #[serde(default)]
+    pub retries: u32,
 }
 
 #[derive(Debug, Error)]
@@ -97,6 +100,12 @@ impl Workflow {
             if step.prompt.trim().is_empty() {
                 return Err(WorkflowError::Invalid(format!(
                     "step '{}' has an empty prompt",
+                    step.id
+                )));
+            }
+            if step.retries > 10 {
+                return Err(WorkflowError::Invalid(format!(
+                    "step '{}' asks for more than 10 retries",
                     step.id
                 )));
             }
@@ -190,11 +199,35 @@ impl WorkflowRunner {
             }
             let step = &workflow.steps[index];
             let prompt = Workflow::render(&step.prompt, &outputs, input);
-            let output = self
-                .runner
-                .run(prompt, cancel.clone())
-                .await
-                .map_err(|error| WorkflowError::Step(step.id.clone(), error))?;
+            let mut last_error = None;
+            let mut output = None;
+            for attempt in 0..=step.retries {
+                if cancel.is_cancelled() {
+                    return Err(WorkflowError::Cancelled);
+                }
+                match self.runner.run(prompt.clone(), cancel.clone()).await {
+                    Ok(value) => {
+                        output = Some(value);
+                        break;
+                    }
+                    Err(error) => {
+                        last_error = Some(error);
+                        if attempt == step.retries {
+                            break;
+                        }
+                    }
+                }
+            }
+            let output = output.ok_or_else(|| {
+                WorkflowError::Step(
+                    step.id.clone(),
+                    format!(
+                        "after {} attempt(s): {}",
+                        step.retries + 1,
+                        last_error.unwrap_or_else(|| "unknown error".to_owned())
+                    ),
+                )
+            })?;
             outputs.insert(step.id.clone(), output.clone());
             results.push(StepResult {
                 id: step.id.clone(),
@@ -313,11 +346,13 @@ mod tests {
                     id: "a".into(),
                     prompt: "first {{input}}".into(),
                     depends_on: Vec::new(),
+                    retries: 0,
                 },
                 WorkflowStep {
                     id: "b".into(),
                     prompt: "second {{a.output}}".into(),
                     depends_on: vec!["a".into()],
+                    retries: 0,
                 },
             ],
         }
@@ -340,11 +375,13 @@ mod tests {
                     id: "a".into(),
                     prompt: "a".into(),
                     depends_on: vec!["b".into()],
+                    retries: 0,
                 },
                 WorkflowStep {
                     id: "b".into(),
                     prompt: "b".into(),
                     depends_on: vec!["a".into()],
+                    retries: 0,
                 },
             ],
         };
@@ -393,5 +430,53 @@ mod tests {
             .await
             .expect("workflow");
         assert!(outcome.content.contains("<hi>"));
+    }
+    struct FlakyRunner {
+        attempts: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl SubagentRunner for FlakyRunner {
+        async fn run(&self, _prompt: String, _cancel: CancellationToken) -> Result<String, String> {
+            let attempt = self
+                .attempts
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if attempt == 0 {
+                Err("transient".into())
+            } else {
+                Ok("recovered".into())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn retries_transient_step_failure() {
+        let runner = Arc::new(FlakyRunner {
+            attempts: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let mut workflow = workflow();
+        workflow.steps.truncate(1);
+        workflow.steps[0].retries = 1;
+        let report = WorkflowRunner::new(runner.clone())
+            .run(&workflow, "", CancellationToken::new())
+            .await
+            .expect("retry");
+        assert_eq!(report.steps[0].output, "recovered");
+        assert_eq!(runner.attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn reports_retry_exhaustion() {
+        let runner = Arc::new(FlakyRunner {
+            attempts: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let mut workflow = workflow();
+        workflow.steps.truncate(1);
+        workflow.steps[0].retries = 0;
+        let error = WorkflowRunner::new(runner)
+            .run(&workflow, "", CancellationToken::new())
+            .await
+            .expect_err("failure");
+        assert!(error.to_string().contains("after 1 attempt"));
     }
 }

@@ -16,6 +16,7 @@ steps:
       Summarize this inspection for a reviewer:
       {{inspect.output}}
     depends_on: [inspect]
+    retries: 1
 ```
 
 Запуск:
@@ -25,5 +26,6 @@ dshr run --danger "use workflow review with input '.'"
 ```
 
 - Шаги выполняются в топологическом порядке; цикл или неизвестная зависимость — ошибка загрузки.
+- `retries` (0–10) повторяет шаг при ошибке; после исчерпания ошибка содержит число попыток.
 - Шаги — отдельные сессии субагентов; `workflow` не регистрируется в дочернем реестре, поэтому вложенность ограничена.
 - `workflow` требует approval, как и `subagent`; в headless используйте `--yes`/`--danger`.

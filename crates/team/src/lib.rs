@@ -54,7 +54,8 @@ pub enum TeamError {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum TaskStatus {
     Pending,
     InProgress,
@@ -73,7 +74,7 @@ impl TaskStatus {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TaskState {
     status: TaskStatus,
     owner: Option<String>,
@@ -189,10 +190,18 @@ impl TeamSpec {
 struct Board {
     spec: Arc<TeamSpec>,
     tasks: Mutex<BTreeMap<String, TaskState>>,
+    path: Option<PathBuf>,
+    save_lock: Mutex<()>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TeamRunState {
+    name: String,
+    tasks: BTreeMap<String, TaskState>,
 }
 
 impl Board {
-    fn new(spec: Arc<TeamSpec>) -> Self {
+    fn new(spec: Arc<TeamSpec>, path: Option<PathBuf>) -> Self {
         let tasks = spec
             .tasks
             .iter()
@@ -211,7 +220,61 @@ impl Board {
         Self {
             spec,
             tasks: Mutex::new(tasks),
+            path,
+            save_lock: Mutex::new(()),
         }
+    }
+
+    async fn load(spec: Arc<TeamSpec>, path: PathBuf) -> Result<Self, TeamError> {
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| TeamError::Io(format!("{}: {error}", path.display())))?;
+        let state: TeamRunState =
+            serde_json::from_str(&text).map_err(|error| TeamError::Parse(error.to_string()))?;
+        if state.name != spec.name {
+            return Err(TeamError::Invalid(format!(
+                "state belongs to team '{}', not '{}'",
+                state.name, spec.name
+            )));
+        }
+        let mut tasks = BTreeMap::new();
+        for task in &spec.tasks {
+            let mut state = state.tasks.get(&task.id).cloned().unwrap_or(TaskState {
+                status: TaskStatus::Pending,
+                owner: None,
+                output: String::new(),
+                error: None,
+            });
+            // A fresh process cannot own an in-flight task: reclaim it.
+            if state.status == TaskStatus::InProgress {
+                state.status = TaskStatus::Pending;
+                state.owner = None;
+            }
+            tasks.insert(task.id.clone(), state);
+        }
+        Ok(Self {
+            spec,
+            tasks: Mutex::new(tasks),
+            path: Some(path),
+            save_lock: Mutex::new(()),
+        })
+    }
+
+    async fn save(&self) {
+        let Some(path) = &self.path else {
+            return;
+        };
+        let _guard = self.save_lock.lock().await;
+        let state = TeamRunState {
+            name: self.spec.name.clone(),
+            tasks: self.tasks.lock().await.clone(),
+        };
+        let Ok(text) = serde_json::to_string_pretty(&state) else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, text);
     }
 
     /// Claims one ready task and returns it with dependency outputs.
@@ -242,24 +305,34 @@ impl Board {
             let state = tasks.get_mut(&task.id)?;
             state.status = TaskStatus::InProgress;
             state.owner = Some(owner.to_owned());
+            drop(tasks);
+            self.save().await;
             return Some((task.clone(), dependency_outputs));
         }
         None
     }
 
     async fn complete(&self, id: &str, output: String) {
-        if let Some(state) = self.tasks.lock().await.get_mut(id) {
-            state.status = TaskStatus::Done;
-            state.output = output;
-            state.error = None;
+        {
+            let mut tasks = self.tasks.lock().await;
+            if let Some(state) = tasks.get_mut(id) {
+                state.status = TaskStatus::Done;
+                state.output = output;
+                state.error = None;
+            }
         }
+        self.save().await;
     }
 
     async fn fail(&self, id: &str, error: String) {
-        if let Some(state) = self.tasks.lock().await.get_mut(id) {
-            state.status = TaskStatus::Failed;
-            state.error = Some(error);
+        {
+            let mut tasks = self.tasks.lock().await;
+            if let Some(state) = tasks.get_mut(id) {
+                state.status = TaskStatus::Failed;
+                state.error = Some(error);
+            }
         }
+        self.save().await;
     }
 
     async fn report(&self) -> Vec<TaskReport> {
@@ -300,7 +373,37 @@ impl TeamRunner {
     ) -> Result<TeamReport, TeamError> {
         spec.validate()?;
         let spec = Arc::new(spec);
-        let board = Arc::new(Board::new(Arc::clone(&spec)));
+        let board = Arc::new(Board::new(Arc::clone(&spec), None));
+        self.run_board(board, input, cancel).await
+    }
+
+    /// Runs with a JSON board file. `resume` reloads an existing state file and
+    /// retries pending tasks; in-flight tasks are reclaimed.
+    pub async fn run_persisted(
+        &self,
+        spec: TeamSpec,
+        input: &str,
+        cancel: CancellationToken,
+        path: PathBuf,
+        resume: bool,
+    ) -> Result<TeamReport, TeamError> {
+        spec.validate()?;
+        let spec = Arc::new(spec);
+        let board = if resume && path.is_file() {
+            Arc::new(Board::load(Arc::clone(&spec), path).await?)
+        } else {
+            Arc::new(Board::new(Arc::clone(&spec), Some(path)))
+        };
+        self.run_board(board, input, cancel).await
+    }
+
+    async fn run_board(
+        &self,
+        board: Arc<Board>,
+        input: &str,
+        cancel: CancellationToken,
+    ) -> Result<TeamReport, TeamError> {
+        let spec = Arc::clone(&board.spec);
         let workers = spec.workers.clamp(1, 8);
         let mut handles = Vec::new();
 
@@ -409,7 +512,8 @@ impl Tool for TeamTool {
             "additionalProperties": false,
             "properties": {
                 "name": {"type": "string", "minLength": 1},
-                "input": {"type": "string"}
+                "input": {"type": "string"},
+                "resume": {"type": "boolean"}
             }
         })
     }
@@ -419,11 +523,16 @@ impl Tool for TeamTool {
             .as_str()
             .ok_or_else(|| ToolError::InvalidArgs("name is required".into()))?;
         let input = args["input"].as_str().unwrap_or("");
+        let resume = args["resume"].as_bool().unwrap_or(false);
         let spec = self
             .load(name)
             .map_err(|error| ToolError::InvalidArgs(error.to_string()))?;
+        let state_path = ctx
+            .cwd
+            .join(".dshr/teams")
+            .join(format!("{name}.state.json"));
         let report = TeamRunner::new(Arc::clone(&self.runner))
-            .run(spec, input, ctx.cancel.clone())
+            .run_persisted(spec, input, ctx.cancel.clone(), state_path, resume)
             .await
             .map_err(|error| match error {
                 TeamError::Cancelled => ToolError::Cancelled,
@@ -520,5 +629,28 @@ mod tests {
             .await
             .expect("team");
         assert!(outcome.content.contains("[done]"), "{}", outcome.content);
+    }
+    #[tokio::test]
+    async fn persists_and_resumes_in_flight_tasks() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.json");
+        std::fs::write(
+            &path,
+            r#"{"name":"demo","tasks":{"a":{"status":"in_progress","owner":"worker-1","output":"","error":null}}}"#,
+        )
+        .expect("state");
+        let report = TeamRunner::new(Arc::new(MockRunner))
+            .run_persisted(
+                spec(1, vec![task("a", &[])]),
+                "",
+                CancellationToken::new(),
+                path.clone(),
+                true,
+            )
+            .await
+            .expect("resume");
+        assert_eq!(report.tasks[0].status, "done");
+        let stored = std::fs::read_to_string(&path).expect("stored");
+        assert!(stored.contains("done"), "{stored}");
     }
 }

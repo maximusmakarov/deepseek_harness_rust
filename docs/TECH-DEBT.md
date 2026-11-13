@@ -15,13 +15,13 @@
 | Windows shell не работал (fail-closed) | AppContainer через `sandboxrs-windows` — [ADR-026](adr/026-windows-appcontainer.md) |
 | Linux network не ограничивался | seccomp-bpf deny сетевых syscalls — [ADR-027](adr/027-linux-seccomp-network.md) |
 | MCP HTTP/resources отсутствовали | Streamable HTTP + resource tools — [ADR-028](adr/028-mcp-http-resources.md) |
+| Team-доска терялась, workflow не повторялся | durable state + `retries` — [ADR-029](adr/029-durable-teams-retries.md) |
 
 ## Открыто
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
 | P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
-| P1 | Durable teams и workflow retries | Доска в памяти, шаги последовательны, нет повторных попыток. |
 | P1 | Office и CUA | docx/xlsx/pptx, браузер/скриншоты. |
 | P2 | MCP prompts/sampling | Tools/resources есть; server-initiated протоколы нет. |
 | P2 | WASM/sidecar плагины | MCP — единственный плагинный путь. |
