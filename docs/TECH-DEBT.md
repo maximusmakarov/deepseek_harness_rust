@@ -13,12 +13,13 @@
 | Безымянные сессии после `run` | заголовок из первой строки prompt |
 | LSP-навигация отсутствовала | `dshr-lsp` — [ADR-023](adr/023-lsp.md) |
 | Windows shell не работал (fail-closed) | AppContainer через `sandboxrs-windows` — [ADR-026](adr/026-windows-appcontainer.md) |
+| Linux network не ограничивался | seccomp-bpf deny сетевых syscalls — [ADR-027](adr/027-linux-seccomp-network.md) |
 
 ## Открыто
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
-| P0 | Linux seccomp и сеть | Landlock ABI V1 покрывает только FS; enforcement `Partial` на Linux и Windows. |
+| P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
 | P1 | MCP HTTP и resources | Реализован только stdio-tools; нет resources/prompts/sampling. |
 | P1 | Durable teams и workflow retries | Доска в памяти, шаги последовательны, нет повторных попыток. |
 | P1 | Office и CUA | docx/xlsx/pptx, браузер/скриншоты. |

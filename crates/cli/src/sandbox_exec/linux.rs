@@ -5,21 +5,22 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use landlock::{ABI, Access, AccessFs, Ruleset, RulesetAttr, RulesetCreatedAttr, RulesetStatus};
+use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch, apply_filter};
 
 pub fn execute(
     mode: &str,
     workspace: &Path,
-    _network: &str,
+    network: &str,
     program: OsString,
     args: Vec<OsString>,
 ) -> Result<ExitCode, String> {
-    apply(mode, workspace)?;
+    apply(mode, workspace, network)?;
     use std::os::unix::process::CommandExt;
     let error = std::process::Command::new(&program).args(&args).exec();
     Err(format!("exec {}: {error}", program.to_string_lossy()))
 }
 
-fn apply(mode: &str, workspace: &Path) -> Result<(), String> {
+fn apply(mode: &str, workspace: &Path, network: &str) -> Result<(), String> {
     if mode == "danger-full-access" {
         return Ok(());
     }
@@ -65,5 +66,46 @@ fn apply(mode: &str, workspace: &Path) -> Result<(), String> {
     if status.ruleset == RulesetStatus::NotEnforced {
         return Err("Landlock is not enforced by this kernel".into());
     }
+    if network == "deny" {
+        deny_network()?;
+    }
     Ok(())
+}
+
+fn deny_network() -> Result<(), String> {
+    let syscalls = [
+        libc::SYS_socket,
+        libc::SYS_socketpair,
+        libc::SYS_connect,
+        libc::SYS_bind,
+        libc::SYS_listen,
+        libc::SYS_accept,
+        libc::SYS_accept4,
+        libc::SYS_sendto,
+        libc::SYS_recvfrom,
+        libc::SYS_sendmsg,
+        libc::SYS_recvmsg,
+        libc::SYS_sendmmsg,
+        libc::SYS_recvmmsg,
+        libc::SYS_getsockname,
+        libc::SYS_getpeername,
+        libc::SYS_setsockopt,
+        libc::SYS_getsockopt,
+        libc::SYS_shutdown,
+    ];
+    let arch = TargetArch::try_from(std::env::consts::ARCH)
+        .map_err(|error| format!("seccomp arch: {error}"))?;
+    let filter: BpfProgram = SeccompFilter::new(
+        syscalls
+            .into_iter()
+            .map(|number| (number, Vec::new()))
+            .collect(),
+        SeccompAction::Allow,
+        SeccompAction::Errno(libc::EPERM as u32),
+        arch,
+    )
+    .map_err(|error| format!("seccomp filter: {error}"))?
+    .try_into()
+    .map_err(|error| format!("seccomp compile: {error}"))?;
+    apply_filter(&filter).map_err(|error| format!("seccomp apply: {error}"))
 }

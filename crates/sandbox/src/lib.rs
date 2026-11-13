@@ -285,7 +285,7 @@ impl SandboxBackend for LinuxBackend {
         Ok(ConfinedCommand {
             program: self.wrapper.display().to_string(),
             args: confined,
-            enforcement: Enforcement::Partial,
+            enforcement: Enforcement::Full,
             backend: "landlock".to_owned(),
         })
     }
@@ -430,7 +430,7 @@ mod tests {
             .expect("confine");
         assert_eq!(command.backend, "landlock");
         assert_eq!(command.args[0], "__sandbox-exec");
-        assert_eq!(command.enforcement, Enforcement::Partial);
+        assert_eq!(command.enforcement, Enforcement::Full);
     }
 
     #[cfg(target_os = "macos")]

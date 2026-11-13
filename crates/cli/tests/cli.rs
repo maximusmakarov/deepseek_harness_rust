@@ -1038,3 +1038,69 @@ fn run_sets_title_from_first_prompt() {
     let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
     assert_eq!(sessions[0]["title"], "title me");
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn sandbox_blocks_network_syscalls() {
+    let home = tempfile::tempdir().expect("home");
+    let project = home.path().join("project");
+    std::fs::create_dir_all(&project).expect("project");
+    let cassette = home.path().join("network.json");
+    std::fs::write(
+        &cassette,
+        r#"{"model":"deepseek-flash","calls":[
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"tool_use_start","index":0,"id":"call_1","name":"bash"},
+            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"python3 -c 'import socket; socket.socket()'\"}"},
+            {"type":"done","stop_reason":"tool_use"}
+          ],
+          [
+            {"type":"start","model":"deepseek-flash"},
+            {"type":"text_delta","text":"done"},
+            {"type":"done","stop_reason":"end_turn"}
+          ]
+        ]}"#,
+    )
+    .expect("cassette");
+
+    dshr()
+        .current_dir(&project)
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "run",
+            "--yes",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "network check",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("done"));
+
+    assert!(contains_text(
+        &home.path().join("sessions"),
+        "Operation not permitted"
+    ));
+}
+
+#[cfg(target_os = "linux")]
+fn contains_text(dir: &std::path::Path, needle: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if contains_text(&path, needle) {
+                return true;
+            }
+        } else if std::fs::read_to_string(&path).is_ok_and(|text| text.contains(needle)) {
+            return true;
+        }
+    }
+    false
+}
