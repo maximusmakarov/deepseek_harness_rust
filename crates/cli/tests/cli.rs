@@ -1188,3 +1188,34 @@ fn sessions_reindex_and_fts_search() {
         .success()
         .stdout(predicate::str::contains("unique needle"));
 }
+
+#[cfg(target_os = "windows")]
+#[test]
+fn windows_sandbox_helper_runs_cmd() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let output = dshr()
+        .args([
+            "__sandbox-exec",
+            "--mode",
+            "workspace-write",
+            "--workspace",
+            dir.path().to_str().expect("utf8"),
+            "--",
+            "cmd",
+            "/C",
+            "echo ok > inside-helper.txt",
+        ])
+        .output()
+        .expect("run helper");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "helper failed: {}\nstdout: {stdout}\nstderr: {stderr}",
+        output.status
+    );
+    assert!(
+        dir.path().join("inside-helper.txt").exists(),
+        "file missing; stdout: {stdout}; stderr: {stderr}"
+    );
+}
