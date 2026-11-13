@@ -112,6 +112,7 @@ async fn http_server_can_request_sampling() {
         cwd: None,
         url: Some(format!("http://{address}/mcp")),
         headers: BTreeMap::new(),
+        oauth: None,
     };
     let _ = connect_server_with_sampling(spec, Some(provider))
         .await

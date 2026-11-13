@@ -21,6 +21,12 @@ pub async fn register(
             cwd: server.cwd.clone(),
             url: server.url.clone(),
             headers: server.headers.clone(),
+            oauth: server.oauth.as_ref().map(|oauth| dshr_mcp::McpOAuthSpec {
+                token_url: oauth.token_url.clone(),
+                client_id: oauth.client_id.clone(),
+                client_secret: oauth.client_secret.clone(),
+                scope: oauth.scope.clone(),
+            }),
         };
         match connect_server_with_sampling(spec, sampling.clone()).await {
             Ok((_client, tools)) => {

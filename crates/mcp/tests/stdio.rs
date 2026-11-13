@@ -19,6 +19,7 @@ async fn connects_lists_and_calls_tools() {
         cwd: None,
         url: None,
         headers: BTreeMap::new(),
+        oauth: None,
     };
     let (_client, tools) = connect_server(spec).await.expect("connect");
     assert_eq!(tools.len(), 5);
@@ -62,6 +63,7 @@ async fn connects_lists_and_calls_tools() {
         cwd: None,
         url: None,
         headers: BTreeMap::new(),
+        oauth: None,
     };
     let (backend, _tools) = connect_server_with_sampling(spec, Some(provider))
         .await

@@ -91,6 +91,7 @@ async fn http_client_initializes_calls_tools_and_reads_resources() {
         cwd: None,
         url: Some(format!("http://{address}/mcp")),
         headers: BTreeMap::new(),
+        oauth: None,
     };
     let (backend, tools) = connect_server(spec).await.expect("connect");
     assert_eq!(tools.len(), 5);

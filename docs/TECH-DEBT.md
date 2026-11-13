@@ -26,6 +26,7 @@
 | Не было desktop | PWA-манифест — [ADR-036](adr/036-pwa-desktop.md) |
 | MCP prompts отсутствовали | `list_prompts`/`get_prompt` — [ADR-028](adr/028-mcp-http-resources.md) |
 | MCP sampling отсутствовал | stdio + HTTP GET-SSE `sampling/createMessage` — [ADR-028](adr/028-mcp-http-resources.md) |
+| MCP OAuth отсутствовал | client-credentials — [ADR-028](adr/028-mcp-http-resources.md) |
 
 ## Открыто
 

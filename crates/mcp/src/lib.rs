@@ -55,6 +55,16 @@ pub struct McpServerSpec {
     /// When set, use Streamable HTTP instead of stdio.
     pub url: Option<String>,
     pub headers: BTreeMap<String, String>,
+    /// Optional OAuth client-credentials flow for HTTP servers.
+    pub oauth: Option<McpOAuthSpec>,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpOAuthSpec {
+    pub token_url: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub scope: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -417,10 +427,15 @@ impl McpHttpClient {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|error| McpError::Io(error.to_string()))?;
+        let mut headers = spec.headers;
+        if let Some(oauth) = &spec.oauth {
+            let token = fetch_oauth_token(&client, oauth).await?;
+            headers.insert("Authorization".into(), format!("Bearer {token}"));
+        }
         let this = Self {
             name: spec.name,
             url,
-            headers: spec.headers,
+            headers,
             client,
             session_id: Mutex::new(None),
             next_id: AtomicU64::new(1),
@@ -625,6 +640,40 @@ impl McpHttpClient {
             *self.session_id.lock().await = Some(session.to_owned());
         }
     }
+}
+
+async fn fetch_oauth_token(
+    client: &reqwest::Client,
+    oauth: &McpOAuthSpec,
+) -> Result<String, McpError> {
+    let mut form = vec![
+        ("grant_type", "client_credentials".to_owned()),
+        ("client_id", oauth.client_id.clone()),
+        ("client_secret", oauth.client_secret.clone()),
+    ];
+    if let Some(scope) = &oauth.scope {
+        form.push(("scope", scope.clone()));
+    }
+    let response = client
+        .post(&oauth.token_url)
+        .form(&form)
+        .send()
+        .await
+        .map_err(|error| McpError::Io(error.to_string()))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|error| McpError::Io(error.to_string()))?;
+    if !status.is_success() {
+        return Err(McpError::Io(format!("OAuth token HTTP {status}")));
+    }
+    let value: Value = serde_json::from_str(&text)
+        .map_err(|error| McpError::Protocol(format!("invalid OAuth token: {error}")))?;
+    value["access_token"]
+        .as_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| McpError::Protocol("OAuth response has no access_token".into()))
 }
 
 async fn start_http_sse_listener(client: Arc<McpHttpClient>) {

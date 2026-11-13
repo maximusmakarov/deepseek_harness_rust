@@ -19,7 +19,7 @@ M4 закрыл только stdio-tools. Для удалённых MCP-серв
 
 ## Реализация HTTP sampling
 
-GET-SSE поток открывается при наличии провайдера; `sampling/createMessage` обрабатывается и отправляется POST-ом. Elicitation/OAuth не реализованы.
+GET-SSE поток открывается при наличии провайдера; `sampling/createMessage` обрабатывается и отправляется POST-ом. OAuth client-credentials реализован; elicitation и refresh не реализованы.
 
 ## Последствия
 

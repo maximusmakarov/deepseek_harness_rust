@@ -21,6 +21,11 @@ mcp:
       url: "https://mcp.example.com/mcp"
       headers:
         Authorization: "Bearer ${TOKEN}"
+      oauth:
+        token_url: "https://auth.example.com/token"
+        client_id: "dshr"
+        client_secret: "${CLIENT_SECRET}"
+        scope: "mcp"
 ```
 
 `${TOKEN}` не раскрывается автоматически — подставьте значение через переменную окружения или конфиг-профиль. Клиент отправляет `Accept: application/json, text/event-stream`, поддерживает JSON и SSE-ответы, запоминает `Mcp-Session-Id`.
@@ -52,7 +57,8 @@ HTTP sampling работает через GET-SSE вне клиентского 
 
 ## Границы
 
-- Нет elicitation и OAuth.
+- Нет elicitation; OAuth client-credentials поддерживается.
+- OAuth: client-credentials, токен запрашивается при подключении; refresh/expiry не реализованы.
 - GET-SSE используется для HTTP sampling; прочие server-notifications игнорируются.
 - Prompts поддерживаются для stdio и HTTP.
 - HTTP-сессия живёт в памяти клиента; реконнект — новый `initialize`.

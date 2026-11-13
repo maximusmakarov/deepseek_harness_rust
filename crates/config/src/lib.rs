@@ -191,6 +191,8 @@ pub struct McpServerConfig {
     /// Streamable HTTP endpoint; when set, `command` is ignored.
     pub url: Option<String>,
     pub headers: BTreeMap<String, String>,
+    /// Optional OAuth client-credentials flow for HTTP servers.
+    pub oauth: Option<McpOAuthConfig>,
     pub enabled: bool,
 }
 
@@ -204,9 +206,19 @@ impl Default for McpServerConfig {
             cwd: None,
             url: None,
             headers: BTreeMap::new(),
+            oauth: None,
             enabled: true,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct McpOAuthConfig {
+    pub token_url: String,
+    pub client_id: String,
+    pub client_secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl Config {

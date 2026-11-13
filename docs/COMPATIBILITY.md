@@ -26,6 +26,6 @@
 | Desktop | PWA (standalone), Tauri нет | ⚠️ частично |
 | i18n | TUI ru/en (`ui.language`); CLI/help — en | ⚠️ частично |
 | ACP permissions/fs/terminal | — | ❌ deferred |
-| MCP HTTP GET-SSE/OAuth | — | ❌ deferred |
+| MCP OAuth | client-credentials | ⚠️ без refresh/elicitation |
 
 Обозначения: ✅ есть, ⚠️ частично, ❌ нет.
