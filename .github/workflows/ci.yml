@@ -26,7 +26,21 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --workspace
+      - name: nextest
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo nextest run --workspace --no-fail-fast 2>&1 | tee nextest.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## Nextest failures"
+              echo '```'
+              grep -a -E "FAIL|failures:|panicked|error\[|Error:" nextest.log | tail -120
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
       - run: cargo test --workspace --doc
 
   deny:
