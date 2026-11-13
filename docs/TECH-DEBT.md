@@ -36,5 +36,5 @@
 | P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |
 | P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
-| P2 | ACP image/MCP | Permissions, fs и terminal есть; image/audio и клиентские MCP — нет. |
+| P2 | ACP image/MCP | Permissions, fs, terminal, load есть; image/audio и клиентские MCP — нет. |
 | P3 | cargo-dist/brew, подпись | Release workflow + Dockerfile есть; brew/подпись нет. |

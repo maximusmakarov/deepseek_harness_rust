@@ -563,3 +563,107 @@ async fn uses_client_terminal() {
     assert!(text.contains("terminal done"), "{text}");
     assert_eq!(stop.as_deref(), Some("end_turn"));
 }
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn loads_and_replays_a_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Arc::new(SessionStore::new(dir.path().join("sessions")));
+    let mut session = store
+        .create("test", "test-model", &dir.path().to_string_lossy())
+        .expect("create");
+    let user_seq = session.next_seq();
+    store
+        .append(
+            &mut session,
+            dshr_session::SessionEvent::UserMessage {
+                seq: user_seq,
+                at: "2026-01-01T00:00:00Z".into(),
+                turn: dshr_core::TurnId::new(),
+                content: vec![dshr_llm::ContentBlock::text("old user")],
+            },
+        )
+        .expect("user");
+    let agent_seq = session.next_seq();
+    store
+        .append(
+            &mut session,
+            dshr_session::SessionEvent::AssistantMessage {
+                seq: agent_seq,
+                at: "2026-01-01T00:00:01Z".into(),
+                turn: dshr_core::TurnId::new(),
+                content: vec![dshr_llm::ContentBlock::text("old assistant")],
+                usage: dshr_llm::Usage::default(),
+                stop_reason: Some(dshr_llm::StopReason::EndTurn),
+            },
+        )
+        .expect("assistant");
+    let session_id = session.header.id.to_string();
+
+    let provider = Arc::new(ScriptedProvider::new("test-model", vec![]));
+    let server = AcpServer::new(
+        provider,
+        Arc::new(ToolRegistry::new()),
+        Arc::clone(&store),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 2,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("initialize");
+    let initialized = read_json(&mut reader).await;
+    assert_eq!(
+        initialized["result"]["agentCapabilities"]["loadSession"],
+        true
+    );
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({
+                    "jsonrpc":"2.0","id":2,"method":"session/load",
+                    "params":{"sessionId":session_id,"cwd":dir.path()}
+                })
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("load");
+
+    let mut text = String::new();
+    let mut done = false;
+    while !done {
+        let message = read_json(&mut reader).await;
+        if message["method"] == "session/update" {
+            text.push_str(
+                message["params"]["update"]["content"]["text"]
+                    .as_str()
+                    .unwrap_or_default(),
+            );
+        }
+        if message["id"] == 2 {
+            done = true;
+        }
+    }
+    assert!(text.contains("old user"), "{text}");
+    assert!(text.contains("old assistant"), "{text}");
+}

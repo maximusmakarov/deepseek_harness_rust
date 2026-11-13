@@ -156,7 +156,7 @@ impl AcpServer {
                                 "result": {
                                     "protocolVersion": 1,
                                     "agentCapabilities": {
-                                        "loadSession": false,
+                                        "loadSession": true,
                                         "promptCapabilities": {
                                             "image": false,
                                             "audio": false,
@@ -203,6 +203,60 @@ impl AcpServer {
                         }
                         Err(error) => {
                             send_error(&writer, id, -32000, &error.to_string()).await?;
+                        }
+                    }
+                }
+                "session/load" => {
+                    let Some(id) = id else { continue };
+                    let Some(session_id) = params["sessionId"].as_str() else {
+                        send_error(&writer, id, -32602, "sessionId is required").await?;
+                        continue;
+                    };
+                    match self.store.open(session_id) {
+                        Ok(session) => {
+                            if let Some(cwd) = params["cwd"].as_str()
+                                && cwd != session.header.cwd
+                            {
+                                send_error(&writer, id, -32602, "cwd does not match session")
+                                    .await?;
+                                continue;
+                            }
+                            for event in &session.events {
+                                let (update, content) = match event {
+                                    dshr_session::SessionEvent::UserMessage { content, .. } => {
+                                        ("user_message_chunk", content)
+                                    }
+                                    dshr_session::SessionEvent::AssistantMessage {
+                                        content,
+                                        ..
+                                    } => ("agent_message_chunk", content),
+                                    _ => continue,
+                                };
+                                for block in content {
+                                    if let dshr_llm::ContentBlock::Text { text } = block {
+                                        send(
+                                            &writer,
+                                            json!({
+                                                "jsonrpc": "2.0",
+                                                "method": "session/update",
+                                                "params": {
+                                                    "sessionId": session_id,
+                                                    "update": {
+                                                        "sessionUpdate": update,
+                                                        "content": {"type": "text", "text": text}
+                                                    }
+                                                }
+                                            }),
+                                        )
+                                        .await?;
+                                    }
+                                }
+                            }
+                            send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}}))
+                                .await?;
+                        }
+                        Err(error) => {
+                            send_error(&writer, id, -32002, &error.to_string()).await?;
                         }
                     }
                 }
