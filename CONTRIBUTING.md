@@ -1,57 +1,30 @@
-# Участие в разработке `dshr`
+# Contributing
 
-## Требования
+## Setup
 
-- Rust stable (edition 2024, MSRV 1.89; проект разрабатывается на 1.100).
-- `rustup` ставит `rustfmt` и `clippy` из `rust-toolchain.toml`.
-- Для интеграционных тестов ничего дополнительно не нужно: сеть и токены не используются.
-
-## Локальная проверка
+- Rust 1.90+ (stable).
+- No Node.js required for the core build.
+- Optional live integrations: DeepSeek/OpenAI keys, Chrome for CUA, `tsserver`/`rust-analyzer` for LSP.
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo build
 cargo test --workspace
-```
-
-Опционально, как в CI:
-
-```sh
-cargo install cargo-nextest --locked
-cargo nextest run --workspace
+cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check
 ```
 
-## Структура
+## Rules
 
-```text
-crates/core     идентификаторы, ошибки, редакция секретов
-crates/config   слои конфигурации, схема, пути
-crates/cli      бинарь dshr: doctor, config show
-docs/           план, архитектура, ADR, проверки
-```
+1. Keep the workspace MSRV green; no new `unsafe` outside platform crates and vendored code.
+2. Add tests for behavior changes; live-provider tests stay `#[ignore]`.
+3. Update `docs/` and an ADR for architectural changes.
+4. Keep CI green on macOS, Ubuntu, and Windows; do not skip a platform test without documenting why.
+5. Do not copy DeepSeek Harness branding/UI assets; this is an independent Rust implementation.
 
-Правила зависимостей: `cli -> config -> core`, обратных стрелок нет.
+## ADRs
 
-## Стиль
+New decisions go to `docs/adr/NNN-title.md` and `docs/adr/README.md`. Superseding an ADR updates its status and links the replacement.
 
-- `#![forbid(unsafe_code)]` во всех крейтах; FFI — только отдельным крейтом с обоснованием.
-- Ошибки: `dshr_core::DshrError` в библиотеках, коды стабильны; паники — только для нарушенных инвариантов.
-- Публичные типы документируются; поведение, влияющее на проводной формат, фиксируется ADR.
-- Никаких секретов в коде, тестах, фикстурах и логах. Токены читаются из env и проходят через `dshr_core::redact`.
-- Новый инструмент/провайдер — регистрация, а не правка ядра.
+## Commit style
 
-## Коммиты и PR
-
-- Conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`.
-- Один PR — одна логическая задача; описание содержит риск и способ проверки.
-- Перед PR: fmt, clippy, test зелёные; для изменений контрактов — ADR.
-- Опасные зоны (песочница, approvals, секреты, сеть) требуют отдельного ревью.
-
-## Definition of Done
-
-Код + тест + документация + observability (лог/метрика) + отсутствие `TODO` без issue.
-
-## Лицензия
-
-Отправляя PR, вы соглашаетесь с лицензией проекта MIT OR Apache-2.0.
+Short imperative subject, body explains *why* and lists test evidence.

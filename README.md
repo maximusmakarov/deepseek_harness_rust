@@ -92,6 +92,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | OTLP/HTTP, env, спаны | Для наблюдаемости |
 | [docs/ACP.md](docs/ACP.md) | ACP v1: сессии, prompt, cancel, permissions | Для редакторов |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Матрица возможностей и пробелов | Для оценки паритета |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Команды, CI, тесты | Для разработки |
 | [docs/CONFIG.md](docs/CONFIG.md) | Слои и `ui.language` | Для настройки |
 | [docs/DESKTOP.md](docs/DESKTOP.md) | PWA-установка, статус Tauri | Для desktop |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
