@@ -5,6 +5,10 @@ use dshr_tools::ToolRegistry;
 
 /// Connects configured Cordis/npm plugins through their node sidecars.
 pub async fn register(registry: &mut ToolRegistry, config: &Config, home: &Path) {
+    if crate::runtime_flags::safe_mode() {
+        tracing::warn!("safe mode: skipping Cordis plugins");
+        return;
+    }
     let Ok(root) = std::env::current_dir() else {
         return;
     };

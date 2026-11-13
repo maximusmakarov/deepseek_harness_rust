@@ -22,10 +22,14 @@ Linux-CI; на macOS его тесты запускаются отдельным
 а первый позиционный аргумент — папка workspace (cwd сервера). Drag-and-drop не поддержан.
 Закрытие окна скрывает его в трей, а Quit завершает сервер.
 
-Трей: Show/Hide, Open in browser, Open terminal, Open config folder,
+Трей: Show/Hide, Open in browser, Open terminal, Open config folder, Restart in
+safe mode / Restart normally,
 New profile…, Export diagnostics…, Check for updates…, Profile (список
 `default` + `<home>/profiles/*`, переключение через `desktop-profile` и рестарт
-shell) и Quit. Первый запуск создаёт home, `desktop-profile=default` и README. Если провайдер не
+shell) и Quit. Safe mode пишет маркер `<home>/desktop-safe-mode` и передаёт `--safe-mode` серверу
+(пропускает MCP/Cordis/WASM-плагины); «Restart normally» убирает маркер.
+
+Первый запуск создаёт home, `desktop-profile=default` и README. Если провайдер не
 настроен в окружении, при старте открывается нативный setup (провайдер, модель,
 API key, base URL для OpenAI-совместимого); настройки пишутся в `<home>/desktop.env`
 с правами `0600` и передаются дочернему `dshr serve`. Tray → Provider setup… меняет

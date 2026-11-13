@@ -12,6 +12,7 @@ mod plugin_cmd;
 mod prompt_cmd;
 mod release_cmd;
 mod run_cmd;
+mod runtime_flags;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod sandbox_exec;
 mod schedule_cmd;
@@ -59,6 +60,10 @@ struct Cli {
     #[arg(long, global = true, env = "DSHR_LANG", value_name = "LANG")]
     lang: Option<String>,
 
+    /// Skip external plugins (MCP, Cordis, WASM) for recovery
+    #[arg(long, global = true, env = "DSHR_SAFE_MODE")]
+    safe_mode: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -99,6 +104,7 @@ async fn main() -> ExitCode {
     let requested = cli_i18n::scan_lang();
     let matches = cli_i18n::localize(Cli::command(), requested).get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    runtime_flags::set_safe_mode(cli.safe_mode);
     dshr_i18n::set_current(
         cli.lang
             .as_deref()

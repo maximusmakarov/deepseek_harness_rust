@@ -12,6 +12,10 @@ pub fn register(
     cwd: &Path,
     plugins: &PluginsConfig,
 ) -> Result<()> {
+    if crate::runtime_flags::safe_mode() {
+        tracing::warn!("safe mode: skipping WASM plugins");
+        return Ok(());
+    }
     let dirs = vec![home.join("plugins"), cwd.join(".dshr/plugins")];
     let policy = dshr_wasm::SignaturePolicy::new(&plugins.trusted_keys)
         .map_err(|error| DshrError::config(error.to_string()))?;

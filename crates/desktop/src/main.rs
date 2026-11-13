@@ -165,6 +165,10 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
+    let safe_restart =
+        MenuItem::with_id(app, "safe-restart", "Restart in safe mode", true, None::<&str>)?;
+    let normal_restart =
+        MenuItem::with_id(app, "normal-restart", "Restart normally", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let profiles = Submenu::new(app, "Profile", true)?;
@@ -191,6 +195,8 @@ fn build_tray(
             &config_folder,
             &updates,
             &download,
+            &safe_restart,
+            &normal_restart,
             &diagnostics,
             &quit,
         ],
@@ -225,6 +231,18 @@ fn build_tray(
             }
             "terminal" => open_terminal(),
             "config-folder" => open_reveal(&home_dir()),
+            "safe-restart" => {
+                let home = home_dir();
+                let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
+                stop_server(app);
+                app.restart();
+            }
+            "normal-restart" => {
+                let home = home_dir();
+                let _ = std::fs::remove_file(home.join("desktop-safe-mode"));
+                stop_server(app);
+                app.restart();
+            }
             "provider" => {
                 let home = home_dir();
                 match prompt_provider_setup() {
@@ -338,6 +356,7 @@ fn start_server(
     if let Some(folder) = folder {
         command.current_dir(folder);
     }
+    let safe_mode = home.join("desktop-safe-mode").is_file();
     let mut arguments = vec![
         "--home".to_owned(),
         home.display().to_string(),
@@ -351,6 +370,9 @@ fn start_server(
         "--token".to_owned(),
         token.clone(),
     ];
+    if safe_mode {
+        arguments.push("--safe-mode".to_owned());
+    }
     if let Some(provider) = provider {
         if let Some(route) = &provider.provider {
             arguments.push("--provider".to_owned());

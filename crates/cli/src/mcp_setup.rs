@@ -12,6 +12,10 @@ pub async fn register(
     config: &Config,
     sampling: Option<std::sync::Arc<dyn LlmProvider>>,
 ) {
+    if crate::runtime_flags::safe_mode() {
+        tracing::warn!("safe mode: skipping MCP plugins");
+        return;
+    }
     for server in config.mcp.servers.iter().filter(|server| server.enabled) {
         let spec = McpServerSpec {
             name: server.name.clone(),

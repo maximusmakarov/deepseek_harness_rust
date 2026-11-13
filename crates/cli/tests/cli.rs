@@ -1280,3 +1280,24 @@ fn release_keygen_sign_and_verify() {
         .assert()
         .failure();
 }
+
+#[test]
+fn safe_mode_skips_external_plugins() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+    dshr()
+        .env("RUST_LOG", "warn")
+        .args([
+            "--safe-mode",
+            "--home",
+            dir.path().to_str().expect("utf8"),
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "hello",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("safe mode: skipping WASM plugins"))
+        .stderr(predicate::str::contains("safe mode: skipping MCP plugins"));
+}
