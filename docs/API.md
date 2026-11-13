@@ -14,6 +14,8 @@ dshr serve --bind 127.0.0.1 --port 55678
 | Метод | Путь | Тело / параметры | Ответ |
 |---|---|---|---|
 | GET | `/v1/health` | — | `{status, version}` |
+| GET | `/v1/tools` | — | `{tools: [{name, description, input_schema}]}` |
+| GET | `/v1/plugins/search` | `?q=` | `{packages: [{name, version, description}]}` (npm registry) |
 | GET | `/v1/sessions` | — | `{sessions: SessionSummary[]}` |
 | POST | `/v1/sessions` | `{title?}` | `{session: SessionHeader}` |
 | GET | `/v1/sessions/{id}` | — | `{session, messages}` |
@@ -48,4 +50,4 @@ curl -N "$BASE/v1/sessions/$SID/events?token=$TOKEN"
 
 ## Web UI
 
-`GET /` отдаёт Leptos CSR-приложение: список сессий, чат со стримом, карточки инструментов, approvals. Исходник — `crates/web` (trunk + wasm-bindgen), собранный `dist/` встроен в сервер. Пересборка: `cd crates/web && trunk build --release`.
+`GET /` отдаёт Leptos CSR-приложение: список сессий, чат со стримом, карточки инструментов, approvals, панель Plugins (tools + поиск npm). Исходник — `crates/web` (trunk + wasm-bindgen), собранный `dist/` встроен в сервер. Пересборка: `cd crates/web && trunk build --release`.

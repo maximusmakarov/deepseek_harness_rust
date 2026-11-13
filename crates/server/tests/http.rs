@@ -41,7 +41,7 @@ fn state(dir: &std::path::Path) -> AppState {
             rate_limit_per_min: 0,
         },
         provider,
-        Arc::new(ToolRegistry::new()),
+        Arc::new(ToolRegistry::with_builtin()),
         Arc::new(SessionStore::new(dir.join("sessions"))),
     )
 }
@@ -259,7 +259,7 @@ async fn rate_limits_api_requests() {
     let app = router(AppState::new(
         config,
         Arc::new(ScriptedProvider::new("test-model", vec![])),
-        Arc::new(ToolRegistry::new()),
+        Arc::new(ToolRegistry::with_builtin()),
         Arc::new(SessionStore::new(dir.path().join("sessions"))),
     ));
 
@@ -350,4 +350,20 @@ async fn serves_leptos_assets() {
         .await
         .expect("js");
     assert_eq!(js.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn lists_registered_tools() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, body) = call(&app, "GET", "/v1/tools", Some("test-token"), Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let tools = body["tools"].as_array().expect("tools");
+    let names: Vec<&str> = tools
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(names.contains(&"ask_user"), "{names:?}");
+    assert!(names.contains(&"apply_patch"), "{names:?}");
+    assert!(names.contains(&"read"), "{names:?}");
 }

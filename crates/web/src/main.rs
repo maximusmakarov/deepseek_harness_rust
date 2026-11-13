@@ -34,6 +34,29 @@ struct Message {
     content: Vec<Value>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct ToolInfo {
+    name: String,
+    description: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ToolsResponse {
+    tools: Vec<ToolInfo>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct PackageHit {
+    name: String,
+    version: String,
+    description: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PackagesResponse {
+    packages: Vec<PackageHit>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct NewSessionResponse {
     session: SessionHeader,
@@ -300,6 +323,11 @@ fn App() -> impl IntoView {
     let approval = RwSignal::new(None::<ApprovalInfo>);
     let question = RwSignal::new(None::<QuestionInfo>);
     let answer = RwSignal::new(String::new());
+    let tools = RwSignal::new(Vec::<ToolInfo>::new());
+    let plugins_open = RwSignal::new(false);
+    let plugin_query = RwSignal::new(String::new());
+    let plugin_hits = RwSignal::new(Vec::<PackageHit>::new());
+    let plugin_status = RwSignal::new(String::new());
 
     let refresh_sessions = move || {
         let value = token.get_untracked();
@@ -313,6 +341,10 @@ fn App() -> impl IntoView {
             match get_json::<SessionsResponse>("/v1/sessions", &value).await {
                 Ok(data) => {
                     sessions.set(data.sessions);
+                    match get_json::<ToolsResponse>("/v1/tools", &value).await {
+                        Ok(list) => tools.set(list.tools),
+                        Err(error) => plugin_status.set(format!("tools: {error}")),
+                    }
                     status.set("connected".into());
                 }
                 Err(error) => status.set(format!("error: {error}")),
@@ -411,6 +443,29 @@ fn App() -> impl IntoView {
         });
     };
 
+    let search_plugins = move || {
+        let query = plugin_query.get_untracked();
+        if query.trim().is_empty() {
+            return;
+        }
+        let token_value = token.get_untracked();
+        plugin_status.set("searching…".into());
+        spawn_local(async move {
+            let url = format!(
+                "/v1/plugins/search?q={}",
+                js_sys::encode_uri_component(&query)
+            );
+            match get_json::<PackagesResponse>(&url, &token_value).await {
+                Ok(data) => {
+                    let count = data.packages.len();
+                    plugin_hits.set(data.packages);
+                    plugin_status.set(format!("{count} package(s)"));
+                }
+                Err(error) => plugin_status.set(format!("error: {error}")),
+            }
+        });
+    };
+
     let cancel = move || {
         let Some(session) = current.get_untracked() else {
             return;
@@ -476,6 +531,7 @@ fn App() -> impl IntoView {
             />
             <button on:click=move |_| refresh_sessions()>"Connect"</button>
             <button on:click=move |_| new_session()>"New session"</button>
+            <button on:click=move |_| plugins_open.set(true)>"Plugins"</button>
             <span id="status">{move || status.get()}</span>
         </header>
         <main>
@@ -528,6 +584,39 @@ fn App() -> impl IntoView {
                 </form>
             </section>
         </main>
+        {move || plugins_open.get().then(|| view! {
+            <dialog open>
+                <h3>"Plugins"</h3>
+                <div class="row">
+                    <input
+                        placeholder="Search npm (cordis)…"
+                        prop:value=move || plugin_query.get()
+                        on:input=move |event| plugin_query.set(event_target_value(&event))
+                    />
+                    <button on:click=move |_| search_plugins()>"Search"</button>
+                    <button on:click=move |_| plugins_open.set(false)>"Close"</button>
+                </div>
+                <p>{move || plugin_status.get()}</p>
+                <h4>"Installed tools"</h4>
+                <ul>
+                    {move || tools.get().into_iter().map(|tool| view! {
+                        <li>{format!("{} — {}", tool.name, tool.description)}</li>
+                    }).collect_view()}
+                </ul>
+                <h4>"npm packages"</h4>
+                <ul>
+                    {move || plugin_hits.get().into_iter().map(|package| view! {
+                        <li>{format!(
+                            "{}@{} — {} · dshr plugin npm add {}",
+                            package.name,
+                            package.version,
+                            package.description,
+                            package.name,
+                        )}</li>
+                    }).collect_view()}
+                </ul>
+            </dialog>
+        })}
         {move || question.get().map(|info| view! {
             <dialog open>
                 <h3>"Question"</h3>

@@ -298,6 +298,8 @@ pub fn router(state: AppState) -> Router {
         .route("/icon-192.png", get(icon_192))
         .route("/icon-512.png", get(icon_512))
         .route("/v1/health", get(health))
+        .route("/v1/tools", get(list_tools))
+        .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{id}", get(get_session))
         .route("/v1/sessions/{id}/turns", post(start_turn))
@@ -336,6 +338,82 @@ pub async fn serve(
     axum::serve(listener, router(state))
         .await
         .map_err(|error| error.to_string())
+}
+
+async fn list_tools(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let tools: Vec<Value> = state
+        .tools
+        .definitions()
+        .into_iter()
+        .map(|tool| {
+            json!({
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.input_schema
+            })
+        })
+        .collect();
+    Ok(Json(json!({"tools": tools})))
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginSearch {
+    q: String,
+}
+
+async fn search_plugins(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<PluginSearch>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let text = percent_encode(query.q.trim());
+    if text.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let url = format!("https://registry.npmjs.org/-/v1/search?text={text}&size=20");
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("User-Agent", "dshr-server")
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    if !response.status().is_success() {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+    let value: Value = response.json().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let objects: Vec<Value> = value["objects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|object| {
+            let package = &object["package"];
+            Some(json!({
+                "name": package["name"].as_str()?,
+                "version": package["version"].as_str().unwrap_or(""),
+                "description": package["description"].as_str().unwrap_or("")
+            }))
+        })
+        .collect();
+    Ok(Json(json!({"packages": objects})))
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            b' ' => out.push_str("%20"),
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
 }
 
 async fn health() -> impl IntoResponse {
