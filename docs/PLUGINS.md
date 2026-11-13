@@ -8,6 +8,7 @@
 name: echo
 description: Echo plugin
 wasm: echo.wasm
+# optional: sha256: <hex SHA-256>
 ```
 
 ABI `dshr.wasm.v1`:
@@ -23,7 +24,8 @@ ABI `dshr.wasm.v1`:
 
 Свойства:
 - нет host-импортов, WASI и сети — только вычисления;
-- fuel-лимит 10M инструкций;
+- опциональная проверка `sha256` манифеста;
+- fuel-лимит 10M инструкций, memory cap 64 MiB;
 - инструменты получают имена `wasm__<plugin>__<tool>`;
 - модуль инстанцируется на каждый вызов (изоляция, но без кэша состояния).
 
@@ -41,5 +43,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 ## Ограничения
 
 - WASM ABI кастомный (JSON), не component model/WIT; wasmtime не используется.
-- Нет hot reload, capability-grants, подписи и памяти-лимита кроме fuel.
+- Нет hot reload и capability-grants; memory cap и sha256 есть, полноценной подписи нет.
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

@@ -14,9 +14,10 @@ use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
 use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
-use wasmi::{Engine, Linker, Module, Store};
+use wasmi::{Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
 
 const FUEL: u64 = 10_000_000;
+const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum WasmError {
@@ -39,6 +40,9 @@ pub struct WasmPluginManifest {
     #[serde(default)]
     pub description: String,
     pub wasm: PathBuf,
+    /// Optional hex SHA-256 of the wasm file.
+    #[serde(default)]
+    pub sha256: Option<String>,
     #[serde(default = "default_true")]
     pub enabled: bool,
 }
@@ -69,6 +73,14 @@ impl WasmPlugin {
             .unwrap_or_else(|| Path::new("."))
             .join(&manifest.wasm);
         let bytes = std::fs::read(&wasm_path).map_err(|error| WasmError::Io(error.to_string()))?;
+        if let Some(expected) = &manifest.sha256 {
+            let actual = sha256_hex(&bytes);
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(WasmError::Manifest(format!(
+                    "wasm sha256 mismatch: expected {expected}, got {actual}"
+                )));
+            }
+        }
         Self::from_bytes(&manifest.name, &manifest.description, &bytes)
     }
 
@@ -123,7 +135,14 @@ impl WasmPlugin {
     }
 
     fn call_entry(&self, function: &str, request: &[u8]) -> Result<Vec<u8>, WasmError> {
-        let mut store = Store::new(&self.engine, ());
+        let limits = StoreLimitsBuilder::new()
+            .memory_size(MEMORY_LIMIT)
+            .instances(1)
+            .memories(1)
+            .tables(1)
+            .build();
+        let mut store = Store::new(&self.engine, limits);
+        store.limiter(|limits: &mut StoreLimits| limits);
         store
             .set_fuel(FUEL)
             .map_err(|error| WasmError::Runtime(error.to_string()))?;
@@ -251,6 +270,12 @@ impl Tool for WasmTool {
     }
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(bytes);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 pub fn discover(dirs: &[PathBuf]) -> Vec<Arc<WasmPlugin>> {
     let mut plugins = Vec::new();
     for dir in dirs {
@@ -344,5 +369,29 @@ mod tests {
         .expect("yaml");
         let plugin = WasmPlugin::load(&dir.path().join("demo.yaml")).expect("load");
         assert_eq!(plugin.name(), "demo");
+    }
+
+    #[test]
+    fn verifies_manifest_sha256() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (_text, bytes) = fixture();
+        std::fs::write(dir.path().join("demo.wasm"), &bytes).expect("wasm");
+        let hash = sha256_hex(&bytes);
+        std::fs::write(
+            dir.path().join("demo.yaml"),
+            format!("name: demo\nwasm: demo.wasm\nsha256: {hash}\n"),
+        )
+        .expect("yaml");
+        WasmPlugin::load(&dir.path().join("demo.yaml")).expect("valid hash");
+        std::fs::write(
+            dir.path().join("demo.yaml"),
+            "name: demo\nwasm: demo.wasm\nsha256: deadbeef\n",
+        )
+        .expect("yaml");
+        let error = match WasmPlugin::load(&dir.path().join("demo.yaml")) {
+            Ok(_) => panic!("bad hash accepted"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("sha256"));
     }
 }

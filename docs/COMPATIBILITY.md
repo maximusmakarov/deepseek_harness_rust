@@ -19,7 +19,7 @@
 | LSP | hover/definition/references/diagnostics | ✅ |
 | Office | docx/xlsx/pptx read/create | ✅ |
 | CUA/browser | Chrome navigate/screenshot/click/type/eval | ✅ |
-| WASM-плагины | wasmi JSON ABI, fuel | ✅ |
+| WASM-плагины | wasmi JSON ABI, fuel, 64 MiB cap, sha256 | ✅ |
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |
