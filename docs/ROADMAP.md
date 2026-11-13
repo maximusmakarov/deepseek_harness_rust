@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — workflows, teams, schedules, LSP, MCP, Office, CUA, FTS, WASM, OTel, ACP (188 тестов). Остались desktop/i18n, Windows sandbox.
+**Статус:** срез 13.11.2026 — M0–M7/P2 закрыты (188 тестов), кроме desktop/i18n, Windows sandbox и расширенных ACP/WASM/MCP-протоколов.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

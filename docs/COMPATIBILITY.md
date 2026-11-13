@@ -1,0 +1,31 @@
+# Совместимость с DSH
+
+Матрица возможностей текущего среза `dshr` относительно DSH Desktop/CLI.
+
+| Область | dshr | Статус |
+|---|---|---|
+| TUI | ratatui, стрим, tool-карточки, approvals | ✅ |
+| Headless | `dshr run`, JSON output, cassettes | ✅ |
+| HTTP/SSE + Web UI | axum, bearer, approvals, JSON-RPC | ✅ |
+| ACP v1 | initialize/new/prompt/cancel, текст/tools | ⚠️ без permissions/fs/terminal |
+| Сессии | JSONL, resume, fork/rewind/title/search, FTS5 | ✅ |
+| Промпт/AGENTS/skills/compaction | deterministic, discovery, compaction | ✅ |
+| Инструменты | read/write/edit/glob/grep/bash/todo/present | ✅ |
+| MCP | stdio/HTTP tools/resources/prompts/sampling | ✅ |
+| Web | `web_fetch` SSRF, Brave search | ✅ |
+| Jobs | background, output, kill | ✅ |
+| Субагенты/workflows/teams | spawn, DAG, durable board | ✅ |
+| Расписания | cron, run-due, daemon, lock | ✅ |
+| LSP | hover/definition/references/diagnostics | ✅ |
+| Office | docx/xlsx/pptx read/create | ✅ |
+| CUA/browser | Chrome navigate/screenshot/click/type/eval | ✅ |
+| WASM-плагины | wasmi JSON ABI, fuel | ✅ |
+| OTel | OTLP/HTTP traces | ✅ |
+| Песочница | Seatbelt, Landlock+seccomp | ✅ |
+| Windows sandbox | AppContainer opt-in, default fail-closed | ⚠️ deferred |
+| Desktop (Tauri) | — | ❌ deferred |
+| i18n | CLI/TUI в основном en/ru смешанно | ❌ deferred |
+| ACP permissions/fs/terminal | — | ❌ deferred |
+| MCP HTTP GET-SSE/OAuth | — | ❌ deferred |
+
+Обозначения: ✅ есть, ⚠️ частично, ❌ нет.

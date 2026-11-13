@@ -34,4 +34,4 @@
 | P2 | Desktop, i18n | Не начаты. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P2 | ACP permissions/fs/terminal | Минимальный ACP: auto-approvals, без клиентских capability. |
-| P3 | cargo-dist/brew, подпись | Только Dockerfile. |
+| P3 | cargo-dist/brew, подпись | Release workflow + Dockerfile есть; brew/подпись нет. |
