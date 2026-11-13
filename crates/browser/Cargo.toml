@@ -1,0 +1,22 @@
+[package]
+name = "dshr-browser"
+description = "Headless Chrome CUA tools: navigation, screenshots, actions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+chromiumoxide = "0.9"
+dshr-tools.workspace = true
+futures-util.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+dshr-core.workspace = true
+tempfile.workspace = true

@@ -17,13 +17,13 @@
 | MCP HTTP/resources отсутствовали | Streamable HTTP + resource tools — [ADR-028](adr/028-mcp-http-resources.md) |
 | Team-доска терялась, workflow не повторялся | durable state + `retries` — [ADR-029](adr/029-durable-teams-retries.md) |
 | Office-документы не поддерживались | docx/xlsx/pptx tools — [ADR-030](adr/030-office.md) |
+| CUA/browser отсутствовал | headless Chrome tools — [ADR-031](adr/031-browser-cua.md) |
 
 ## Открыто
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
 | P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
-| P1 | CUA/browser | Навигация, скриншоты, действия. |
 | P2 | MCP prompts/sampling | Tools/resources есть; server-initiated протоколы нет. |
 | P2 | WASM/sidecar плагины | MCP — единственный плагинный путь. |
 | P2 | Поиск | Скан; FTS5/Tantivy только после бенчмарк-гейта [ADR-016](adr/016-search-backend.md). |

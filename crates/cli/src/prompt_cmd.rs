@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use clap::Args;
 use dshr_config::ConfigLoader;
 use dshr_core::{DshrError, Result};
@@ -26,6 +28,7 @@ pub async fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
     }
     crate::mcp_setup::register(&mut tools, &config).await;
     dshr_office::register_tools(&mut tools);
+    dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
 
     let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let prompt = crate::run_cmd::build_system_prompt(

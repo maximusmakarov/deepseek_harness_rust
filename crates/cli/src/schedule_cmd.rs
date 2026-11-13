@@ -217,6 +217,7 @@ async fn run_due(
         }));
         tools.register(BashTool::new(Some(sandbox)));
         dshr_office::register_tools(&mut tools);
+        dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
         let system_prompt = build_prompt(
             loader,
             &workspace,

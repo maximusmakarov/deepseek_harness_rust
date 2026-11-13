@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v2.7 · 13.11.2026 · **M0–M6 выполнены; M7; Office**
+**Статус:** план v2.8 · 13.11.2026 · **M0–M6 выполнены; M7; CUA**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -16,14 +16,14 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
 - **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search.
 - **Контекст:** детерминированный промпт, `AGENTS.md`, skills, compaction с событием журнала.
-- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, web, worktrees, LSP, Office.
+- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`glob`/`grep`/`bash`/`todo`/`present`, web, worktrees, LSP, Office, browser/CUA.
 - **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты, общий бюджет токенов, allowlist инструментов.
 - **Внешние:** MCP stdio/HTTP с tools и resources, `web_fetch`/`web_search`, фоновые jobs.
 - **Автономность:** YAML-workflows, agent teams с доской задач, durable cron-расписания с lock.
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp, Windows AppContainer; сеть Linux — deny, Windows — `Partial`.
 - **Интерфейсы:** TUI, HTTP/SSE + встроенный Web UI, JSON-RPC.
 
-183 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+184 теста; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -86,6 +86,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/SCHEDULES.md](docs/SCHEDULES.md) | Cron, run-due, daemon, автономные сессии | Для регулярных задач |
 | [docs/MCP.md](docs/MCP.md) | stdio/HTTP MCP, resources, plugin add | Для внешних инструментов |
 | [docs/OFFICE.md](docs/OFFICE.md) | docx/xlsx/pptx чтение и создание | Для документов |
+| [docs/BROWSER.md](docs/BROWSER.md) | Chrome/CUA: навигация, скриншоты, действия | Для браузера |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
@@ -214,14 +215,14 @@ crates/lsp            LSP-клиент и инструменты навигац�
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–030
+docs/adr              001–031
 ```
 
 ## 9. Что дальше
 
-**M7 — оставшиеся эпики:**
+**P2 — оставшиеся эпики:**
 1. MCP prompts/sampling.
-2. CUA/browser.
+2. WASM/sidecar, FTS-поиск.
 3. Desktop-оболочка (Tauri), OTel, ACP, i18n.
 4. Сеть Windows (AppContainer Partial).
 
