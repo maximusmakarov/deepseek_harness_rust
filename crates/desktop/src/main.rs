@@ -158,6 +158,13 @@ fn build_tray(
         None::<&str>,
     )?;
     let updates = MenuItem::with_id(app, "updates", "Check for updates…", true, None::<&str>)?;
+    let download = MenuItem::with_id(
+        app,
+        "download-update",
+        "Download update…",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let profiles = Submenu::new(app, "Profile", true)?;
@@ -183,6 +190,7 @@ fn build_tray(
             &provider,
             &config_folder,
             &updates,
+            &download,
             &diagnostics,
             &quit,
         ],
@@ -254,6 +262,25 @@ fn build_tray(
                     }
                     Ok(None) => notify("dshr", "You are running the latest version"),
                     Err(error) => notify("dshr update check failed", &error),
+                });
+            }
+            "download-update" => {
+                std::thread::spawn(|| {
+                    let home = home_dir();
+                    match check_for_updates() {
+                        Ok(Some(release)) => match download_update(&home, &release) {
+                            Ok(path) => {
+                                notify(
+                                    "dshr update downloaded",
+                                    &format!("{} — quit and replace the app", path.display()),
+                                );
+                                open_reveal(&path);
+                            }
+                            Err(error) => notify("dshr update download failed", &error),
+                        },
+                        Ok(None) => notify("dshr", "You are running the latest version"),
+                        Err(error) => notify("dshr update check failed", &error),
+                    }
                 });
             }
             "diagnostics" => {
@@ -463,6 +490,8 @@ fn export_diagnostics() -> Result<PathBuf, Box<dyn std::error::Error>> {
 struct Release {
     version: String,
     url: String,
+    macos_zip: Option<String>,
+    checksums: Option<String>,
 }
 
 fn fetch_latest_release() -> Result<Release, String> {
@@ -489,10 +518,123 @@ fn parse_release(text: &str) -> Option<Release> {
     let value: serde_json::Value = serde_json::from_str(text).ok()?;
     let tag = value["tag_name"].as_str()?.trim_start_matches('v');
     let url = value["html_url"].as_str()?;
+    let mut macos_zip = None;
+    let mut checksums = None;
+    for asset in value["assets"].as_array().into_iter().flatten() {
+        let name = asset["name"].as_str().unwrap_or_default();
+        let download = asset["browser_download_url"].as_str();
+        if name.ends_with("-macos.zip") {
+            macos_zip = download.map(ToOwned::to_owned);
+        } else if name == "SHA256SUMS" {
+            checksums = download.map(ToOwned::to_owned);
+        }
+    }
     Some(Release {
         version: tag.to_owned(),
         url: url.to_owned(),
+        macos_zip,
+        checksums,
     })
+}
+
+fn download_update(home: &Path, release: &Release) -> Result<PathBuf, String> {
+    let archive_url = release
+        .macos_zip
+        .as_deref()
+        .ok_or_else(|| "release has no macOS zip asset".to_owned())?;
+    let name = archive_url.rsplit('/').next().unwrap_or("dshr-macos.zip");
+    let directory = home.join("updates").join(&release.version);
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let archive = directory.join(name);
+    curl_to(archive_url, &archive)?;
+    if let Some(checksums_url) = &release.checksums {
+        let sums = directory.join("SHA256SUMS");
+        curl_to(checksums_url, &sums)?;
+        let text = std::fs::read_to_string(&sums).map_err(|error| error.to_string())?;
+        let expected = checksum_for(&text, name)
+            .ok_or_else(|| format!("{name} is not listed in SHA256SUMS"))?;
+        let actual = sha256_file(&archive)?;
+        if !actual.eq_ignore_ascii_case(&expected) {
+            return Err(format!(
+                "checksum mismatch for {name}: expected {expected}, got {actual}"
+            ));
+        }
+    }
+    let unpacked = directory.join("app");
+    std::fs::create_dir_all(&unpacked).map_err(|error| error.to_string())?;
+    let status = Command::new("ditto")
+        .args([
+            "-x",
+            "-k",
+            &archive.display().to_string(),
+            &unpacked.display().to_string(),
+        ])
+        .status()
+        .map_err(|error| format!("ditto: {error}"))?;
+    if !status.success() {
+        return Err("unzip failed".to_owned());
+    }
+    find_app(&unpacked).ok_or_else(|| "unpacked archive has no .app".to_owned())
+}
+
+fn curl_to(url: &str, destination: &Path) -> Result<(), String> {
+    let status = Command::new("curl")
+        .args([
+            "-fsSL",
+            "-H",
+            "User-Agent: dshr-desktop",
+            url,
+            "-o",
+            &destination.display().to_string(),
+        ])
+        .status()
+        .map_err(|error| format!("curl: {error}"))?;
+    if !status.success() {
+        return Err(format!("download failed: {url}"));
+    }
+    Ok(())
+}
+
+fn checksum_for(text: &str, name: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        let file = parts.next()?.trim_start_matches('*');
+        (file == name && hash.len() == 64).then(|| hash.to_owned())
+    })
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    for (program, args) in [("shasum", vec!["-a", "256"]), ("sha256sum", Vec::new())] {
+        let Ok(output) = Command::new(program).args(&args).arg(path).output() else {
+            continue;
+        };
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout);
+            if let Some(hash) = text.split_whitespace().next()
+                && hash.len() == 64
+            {
+                return Ok(hash.to_ascii_lowercase());
+            }
+        }
+    }
+    Err("no shasum/sha256sum available".to_owned())
+}
+
+fn find_app(directory: &Path) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(directory).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("app") {
+            return Some(path);
+        }
+        if path.is_dir()
+            && let Some(found) = find_app(&path)
+        {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn check_for_updates() -> Result<Option<Release>, String> {
@@ -949,6 +1091,32 @@ mod tests {
         assert_ne!(port, 0);
         let listener = TcpListener::bind(("127.0.0.1", port)).expect("rebind");
         drop(listener);
+    }
+
+    #[test]
+    fn selects_update_assets_and_checksums() {
+        let release = parse_release(
+            r#"{"tag_name":"v1.2.3","html_url":"https://example.test",
+                "assets":[
+                  {"name":"dshr-1.2.3-macos.zip","browser_download_url":"https://example.test/app.zip"},
+                  {"name":"SHA256SUMS","browser_download_url":"https://example.test/sums"}
+                ]}"#,
+        )
+        .expect("release");
+        assert_eq!(
+            release.macos_zip.as_deref(),
+            Some("https://example.test/app.zip")
+        );
+        assert_eq!(
+            release.checksums.as_deref(),
+            Some("https://example.test/sums")
+        );
+        let sums = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  dshr-1.2.3-macos.zip\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  other.zip\n";
+        assert_eq!(
+            checksum_for(sums, "dshr-1.2.3-macos.zip").as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert!(checksum_for(sums, "missing.zip").is_none());
     }
 
     #[test]

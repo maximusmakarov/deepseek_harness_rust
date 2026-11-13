@@ -18,7 +18,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
 | Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` + привязка к `--profile` (profile.yaml, отдельные packages); UI-менеджера и market нет | ⚠️ |
 | Терминал из трея с приватными shim'ами | открывает системный терминал; приватных shim'ов нет | ⚠️ |
-| Обновления: фоновая проверка, канал, installer, Linux → download page | трей Check for updates…, фоновая проверка GitHub, уведомление, release page; installer/каналов нет | ⚠️ |
+| Обновления: фоновая проверка, канал, installer, Linux → download page | проверка, уведомление, скачивание macOS zip с проверкой SHA256SUMS, распаковка и reveal; тихой установки/каналов нет | ⚠️ |
 | Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | только `--check`; recovery-окна нет | ❌ |
 | `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`; экспорт диагностики — в работе | ⚠️ |
 | Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` (ad-hoc), 5 tar.gz; Windows/Linux installer'ов нет | ⚠️ |
@@ -56,7 +56,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 
 P0 (закрыто 14.11): трей и close-to-tray, профили/создание профиля, фиксированный порт,
 диагностика, `apply_patch`, `ask_user`, базовая проверка обновлений и first-run home.
-Осталось: setup wizard/настройка провайдера, installer/auto-update.
+Осталось: тихая установка/замена приложения и каналы обновлений.
 P1: setup/onboarding, запуск с папкой, обновления, npm/Cordis install/update,
 плагин-маркет, elicitation, Windows sandbox.
 P2: режимы окна/материалы, recovery-окна, reproducible builds, ghcr-бутылки.
