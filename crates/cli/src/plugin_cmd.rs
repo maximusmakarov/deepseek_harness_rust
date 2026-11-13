@@ -138,7 +138,20 @@ fn install_dir(loader: &ConfigLoader, name: &str) -> PathBuf {
             .map(|cwd| cwd.join(&home))
             .unwrap_or(home)
     };
-    home.join("cordis").join("packages").join(name)
+    let packages = home.join("cordis").join("packages");
+    if loader.profile() == "default" {
+        packages.join(name)
+    } else {
+        packages.join(loader.profile()).join(name)
+    }
+}
+
+fn plugin_config_path(loader: &ConfigLoader) -> PathBuf {
+    if loader.profile() == "default" {
+        loader.user_path()
+    } else {
+        loader.profile_path()
+    }
 }
 
 fn npm_add(loader: &ConfigLoader, spec: &str, requested_name: Option<&str>) -> Result<u8> {
@@ -459,7 +472,7 @@ fn cordis_mut(root: &mut Value) -> Result<&mut Vec<Value>> {
 }
 
 fn load_raw(loader: &ConfigLoader) -> Result<Value> {
-    let path = loader.user_path();
+    let path = plugin_config_path(loader);
     if !path.is_file() {
         return Ok(json!({
             "version": 1,
@@ -472,7 +485,7 @@ fn load_raw(loader: &ConfigLoader) -> Result<Value> {
 }
 
 fn save_raw(loader: &ConfigLoader, value: &Value) -> Result<()> {
-    let path = loader.user_path();
+    let path = plugin_config_path(loader);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -517,6 +530,26 @@ mod tests {
         assert!(package_name("file:../plugin").is_none());
         assert!(package_name("./plugin").is_none());
         assert!(package_name("https://example.test/plugin.tgz").is_none());
+    }
+
+    #[test]
+    fn plugin_state_follows_the_active_profile() {
+        let dir = std::env::temp_dir().join(format!("dshr-plugin-test-{}", std::process::id()));
+        let default = ConfigLoader::new(&dir, "default");
+        assert_eq!(plugin_config_path(&default), dir.join("config.yaml"));
+        assert_eq!(
+            install_dir(&default, "demo"),
+            dir.join("cordis/packages/demo")
+        );
+        let work = ConfigLoader::new(&dir, "work");
+        assert_eq!(
+            plugin_config_path(&work),
+            dir.join("profiles/work/profile.yaml")
+        );
+        assert_eq!(
+            install_dir(&work, "demo"),
+            dir.join("cordis/packages/work/demo")
+        );
     }
 
     #[test]

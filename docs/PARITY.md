@@ -16,7 +16,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Режимы окна (compatibility/extended/enhanced), материалы macOS | одно окно, без режимов/материалов | ❌ |
 | Локальный web-порт: random/фиксированный, LAN-подтверждение | случайный порт или `DSHR_DESKTOP_PORT`; LAN-тумблера нет | ⚠️ |
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
-| Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` ставит пакеты и пишет `plugins.cordis`; привязки к профилю и UI-менеджера нет | ⚠️ |
+| Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` + привязка к `--profile` (profile.yaml, отдельные packages); UI-менеджера и market нет | ⚠️ |
 | Терминал из трея с приватными shim'ами | открывает системный терминал; приватных shim'ов нет | ⚠️ |
 | Обновления: фоновая проверка, канал, installer, Linux → download page | трей Check for updates…, фоновая проверка GitHub, уведомление, release page; installer/каналов нет | ⚠️ |
 | Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | только `--check`; recovery-окна нет | ❌ |

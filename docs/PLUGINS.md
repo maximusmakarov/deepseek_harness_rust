@@ -125,8 +125,11 @@ dshr plugin npm remove name
 dshr plugin npm list
 ```
 
-Пакет ставится в `<home>/cordis/packages/<name>`; запись `plugins.cordis`
-(entry — абсолютный путь к каталогу пакета, `enabled: true`) пишется в user config.
+Пакет ставится в `<home>/cordis/packages/<profile>/<name>` (для `default` — без
+подкаталога профиля); запись `plugins.cordis`
+(entry — абсолютный путь к каталогу пакета, `enabled: true`) пишется в user config, а
+при `--profile <name>` — в `<home>/profiles/<name>/profile.yaml`. Так же ведут себя
+`plugin add/remove` для MCP.
 Для `file:`, git- и URL-спеков имя пакета нужно указать через `--name`. После
 установки перезапустите harness, чтобы sidecar подхватил плагин.
 
