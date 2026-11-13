@@ -5,7 +5,7 @@
 
 ## Статус: experimental / opt-in
 
-AppContainer реализован, но setup зависает на GitHub Windows runner; по умолчанию Windows остаётся fail-closed, включение — `DSHR_WINDOWS_SANDBOX=1`. Диагностический тест исключён из CI, чтобы не блокировать job.
+AppContainer реализован, но setup зависает на GitHub Windows runner; по умолчанию Windows остаётся fail-closed, включение — `DSHR_WINDOWS_SANDBOX=1`. Setup ограничен таймаутом и падает fail-closed; диагностический тест исключён из CI, чтобы не блокировать job.
 
 ## Контекст
 

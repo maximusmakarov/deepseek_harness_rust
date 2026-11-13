@@ -9,6 +9,21 @@ mod linux;
 #[cfg(target_os = "windows")]
 mod windows;
 
+/// Runs `work` on a helper thread and fails closed if it does not finish.
+pub fn run_with_timeout<T, F>(timeout: std::time::Duration, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    receiver
+        .recv_timeout(timeout)
+        .map_err(|_| format!("sandbox setup exceeded {}s", timeout.as_secs()))?
+}
+
 pub fn run() -> ExitCode {
     match run_inner() {
         Ok(code) => code,
@@ -75,4 +90,26 @@ fn platform_execute(
     args: Vec<OsString>,
 ) -> Result<ExitCode, String> {
     windows::execute(mode, workspace, network, program, args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::run_with_timeout;
+    use std::time::Duration;
+
+    #[test]
+    fn returns_work_result() {
+        let value = run_with_timeout(Duration::from_secs(1), || Ok(7)).expect("result");
+        assert_eq!(value, 7);
+    }
+
+    #[test]
+    fn times_out_blocked_work() {
+        let error = run_with_timeout(Duration::from_millis(10), || {
+            std::thread::sleep(Duration::from_millis(100));
+            Ok(1)
+        })
+        .expect_err("timeout");
+        assert!(error.contains("exceeded"), "{error}");
+    }
 }
