@@ -1219,4 +1219,16 @@ fn cli_help_and_outputs_follow_lang() {
         .assert()
         .success()
         .stdout(predicate::str::contains("CREATED"));
+
+    dshr()
+        .args(["--lang", "ru", "serve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Порт (0 — свободный)"));
+
+    dshr()
+        .args(["--lang", "ru", "schedule", "add", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Cron-выражение"));
 }
