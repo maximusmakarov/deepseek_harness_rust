@@ -649,24 +649,30 @@ fn sandbox_blocks_writes_outside_workspace() {
     let home = tempfile::tempdir().expect("home");
     let project = home.path().join("project");
     std::fs::create_dir_all(&project).expect("project");
+    let outside = format!("dshr-outside-{}.txt", uuid::Uuid::new_v4().simple());
+    let command = if cfg!(windows) {
+        format!("cd /d \"%USERPROFILE%\" && echo no > {outside}")
+    } else {
+        format!("cd \"$HOME\" && echo no > {outside}")
+    };
     let cassette = home.path().join("sandbox.json");
-    std::fs::write(
-        &cassette,
-        r#"{"model":"deepseek-flash","calls":[
-          [
-            {"type":"start","model":"deepseek-flash"},
-            {"type":"tool_use_start","index":0,"id":"call_1","name":"bash"},
-            {"type":"tool_input_delta","index":0,"json":"{\"command\":\"cd .. && echo no > outside-sandbox.txt\"}"},
-            {"type":"done","stop_reason":"tool_use"}
-          ],
-          [
-            {"type":"start","model":"deepseek-flash"},
-            {"type":"text_delta","text":"done"},
-            {"type":"done","stop_reason":"end_turn"}
-          ]
-        ]}"#,
-    )
-    .expect("cassette");
+    let cassette_json = serde_json::json!({
+        "model": "deepseek-flash",
+        "calls": [
+            [
+                {"type": "start", "model": "deepseek-flash"},
+                {"type": "tool_use_start", "index": 0, "id": "call_1", "name": "bash"},
+                {"type": "tool_input_delta", "index": 0, "json": serde_json::json!({"command": command}).to_string()},
+                {"type": "done", "stop_reason": "tool_use"}
+            ],
+            [
+                {"type": "start", "model": "deepseek-flash"},
+                {"type": "text_delta", "text": "done"},
+                {"type": "done", "stop_reason": "end_turn"}
+            ]
+        ]
+    });
+    std::fs::write(&cassette, serde_json::to_vec(&cassette_json).expect("json")).expect("cassette");
 
     dshr()
         .current_dir(&project)
@@ -685,7 +691,10 @@ fn sandbox_blocks_writes_outside_workspace() {
         .success()
         .stdout(predicate::str::contains("done"));
 
-    assert!(!home.path().join("outside-sandbox.txt").exists());
+    let user_home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(std::path::PathBuf::from)
+        .expect("user home");
+    assert!(!user_home.join(&outside).exists());
 }
 
 #[test]
