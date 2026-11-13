@@ -191,6 +191,9 @@ pub fn router(state: AppState) -> Router {
         .route("/", get(index))
         .route("/app.js", get(app_js))
         .route("/style.css", get(style_css))
+        .route("/manifest.webmanifest", get(manifest))
+        .route("/icon-192.png", get(icon_192))
+        .route("/icon-512.png", get(icon_512))
         .route("/v1/health", get(health))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{id}", get(get_session))
@@ -541,6 +544,33 @@ async fn app_js() -> Response {
             "application/javascript; charset=utf-8",
         )],
         include_str!("../ui/app.js"),
+    )
+        .into_response()
+}
+
+async fn manifest() -> Response {
+    (
+        [(
+            header::CONTENT_TYPE,
+            "application/manifest+json; charset=utf-8",
+        )],
+        include_str!("../ui/manifest.webmanifest"),
+    )
+        .into_response()
+}
+
+async fn icon_192() -> Response {
+    (
+        [(header::CONTENT_TYPE, "image/png")],
+        include_bytes!("../ui/icon-192.png").as_slice(),
+    )
+        .into_response()
+}
+
+async fn icon_512() -> Response {
+    (
+        [(header::CONTENT_TYPE, "image/png")],
+        include_bytes!("../ui/icon-512.png").as_slice(),
     )
         .into_response()
 }

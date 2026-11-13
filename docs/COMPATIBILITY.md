@@ -23,7 +23,7 @@
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | AppContainer opt-in, default fail-closed | ⚠️ deferred |
-| Desktop (Tauri) | — | ❌ deferred |
+| Desktop | PWA (standalone), Tauri нет | ⚠️ частично |
 | i18n | TUI ru/en (`ui.language`); CLI/help — en | ⚠️ частично |
 | ACP permissions/fs/terminal | — | ❌ deferred |
 | MCP HTTP GET-SSE/OAuth | — | ❌ deferred |

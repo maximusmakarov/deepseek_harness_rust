@@ -196,3 +196,47 @@ async fn json_rpc_session_methods() {
         1
     );
 }
+
+#[tokio::test]
+async fn serves_pwa_assets() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+
+    let manifest = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/manifest.webmanifest")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("manifest");
+    assert_eq!(manifest.status(), StatusCode::OK);
+    assert!(
+        manifest
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .contains("manifest")
+    );
+    let body = axum::body::to_bytes(manifest.into_body(), 64 * 1024)
+        .await
+        .expect("body");
+    assert!(String::from_utf8_lossy(&body).contains("\"name\": \"dshr\""));
+
+    let index = app
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("index");
+    let body = axum::body::to_bytes(index.into_body(), 64 * 1024)
+        .await
+        .expect("body");
+    assert!(String::from_utf8_lossy(&body).contains("/manifest.webmanifest"));
+}

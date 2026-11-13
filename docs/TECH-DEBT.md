@@ -23,6 +23,7 @@
 | Не было телеметрии | OTLP/HTTP traces — [ADR-033](adr/033-opentelemetry.md) |
 | Не было ACP | ACP v1 stdio + permissions — [ADR-034](adr/034-acp.md) |
 | Не было i18n | TUI ru/en — [ADR-035](adr/035-tui-i18n.md) |
+| Не было desktop | PWA-манифест — [ADR-036](adr/036-pwa-desktop.md) |
 | MCP prompts отсутствовали | `list_prompts`/`get_prompt` — [ADR-028](adr/028-mcp-http-resources.md) |
 | MCP sampling отсутствовал | stdio `sampling/createMessage` — [ADR-028](adr/028-mcp-http-resources.md) |
 
@@ -32,7 +33,7 @@
 |---|---|---|
 | P1 | Сеть Windows | AppContainer не гарантирует сеть; enforcement `Partial`. |
 | P2 | SDK/Leptos/rate-limit | JSON-RPC-подмножество и vanilla UI. |
-| P2 | Desktop | Tauri-оболочки нет. |
+| P2 | Desktop | PWA есть; Tauri-оболочки нет. |
 | P2 | WASM component model/WIT | Текущий ABI — JSON core module. |
 | P2 | ACP fs/terminal | Permissions есть; fs/terminal/image/MCP клиента — нет. |
 | P3 | cargo-dist/brew, подпись | Release workflow + Dockerfile есть; brew/подпись нет. |

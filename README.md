@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v3.7 · 13.11.2026 · **M0–M7/P2 закрыты, кроме desktop**
+**Статус:** план v3.8 · 13.11.2026 · **M0–M7/P2 закрыты; desktop = PWA**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-190 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+191 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -93,6 +93,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/ACP.md](docs/ACP.md) | ACP v1: сессии, prompt, cancel, permissions | Для редакторов |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Матрица возможностей и пробелов | Для оценки паритета |
 | [docs/CONFIG.md](docs/CONFIG.md) | Слои и `ui.language` | Для настройки |
+| [docs/DESKTOP.md](docs/DESKTOP.md) | PWA-установка, статус Tauri | Для desktop |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
@@ -227,14 +228,14 @@ crates/lsp            LSP-клиент и инструменты навигац�
 crates/tui            ratatui terminal UI
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–035
+docs/adr              001–036
 ```
 
 ## 9. Что дальше
 
 **Осталось:**
-1. Desktop-оболочка (Tauri).
-2. Windows sandbox (persistent helper), сеть Windows.
-3. ACP fs/terminal, WASM component model/WIT, MCP GET-SSE/OAuth.
+1. Windows sandbox (persistent helper), сеть Windows.
+2. ACP fs/terminal, WASM component model/WIT, MCP GET-SSE/OAuth.
+3. Tauri-оболочка (отложена).
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).
