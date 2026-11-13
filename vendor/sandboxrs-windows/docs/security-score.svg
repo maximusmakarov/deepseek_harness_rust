@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="220" viewBox="0 0 760 220" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="bar1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#10b981"/><stop offset="1" stop-color="#38bdf8"/>
+    </linearGradient>
+    <linearGradient id="bar2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#ef4444"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="220" rx="16" fill="url(#bg2)"/>
+  <text x="28" y="34" fill="#f8fafc" font-size="16" font-weight="700">Evals V2.1 · Windows Server 2025 + Windows 11 ARM64</text>
+
+  <text x="28" y="76" fill="#94a3b8" font-size="12">Security PASS</text>
+  <rect x="180" y="58" width="430" height="18" rx="6" fill="#1e293b"/>
+  <rect x="180" y="58" width="430" height="18" rx="6" fill="url(#bar1)"/>
+  <text x="624" y="72" fill="#10b981" font-size="13" font-weight="700">43 / 43</text>
+
+  <text x="28" y="112" fill="#94a3b8" font-size="12">Security ESCAPE</text>
+  <rect x="180" y="94" width="430" height="18" rx="6" fill="#1e293b"/>
+  <rect x="180" y="94" width="0" height="18" rx="6" fill="#ef4444"/>
+  <text x="624" y="108" fill="#f8fafc" font-size="13" font-weight="700">0</text>
+
+  <text x="28" y="148" fill="#94a3b8" font-size="12">Invalid tests</text>
+  <rect x="180" y="130" width="430" height="18" rx="6" fill="#1e293b"/>
+  <rect x="180" y="130" width="0" height="18" rx="6" fill="#f59e0b"/>
+  <text x="624" y="144" fill="#f8fafc" font-size="13" font-weight="700">0</text>
+
+  <text x="28" y="184" fill="#94a3b8" font-size="12">Privilege</text>
+  <rect x="180" y="166" width="430" height="18" rx="6" fill="#1e293b"/>
+  <rect x="180" y="166" width="430" height="18" rx="6" fill="#a78bfa"/>
+  <text x="624" y="180" fill="#a78bfa" font-size="13" font-weight="700">standard user</text>
+</svg>

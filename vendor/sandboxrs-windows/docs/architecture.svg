@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="430" viewBox="0 0 920 430" font-family="ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7dd3fc"/>
+    </marker>
+  </defs>
+  <rect width="920" height="430" rx="18" fill="url(#bg)"/>
+  <text x="40" y="42" fill="#f8fafc" font-size="20" font-weight="700">sandboxrs-windows</text>
+  <text x="40" y="66" fill="#94a3b8" font-size="13">No-admin Windows process sandbox with a std::process::Command-like API</text>
+
+  <rect x="40" y="95" width="220" height="46" rx="10" fill="#0ea5e9" opacity="0.9"/>
+  <text x="150" y="123" fill="#082f49" font-size="14" font-weight="700" text-anchor="middle">Rust caller</text>
+  <path d="M150 141 L150 165" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="40" y="165" width="220" height="46" rx="10" fill="#334155"/>
+  <text x="150" y="193" fill="#e2e8f0" font-size="14" font-weight="600" text-anchor="middle">Sandbox::builder(workspace)</text>
+  <path d="M150 211 L150 235" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="40" y="235" width="220" height="46" rx="10" fill="#334155"/>
+  <text x="150" y="263" fill="#e2e8f0" font-size="14" font-weight="600" text-anchor="middle">FilesystemPlan normalize</text>
+
+  <path d="M260 258 L300 258" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="300" y="218" width="250" height="80" rx="12" fill="#0f172a" stroke="#38bdf8" stroke-width="2"/>
+  <text x="425" y="246" fill="#f8fafc" font-size="14" font-weight="700" text-anchor="middle">Backend capability probe</text>
+  <text x="425" y="268" fill="#94a3b8" font-size="12" text-anchor="middle">runtime launch probe + outside-write denial</text>
+  <text x="425" y="286" fill="#94a3b8" font-size="12" text-anchor="middle">no OS-version guessing</text>
+
+  <path d="M360 298 L360 330" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="225" y="330" width="270" height="50" rx="10" fill="#0ea5e9" opacity="0.9"/>
+  <text x="360" y="360" fill="#082f49" font-size="14" font-weight="700" text-anchor="middle">Windows Sandbox API / AppContainer</text>
+  <path d="M360 380 L360 395" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="225" y="395" width="270" height="0" rx="0" fill="none"/>
+
+  <path d="M550 240 L660 240" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="660" y="200" width="220" height="80" rx="12" fill="#334155"/>
+  <text x="770" y="230" fill="#e2e8f0" font-size="14" font-weight="700" text-anchor="middle">Job Object</text>
+  <text x="770" y="252" fill="#94a3b8" font-size="12" text-anchor="middle">KILL_ON_JOB_CLOSE</text>
+  <text x="770" y="268" fill="#94a3b8" font-size="12" text-anchor="middle">limits + tree teardown</text>
+  <path d="M770 280 L770 310" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="660" y="310" width="220" height="46" rx="10" fill="#1d4ed8"/>
+  <text x="770" y="338" fill="#f8fafc" font-size="14" font-weight="600" text-anchor="middle">child + descendants</text>
+
+  <text x="40" y="412" fill="#64748b" font-size="12">Reusable validated boundary · fail-closed · no admin · no daemon · no silent std::process::Command fallback</text>
+</svg>

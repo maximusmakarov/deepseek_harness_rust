@@ -3353,8 +3353,6 @@ dependencies = [
 [[package]]
 name = "sandboxrs-windows"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac9782a67702598bcc4bd89a7fda90598a31096d479e142a57e0a69031f2aaf1"
 dependencies = [
  "flatbuffers",
  "rappct",
