@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-188 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+189 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: Office/CUA, OTel, desktop, ACP, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -90,7 +90,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/SEARCH.md](docs/SEARCH.md) | Гейт, benchmark, FTS5, reindex | Для поиска |
 | [docs/PLUGINS.md](docs/PLUGINS.md) | WASM ABI, манифесты, sidecar | Для расширений |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | OTLP/HTTP, env, спаны | Для наблюдаемости |
-| [docs/ACP.md](docs/ACP.md) | ACP v1: сессии, prompt, cancel, лимиты | Для редакторов |
+| [docs/ACP.md](docs/ACP.md) | ACP v1: сессии, prompt, cancel, permissions | Для редакторов |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Матрица возможностей и пробелов | Для оценки паритета |
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |

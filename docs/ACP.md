@@ -18,8 +18,10 @@ dshr acp --cassette test.json --model deepseek-flash
 | `session/cancel` | отменяет активный turn |
 
 Уведомления: `agent_message_chunk`, `tool_call`, `tool_call_update`.
-Инструменты выполняются локально (файлы/шелл), approvals **автоматические** (`AutoApprover`), поэтому ACP-клиент не запрашивает разрешения. Для ограничения используйте `--danger` только осознанно; без него действует `workspace-write` + sandbox.
+Инструменты выполняются локально. При `workspace-write` опасные вызовы (shell, запись вне workspace) отправляют клиенту `session/request_permission`; клиент выбирает `allow-once`/`reject-once`. Без ответа через 300 с — отказ. `--danger` отключает запросы.
 
-Не поддержано: `session/load`, `fs/*`, `terminal/*`, `session/request_permission`, изображения/аудио, MCP-серверы от клиента.
+Не поддержано: `session/load`, `fs/*`, `terminal/*`, изображения/аудио, MCP-серверы от клиента.
+
+`session/request_permission` реализован как запрос от агента клиенту; ответ `selected` + `optionId=allow-once` разрешает вызов.
 
 Ошибки — стандартный JSON-RPC error; busy session → `-32000`.

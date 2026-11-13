@@ -4,11 +4,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::oneshot;
 
 use async_trait::async_trait;
 use dshr_agent::{
-    Agent, AgentConfig, AgentError, AgentObserver, ApprovalPolicy, AutoApprover, PermissionMode,
-    ToolCallInfo,
+    Agent, AgentConfig, AgentError, AgentObserver, ApprovalPolicy, ApprovalRequest, Approver,
+    PermissionMode, ToolCallInfo,
 };
 use dshr_llm::LlmProvider;
 use dshr_session_jsonl::SessionStore;
@@ -17,6 +19,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::Mutex;
+use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Error)]
@@ -69,6 +72,9 @@ impl AcpServer {
         let writer = Arc::new(Mutex::new(BufWriter::new(writer)));
         let active: Arc<Mutex<HashMap<String, CancellationToken>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let permission_id = Arc::new(AtomicU64::new(1));
         let mut lines = BufReader::new(reader).lines();
 
         while let Some(line) = lines
@@ -85,6 +91,18 @@ impl AcpServer {
             let method = message["method"].as_str().unwrap_or_default();
             let id = message.get("id").cloned();
             let params = message["params"].clone();
+
+            if method.is_empty() {
+                if let Some(id) = id.as_ref().and_then(Value::as_u64)
+                    && let Some(sender) = pending.lock().await.remove(&id)
+                {
+                    let approved = message["result"]["outcome"]["outcome"].as_str()
+                        == Some("selected")
+                        && message["result"]["outcome"]["optionId"].as_str() == Some("allow-once");
+                    let _ = sender.send(approved);
+                }
+                continue;
+            }
 
             match method {
                 "initialize" => {
@@ -170,10 +188,19 @@ impl AcpServer {
                     let server = self.clone();
                     let writer = Arc::clone(&writer);
                     let active = Arc::clone(&active);
+                    let pending = Arc::clone(&pending);
+                    let permission_id = Arc::clone(&permission_id);
                     let session_id = session_id.to_owned();
                     tokio::spawn(async move {
                         let result = server
-                            .run_prompt(&session_id, &prompt, cancel, Arc::clone(&writer))
+                            .run_prompt(
+                                &session_id,
+                                &prompt,
+                                cancel,
+                                Arc::clone(&writer),
+                                pending,
+                                permission_id,
+                            )
                             .await;
                         match result {
                             Ok(()) => {
@@ -229,7 +256,9 @@ impl AcpServer {
         session_id: &str,
         prompt: &str,
         cancel: CancellationToken,
-        writer: Arc<Mutex<BufWriter<impl tokio::io::AsyncWrite + Unpin + Send>>>,
+        writer: Arc<Mutex<BufWriter<impl tokio::io::AsyncWrite + Unpin + Send + 'static>>>,
+        pending: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
+        permission_id: Arc<AtomicU64>,
     ) -> Result<(), PromptError> {
         let session = self
             .store
@@ -237,12 +266,17 @@ impl AcpServer {
             .map_err(|error| PromptError::Failed(error.to_string()))?;
         let observer = AcpObserver {
             session_id: session_id.to_owned(),
-            writer,
+            writer: Arc::clone(&writer),
         };
         let policy = ApprovalPolicy {
             mode: self.config.mode,
             workspace: PathBuf::from(&session.header.cwd),
-            approver: Arc::new(AutoApprover),
+            approver: Arc::new(AcpApprover {
+                session_id: session_id.to_owned(),
+                writer: Arc::clone(&writer),
+                pending,
+                next_id: permission_id,
+            }),
         };
         let config = AgentConfig {
             system_prompt: self.config.system_prompt.clone(),
@@ -264,6 +298,57 @@ impl AcpServer {
             Ok(_) => Ok(()),
             Err(AgentError::Cancelled) => Err(PromptError::Cancelled),
             Err(error) => Err(PromptError::Failed(error.to_string())),
+        }
+    }
+}
+
+struct AcpApprover<W> {
+    session_id: String,
+    writer: Arc<Mutex<BufWriter<W>>>,
+    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
+    next_id: Arc<AtomicU64>,
+}
+
+#[async_trait]
+impl<W> Approver for AcpApprover<W>
+where
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    async fn approve(&self, request: ApprovalRequest) -> bool {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (sender, receiver) = oneshot::channel();
+        self.pending.lock().await.insert(id, sender);
+        let sent = send(
+            &self.writer,
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "session/request_permission",
+                "params": {
+                    "sessionId": self.session_id,
+                    "toolCall": {
+                        "toolCallId": format!("permission-{id}"),
+                        "title": request.tool,
+                        "kind": "other"
+                    },
+                    "options": [
+                        {"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"},
+                        {"optionId": "reject-once", "name": "Reject", "kind": "reject_once"}
+                    ]
+                }
+            }),
+        )
+        .await;
+        if sent.is_err() {
+            self.pending.lock().await.remove(&id);
+            return false;
+        }
+        match tokio::time::timeout(Duration::from_secs(300), receiver).await {
+            Ok(Ok(approved)) => approved,
+            _ => {
+                self.pending.lock().await.remove(&id);
+                false
+            }
         }
     }
 }

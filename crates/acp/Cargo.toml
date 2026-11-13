@@ -21,6 +21,7 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+async-trait.workspace = true
 dshr-llm-mock.workspace = true
 dshr-session.workspace = true
 tempfile.workspace = true
