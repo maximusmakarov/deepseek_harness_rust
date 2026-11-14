@@ -9,7 +9,9 @@ use tokio::sync::oneshot;
 
 mod fs;
 pub use fs::{AcpFsClient, AcpRpc, ClientRpc};
+pub use question::{AcpPrompt, AcpQuestionClient};
 mod fs_tools;
+mod question;
 pub use fs_tools::{AcpReadTool, AcpWriteTool};
 mod terminal;
 pub use terminal::AcpTerminalClient;
@@ -57,6 +59,7 @@ pub struct AcpServer {
     config: AcpConfig,
     fs: Option<Arc<AcpFsClient>>,
     terminal: Option<Arc<AcpTerminalClient>>,
+    questions: Arc<AcpQuestionClient>,
     session_mcp: Arc<Mutex<HashMap<String, Value>>>,
 }
 
@@ -75,6 +78,7 @@ impl AcpServer {
             config,
             fs: None,
             terminal: None,
+            questions: Arc::new(AcpQuestionClient::new()),
             session_mcp: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -150,6 +154,14 @@ impl AcpServer {
                             .unwrap_or(false);
                         terminal.attach(Arc::clone(&rpc), enabled).await;
                     }
+                    let elicitation = &params["clientCapabilities"]["elicitation"];
+                    let elicitation_enabled = elicitation
+                        .as_bool()
+                        .or_else(|| elicitation["form"].as_bool())
+                        .unwrap_or(false);
+                    self.questions
+                        .attach(Arc::clone(&rpc), elicitation_enabled)
+                        .await;
                     if let Some(id) = id {
                         send(
                             &writer,
@@ -427,6 +439,7 @@ impl AcpServer {
         let observer = AcpObserver {
             session_id: session_id.to_owned(),
             writer: Arc::clone(&writer),
+            questions: Arc::clone(&self.questions),
         };
         let policy = ApprovalPolicy {
             mode: self.config.mode,
@@ -504,6 +517,7 @@ enum PromptError {
 struct AcpObserver<W> {
     session_id: String,
     writer: Arc<Mutex<BufWriter<W>>>,
+    questions: Arc<AcpQuestionClient>,
 }
 
 #[async_trait]
@@ -511,6 +525,19 @@ impl<W> AgentObserver for AcpObserver<W>
 where
     W: tokio::io::AsyncWrite + Unpin + Send,
 {
+    fn prompt(&self) -> Option<Arc<dyn dshr_tools::UserPrompt>> {
+        Some(Arc::new(AcpPrompt {
+            client: Arc::clone(&self.questions),
+            session_id: self.session_id.clone(),
+        }))
+    }
+
+    async fn on_question(&self, question: &str, options: &[String]) -> Option<String> {
+        self.questions
+            .ask(&self.session_id, question, options)
+            .await
+    }
+
     async fn on_text(&self, text: &str) {
         let _ = send(
             &self.writer,
