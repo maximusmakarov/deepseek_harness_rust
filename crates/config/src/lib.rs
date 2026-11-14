@@ -43,6 +43,9 @@ pub struct Config {
     /// Bundles required by a bundle layer.
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Extra patch files from the profile, relative to its directory.
+    #[serde(default)]
+    pub patches: Vec<PathBuf>,
 }
 
 impl Default for Config {
@@ -60,6 +63,7 @@ impl Default for Config {
             plugins: PluginsConfig::default(),
             bundles: Vec::new(),
             requires: Vec::new(),
+            patches: Vec::new(),
         }
     }
 }
@@ -492,6 +496,16 @@ impl ConfigLoader {
             &mut sources,
         )?;
 
+        for (index, patch) in profile_patches(&profile_path)?.iter().enumerate() {
+            merge_file(
+                &mut merged,
+                patch,
+                format!("profile-patch:{index}"),
+                true,
+                &mut sources,
+            )?;
+        }
+
         for (index, patch) in self.patches.iter().enumerate() {
             merge_file(
                 &mut merged,
@@ -566,6 +580,30 @@ fn resolve_bundles(home: &Path, names: &[String]) -> Result<Vec<String>> {
         visit(home, name, &mut Vec::new(), &mut ordered)?;
     }
     Ok(ordered)
+}
+
+fn profile_patches(path: &Path) -> Result<Vec<PathBuf>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(path)?;
+    let value: Value = serde_saphyr::from_str(&text)
+        .map_err(|err| DshrError::config(format!("cannot parse {}: {err}", path.display())))?;
+    let base = path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(value["patches"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value.as_str())
+        .map(|value| {
+            let patch = PathBuf::from(value);
+            if patch.is_absolute() {
+                patch
+            } else {
+                base.join(patch)
+            }
+        })
+        .collect())
 }
 
 fn profile_bundles(path: &Path) -> Result<Vec<String>> {
@@ -824,6 +862,29 @@ mod tests {
         let schema = json_schema();
         assert!(schema.get("properties").is_some(), "{schema}");
         assert!(schema["properties"].get("model").is_some(), "{schema}");
+    }
+
+    #[test]
+    fn profile_patches_apply_after_the_user_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path();
+        write(&home.join("config.yaml"), "model:\n  name: user-model\n");
+        write(
+            &home.join("profiles/work/profile.yaml"),
+            "patches: [override.yaml]\nmodel:\n  name: profile-model\n",
+        );
+        write(
+            &home.join("profiles/work/override.yaml"),
+            "model:\n  name: patched-model\n",
+        );
+        let loaded = ConfigLoader::new(home, "work").load().expect("load");
+        assert_eq!(loaded.config.model.name, "patched-model");
+        assert!(
+            loaded
+                .sources
+                .iter()
+                .any(|source| source.layer == "profile-patch:0")
+        );
     }
 
     #[test]
