@@ -76,6 +76,15 @@ jobs:
           else
             echo "::error title=nextest::nextest.log is missing"
           fi
+      - name: release tooling smoke
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bottles
+          scripts/package-bottle.sh 0.0.0 x86_64_linux target/debug/dshr /tmp/bottles
+          python3 scripts/test-publish-bottle-ghcr.py /tmp/bottles/*.bottle.tar.gz 0.0.0 x86_64_linux
+
       - name: windows sandbox (AppContainer)
         if: runner.os == 'Windows'
         shell: bash

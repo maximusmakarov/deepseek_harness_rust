@@ -58,6 +58,8 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     registry = f"http://127.0.0.1:{server.server_port}"
     bottle = sys.argv[1]
+    version = sys.argv[2] if len(sys.argv) > 2 else "0.1.0"
+    tag = sys.argv[3] if len(sys.argv) > 3 else "arm64_sequoia"
     with tempfile.TemporaryDirectory() as directory:
         env = dict(os.environ, GITHUB_ACTOR="local", GITHUB_TOKEN="local")
         subprocess.run(
@@ -67,9 +69,9 @@ def main():
                 "--registry",
                 registry,
                 "--version",
-                "0.1.0",
+                version,
                 "--tag",
-                "arm64_sequoia",
+                tag,
                 "--bottle",
                 bottle,
                 "--owner",
@@ -81,10 +83,10 @@ def main():
             check=True,
             env=env,
         )
-    index = json.loads(stored["0.1.0"])
+    index = json.loads(stored[version])
     assert index["mediaType"] == "application/vnd.oci.image.index.v1+json"
     child = index["manifests"][0]
-    assert child["annotations"]["org.opencontainers.image.ref.name"] == "0.1.0.arm64_sequoia"
+    assert child["annotations"]["org.opencontainers.image.ref.name"] == f"{version}.{tag}"
     assert len(child["annotations"]["sh.brew.bottle.digest"]) == 64
     manifest = json.loads(stored[child["digest"]])
     assert manifest["layers"][0]["digest"].startswith("sha256:")
