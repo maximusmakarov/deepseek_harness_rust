@@ -56,6 +56,7 @@ fn state(dir: &std::path::Path) -> AppState {
             max_tokens: 64,
             output_limit: 10_000,
             rate_limit_per_min: 0,
+            auto_title: false,
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),

@@ -45,6 +45,8 @@ pub struct ServerConfig {
     pub output_limit: usize,
     /// Requests per minute per bearer token; 0 disables the limiter.
     pub rate_limit_per_min: u32,
+    /// Generate an LLM title for a session on its first turn.
+    pub auto_title: bool,
 }
 
 #[derive(Clone)]
@@ -518,6 +520,23 @@ async fn start_turn(
         .is_err()
     {
         return Err(StatusCode::CONFLICT);
+    }
+
+    if state.config.auto_title
+        && session.header.title.is_none()
+        && !matches!(state.provider.name(), "replay" | "scripted" | "mock")
+    {
+        let provider = Arc::clone(&state.provider);
+        let store = Arc::clone(&state.store);
+        let title_session = id.clone();
+        let title_prompt = body.prompt.clone();
+        tokio::spawn(async move {
+            if let Ok(Some(title)) =
+                dshr_agent::generate_title(provider.as_ref(), &title_prompt).await
+            {
+                let _ = store.set_title(&title_session, &title);
+            }
+        });
     }
 
     let cancel = CancellationToken::new();

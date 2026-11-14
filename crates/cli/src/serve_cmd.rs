@@ -152,6 +152,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
             max_tokens: args.max_tokens,
             output_limit: config.tools.output_limit_chars,
             rate_limit_per_min: args.rate_limit,
+            auto_title: config.session.auto_title,
         },
         provider,
         Arc::new(tools),
