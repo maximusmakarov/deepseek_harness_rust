@@ -15,6 +15,7 @@
 | `dshr-<version>.dmg` | установочный DMG (`.app` + Applications) |
 | `dshr--<version>.<tag>.bottle.tar.gz` | Homebrew bottle для macOS/Linux (GitHub Releases) |
 | `dshr-<version>-linux-desktop.tar.gz` | `dshr` + `dshr-desktop` (WebKitGTK build) |
+| `dshr_<version>_amd64.deb` | Debian-пакет CLI+desktop (WebKitGTK depends) |
 | `dshr-<version>-windows-desktop.zip` | `dshr.exe` + `dshr-desktop.exe` |
 
 Таргеты: `x86_64`/`aarch64-apple-darwin`, `x86_64`/`aarch64-unknown-linux-gnu`,

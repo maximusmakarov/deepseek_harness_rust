@@ -165,6 +165,9 @@ jobs:
           cp target/release/dshr target/release/dshr-desktop "dist/stage/$name/"
           tar -C dist/stage -czf "dist/$name.tar.gz" "$name"
           (cd dist && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+          python3 scripts/package-deb.py "$version" amd64 \
+            target/release/dshr target/release/dshr-desktop "dist/dshr_${version}_amd64.deb"
+          (cd dist && sha256sum "dshr_${version}_amd64.deb" > "dshr_${version}_amd64.deb.sha256")
       - uses: actions/upload-artifact@v4
         with:
           name: dist-desktop-linux
@@ -290,6 +293,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*.dmg
+            dist/*.deb
             dist/*.bottle.tar.gz
             dist/SHA256SUMS
             dist/SHA256SUMS.sig
