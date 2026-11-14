@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime` (половина приносит свою модульную таблицу, включая собранный React); 15.11.2026 (раунд 78) реализован **PoC тира B** — общая модульная таблица хоста `dsh.client.host_modules` (React 18.3.1 с сервера, один immutable-артефакт на страницу); решение по тиру C — за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и один реальный DSH-плагин в conformance; полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -53,6 +53,7 @@
 |---|---|---|---|
 | **A. Enabler (готово, раунд 77)** | плагин приносит свой runtime/React | дешево, изоляция, Leptos не трогаем; покрывает «свои» плагины | нет host-композиции и design-system |
 | **B. React-таблица от хоста (PoC готов, раунд 78)** | host-страница предоставляет общий module table + React (одна версия, immutable-артефакт), плагинам не нужно вшивать React | одна загрузка React на страницу, ближе к DSH-контракту модулей | пока только React-рантайм: нет design-system/контекста/SlotMap-семантики (это C); версия React закреплена сервером; CSP для opt-in кадров открывает origin для скриптов |
+| **C-lite (PoC готов, раунд 79)** | React-компоненты слотов поверх host React, host-state/hooks в props, `ctx.get('sessions')`, частичный шим `@deepseek-ai/dsh-client-ui-primitives`, 1 реальный плагин | работает для простых UI-плагинов без переписывания шелла | частичный design-system (5 компонентов), нет React-контекста шелла и SlotMap-семантики |
 | **C. React-остров в Leptos** | в шелл добавляется React-runtime, регионы рендерят React-корни, мост реализует SlotMap-подмножество | настоящая композиция, design-system, хуки | крупная фаза: семантика SlotMap дороже самого React; пересмотр границы ADR-003 |
 | **D. Полный React-шелл** | переписать UI на React | буквальный паритет | против ADR-003, переписывание всего UI |
 
@@ -121,3 +122,39 @@ PoC общего рантайма хоста:
 SlotMap-семантики; CSP для opt-in кадров открывает origin для скриптов (не для
 connect) — это записанный компромисс; версия React закреплена за сервером, у
 плагинов нет выбора версии. Эти ограничения — предмет тира C.
+
+## Реализация C-lite (15.11.2026, раунд 79)
+
+Цель шага — «экосистема работает для простых UI-плагинов без переписывания
+шелла». Сделано поверх тира B:
+
+- **React-режим моста.** Если в кадре есть host React (`host_modules` содержит
+  `react`), `ctx.slots.register(entry, Component)` трактуется как
+  React-компонент (референсный контракт), а не imperative-колбэк. Мост держит
+  один React-root на кадр, перерисовывает его при смене темы/host-state/context,
+  оборачивает в error boundary и сообщает ошибку рендера в шелл.
+- **Host-state и сервисы.** Шелл рассылает `host-state` (`theme`, `wide`,
+  `session`, `sessions`) при `ready`, смене сессии/списка/темы. В props
+  компонента появляются `useTheme()`, `useSession()`, `useSessions(selector?)`,
+  `useHostState(selector?)` (+ `wide`); `ctx.get('sessions')` отдаёт подмножество
+  референсного сервиса (`currentProvideInfo`, `get`, `list`, `subscribe`).
+- **Дизайн-система.** Общий рантайм публикует
+  `@deepseek-ai/dsh-client-ui-primitives` — независимый частичный шим
+  (`Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`) на host React и CSS-
+  переменных; allowlist `HOST_MODULES` расширен этим id.
+- **Conformance.** Реальный MIT-плагин `@kt11/dsh-deepseek-balance@0.2.1`
+  добавлен fixture-ом с upstream-клиентской половиной без изменений (sha256 в
+  `package.json`); манифест только включает `host_modules`. В smoke он рендерит
+  React-карточку в `sidebar.footer.action`, вставляет свой CSS и открывает popup
+  по клику. Host-маршруты DSH у плагина отсутствуют в dshr, поэтому данные
+  показывают ветку «查询失败» — рендер и интерактивность это не ломает.
+- **Проверка.** Bridge harness 73 checks (host-state/`ctx.get`), cordis lib 26,
+  server plugins_live 12, smoke 60/60 (включая hooks-фикстуру,
+  design-system шим и реальный плагин), workspace 361 passed + 3 ignored,
+  web-e2e 16/16.
+
+Что осталось до полного тира C: полный design-system
+`@deepseek-ai/dsh-client-ui-*` и SlotMap-семантика (`ownerProps`, framework-hooks,
+cardinality/scope/chain/hoc), React-контекст/состояние шелла и композиция между
+плагинами; host-маршруты DSH-плагинов; версии React; публикация настоящего
+`@dshr/cordis-compat`-шима. Это отдельное решение владельца.

@@ -12,6 +12,7 @@ module ids (including a jsx-runtime shim over `React.createElement`) in
 | `react-18.3.1.production.min.js` | 18.3.1 | https://unpkg.com/react@18.3.1/umd/react.production.min.js | `d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd` |
 | `react-dom-18.3.1.production.min.js` | 18.3.1 | https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js | `35f4f974f4b2bcd44da73963347f8952e341f83909e4498227d4e26b98f66f0d` |
 | `bootstrap.js` (ours) | — | this repository | `965290c47106b1f0d6025b566a1860c0b5e436aceef5dcba4ee5867f0ca74c7c` |
+| `primitives.js` (ours, partial shim) | — | this repository (independent implementation, not the upstream package) | `8c72f2df1e09e748255f78b3459f01f71d7c696ba635d2f26dcfc3864c35b932` |
 
 License: MIT (React, Copyright (c) Facebook, Inc. and its affiliates); the
 license header is kept in both upstream files. The files are shipped as opaque

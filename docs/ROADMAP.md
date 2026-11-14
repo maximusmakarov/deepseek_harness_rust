@@ -144,7 +144,7 @@
 
 Решение — [ADR-013](adr/013-cordis-compat.md). Отдельная фаза: WASM-тир и песочница не ждут JS-рантайма.
 
-**Статус:** частично: sidecar-рантайм (системный Node, настоящий `cordis` при наличии пакета), hot reload, capability-гранты и клиентская половина (eager registry + iframe на слот, 17 регионов, полный словарь DSH 0.2.2-rc.2, экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/React, PoC тира B `dsh.client.host_modules` — React 18.3.1 и таблица модулей от хоста; полная React-совместимость — тир C [ADR-040](adr/040-react-client-half.md)) — сделаны; runtime pack, `@dshr/cordis-compat@1`, npm-резолвер/CAS и conformance-набор — нет.
+**Статус:** частично: sidecar-рантайм (системный Node, настоящий `cordis` при наличии пакета), hot reload, capability-гранты и клиентская половина (eager registry + iframe на слот, 17 регионов, полный словарь DSH 0.2.2-rc.2, экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/React, PoC тира B `dsh.client.host_modules` — React 18.3.1 и таблица модулей от хоста, C-lite — React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим и реальный плагин в conformance; полная React-совместимость — C-full [ADR-040](adr/040-react-client-half.md)) — сделаны; runtime pack, `@dshr/cordis-compat@1`, npm-резолвер/CAS и conformance-набор 8–12 плагинов — нет.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -154,7 +154,7 @@
 | 5.16 | Capability-шина builtins: `fs`/`exec`/`net`/`process`/`crypto` | 3 | Попытка выйти за workspace → типизированный отказ, видимый в аудите |
 | 5.17 | npm-резолвер + CAS + lock (registry v2), без `postinstall` | 2.5 | Установка с транзитивными зависимостями; lock воспроизводим |
 | 5.18 | HMR JS-тира: watch → reload → dispose/rebuild fiber | 1.5 | Правка плагина без рестарта host |
-| 5.19 | Conformance-набор 8–12 реальных плагинов + nightly CI | 2 | Отчёт матрицы «загрузился / инструменты / хуки», регресс ловится |
+| 5.19 | Conformance-набор 8–12 реальных плагинов + nightly CI | 2 | ⚠️ частично (C-lite, раунд 79): 1 реальный плагин `@kt11/dsh-deepseek-balance@0.2.1` (MIT, vendored fixture) в smoke — рендер, CSS, клик; цель 8–12 и nightly CI не закрыты |
 
 **Выход:** существующие плагины DSH ставятся и работают, их доступ к ОС ограничен и зааудирован; нативные `.node`-плагины получают диагностику и sidecar-путь.
 
@@ -170,7 +170,7 @@
 | 6.2 | Auth, CORS, rate-limit, статика | 1.5 | Негативные тесты |
 | 6.3 | Approvals по API + отмена | 1.5 | E2E |
 | 6.4 | Web UI: чат + стрим | 3 | ✅ `scripts/web-e2e.py` (headless Chrome/CDP, без npm): чат → стрим → карточка tool |
-| 6.5 | Web UI: карточки, diff, approvals | 3 | ✅ карточки tool_start/tool_end и модалка approval проверены e2e (Allow → выполнение); визуальный diff остаётся в TUI |
+| 6.5 | Web UI: карточки, diff, approvals | 3 | ✅ карточки tool_start/tool_end с превью diff (`-old`/`+new`) и модалка approval проверены e2e (Allow → выполнение) |
 | 6.6 | Web UI: сессии, настройки провайдеров | 2 | ✅ сессии: «New session» выбирает сессию и обновляет сайдбар; диалог Settings — маршрут/модель/`base_url`, запись user-слоя `config.yaml` (0600); ключи — из окружения |
 | 6.7 | SDK: JSON-RPC сервер/клиент | 2.5 | Пример Python |
 | 6.8 | E2E-сценарий полного цикла | 2 | ✅ джоба `web-e2e` в CI: чат → approval → Allow → выполнение → запись файла → журнал, второй ход с diff и настройки провайдера (16 проверок) |
@@ -184,7 +184,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 15.11.2026 — M0–M7 закрыты (360 тестов, +3 ignored; с desktop 21 — итого 381); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar + hot reload + клиентская половина с региональным монтажом слотов, экспериментальным `dsh.client.runtime` и PoC тира B `dsh.client.host_modules` (React от хоста; Replica 98.1/100, must 13/13; полная React-совместимость — решение по тиру C ADR-040); Windows отложен. DoD-гейты M7 — см. ниже.
+**Статус:** срез 15.11.2026 — M0–M7 закрыты (361 тест, +3 ignored; с desktop 21 — итого 382); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar + hot reload + клиентская половина с региональным монтажом слотов, экспериментальным `dsh.client.runtime`, PoC тира B `dsh.client.host_modules` (React от хоста) и C-lite (React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим, реальный плагин в conformance; Replica 98.1/100, must 13/13; полная React-совместимость — решение по C-full ADR-040); Windows отложен. DoD-гейты M7 — см. ниже.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

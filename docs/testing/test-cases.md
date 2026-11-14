@@ -163,7 +163,7 @@ S1 — блокер, S2 — функциональный пробел, S3 — к
 | CLI-18 | Слоты: несколько, переключение, `deactivate` при закрытии | E | ✅ smoke |
 | CLI-19 | Ошибка бандла показывается в панели, не «пустой экран» | E | ✅ smoke |
 | CLI-20 | `compose`/`notify` действия доходят до шелла | E | ✅ smoke |
-| CLI-21 | 53 сквозных проверки в headless Chrome | E | ✅ `scripts/plugin-smoke.py` |
+| CLI-21 | 60 сквозных проверок в headless Chrome | E | ✅ `scripts/plugin-smoke.py` |
 | CLI-22 | Eager registry: скрытый `mode=registry`-кадр на каждую половину, порядок `inject`/`immediately` | E | ✅ smoke |
 | CLI-23 | Региональный монтаж: регистрация монтируется в регион по таблице `slot key → регион` (17 регионов шелла) | E | ✅ smoke |
 | CLI-24 | Полный словарь: 116 ключей DSH 0.2.2-rc.2 + legacy `panel`/`message.action` покрыты таблицей регионов | U | ✅ `crates/cordis/tests/bridge_harness.mjs` + `slot-catalog.json` |
@@ -173,6 +173,9 @@ S1 — блокер, S2 — функциональный пробел, S3 — к
 | CLI-28 | `reload`: версия поднимается у всех фреймов плагина, открытая панель остаётся | E | ✅ smoke |
 | CLI-29 | `dsh.client.runtime`: discovery (поле `runtime` в `/v1/plugins/clients`), host-страница исполняет runtime до бандла, module-table бандл резолвит `require` из `window.__DSHR_MODULES__` | I | ✅ `crates/cordis/src/client.rs` + `plugins_live.rs` + smoke (React 18.3.1 PoC — вручную) |
 | CLI-30 | `dsh.client.host_modules` (тир B): discovery (allowlist id, поле `host_modules` в `/v1/plugins/clients`, незнакомый id → отказ), host-страница ссылается на `/v1/runtime/react-18.3.1.js` и не встраивает React, порядок shared → plugin runtime → bundle, без opt-in shared-скрипта нет | I | ✅ `crates/cordis/src/client.rs` + `plugins_live.rs` + smoke (`hosted`: React из общего рантайма + `useState`) |
+| CLI-31 | React-компоненты слотов (C-lite): при host React `ctx.slots.register(entry, Component)` рендерится как React-компонент в одном root на кадр; `host-state` (`theme`/`wide`/`session`/`sessions`) обновляет props/hooks (`useTheme`/`useSession`/`useSessions`/`useHostState`); ошибка рендера ловится error boundary и доходит до шелла; `ctx.get('sessions')` отдаёт подмножество референсного сервиса | I | ✅ `crates/cordis/src/bridge.js` + `tests/bridge_harness.mjs` (73 проверки) + smoke (фикстуры `hooks`, `hosted`); `wide` пока всегда true — ограничение |
+| CLI-32 | Conformance: реальный MIT-плагин `@kt11/dsh-deepseek-balance@0.2.1` (vendored fixture, клиентская половина upstream без изменений, sha256 в `package.json`) рендерит React-карточку в `sidebar.footer.action`, вставляет собственный CSS и открывает popup по клику | E | ✅ smoke (данные показывают ветку «查询失败»: host-маршрутов DSH в dshr нет — записанное ограничение) |
+| CLI-33 | Частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives`: id принят `HOST_MODULES`, общий рантайм публикует `Button`/`StateDot`/`Tooltip`/`Icon`/`Spinner`, бандл резолвит их через `require` | U/E | ✅ `crates/cordis/src/client.rs` (allowlist) + `crates/server/assets/runtime/primitives.js` + smoke (фикстура `ui-kit`) |
 
 ## WASM
 

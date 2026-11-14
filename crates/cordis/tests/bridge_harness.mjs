@@ -392,6 +392,33 @@ async function registryScenario() {
 
   checkEnvelope("registry mode", page, "registry:harness", "registry");
 
+  // C-lite host services: `ctx.get('sessions')` is populated by host-state
+  // messages from the shell; the reference `sessions` surface is a live view.
+  page.deliver({
+    v: 1,
+    ns: "dshr-shell",
+    type: "host-state",
+    state: {
+      theme: "light",
+      wide: false,
+      session: { id: "s1", title: "Session one" },
+      sessions: [{ id: "s1" }, { id: "s2" }],
+    },
+  });
+  const sessions = dshr.get("sessions");
+  check("ctx.get exposes the sessions service", Boolean(sessions), sessions);
+  check(
+    "the sessions snapshot follows host-state",
+    sessions.currentProvideInfo.getSnapshot().id === "s1",
+    sessions.currentProvideInfo.getSnapshot(),
+  );
+  check(
+    "the sessions list follows host-state",
+    sessions.list().length === 2 && sessions.get("s2").id === "s2",
+    sessions.list(),
+  );
+  check("unknown services stay undefined", dshr.get("nope") === undefined, dshr.get("nope"));
+
   // A shell reload bumps every frame version at once; the old document is torn
   // down while its module import is in flight and Chrome rejects that import.
   // The rejection must not be painted in the shell as a plugin error.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with eleven throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with fourteen throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -505,11 +505,9 @@ window.__ModuleLoader__.load({
   id: "@smoke/hosted",
   factory(require) {
     const React = require("react");
-    const ReactDOM = require("react-dom/client");
     function Counter(props) {
       const [clicks, setClicks] = React.useState(0);
-      const [theme, setTheme] = React.useState(props.theme || "dark");
-      React.useEffect(() => props.onTheme(next => setTheme(next)), []);
+      const theme = props.useTheme ? props.useTheme() : props.theme;
       return React.createElement(
         "div",
         { id: "hosted-react" },
@@ -523,11 +521,104 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.slots.register(
           { name: "panel", id: "hosted-panel", title: "Hosted panel", order: 70 },
-          (element, props) => {
-            ReactDOM.createRoot(element).render(
-              React.createElement(Counter, { theme: props.theme, onTheme: ctx.onTheme }),
-            );
-          },
+          Counter,
+        );
+      },
+    };
+  },
+});
+"""
+
+UIKIT_MANIFEST = {
+    "name": "@smoke/ui-kit",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {
+        "platform": "web",
+        "entry": "client.js",
+        "host_modules": ["react", "@deepseek-ai/dsh-client-ui-primitives"],
+    }},
+}
+
+UIKIT_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "ui-kit", description: "ui-kit", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+# C-lite design-system shim: the bundle imports the reference primitives id and
+# renders the shim components through host React.
+UIKIT_CLIENT = """
+window.__ModuleLoader__.load({
+  id: "@smoke/ui-kit",
+  factory(require) {
+    const React = require("react");
+    const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+    function Panel() {
+      return React.createElement(
+        "div",
+        { id: "ui-kit" },
+        React.createElement(primitives.Button, null, "Kit button"),
+        React.createElement(primitives.StateDot, { state: "success", label: "ok" }),
+        React.createElement(primitives.Tooltip, { label: "tip" }, "hover me"),
+      );
+    }
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register(
+          { name: "panel", id: "ui-kit-panel", title: "UI kit", order: 80 },
+          Panel,
+        );
+      },
+    };
+  },
+});
+"""
+
+HOOKS_MANIFEST = {
+    "name": "@smoke/hooks",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {
+        "platform": "web",
+        "entry": "client.js",
+        "host_modules": ["react", "react-dom/client"],
+    }},
+}
+
+HOOKS_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "hooks", description: "hooks", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+# C-lite host state: the component uses the hook props the bridge supplies
+# (useTheme/useSession/wide) instead of the plugin's own data sources.
+HOOKS_CLIENT = """
+window.__ModuleLoader__.load({
+  id: "@smoke/hooks",
+  factory(require) {
+    const React = require("react");
+    function Status(props) {
+      const theme = props.useTheme();
+      const session = props.useSession();
+      return React.createElement(
+        "p",
+        { id: "hooks-status" },
+        "theme: " + theme + " | session: " + (session && session.id ? session.id : "none") + " | wide: " + String(props.wide),
+      );
+    }
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register(
+          { name: "sidebar.footer.action", id: "hooks-status", title: "Hooks status", order: 90 },
+          Status,
         );
       },
     };
@@ -663,6 +754,8 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("regions", REGIONS_MANIFEST, REGIONS_PLUGIN, REGIONS_CLIENT),
         ("framework", FRAMEWORK_MANIFEST, FRAMEWORK_PLUGIN, FRAMEWORK_CLIENT),
         ("hosted", HOSTED_MANIFEST, HOSTED_PLUGIN, HOSTED_CLIENT),
+        ("ui-kit", UIKIT_MANIFEST, UIKIT_PLUGIN, UIKIT_CLIENT),
+        ("hooks", HOOKS_MANIFEST, HOOKS_PLUGIN, HOOKS_CLIENT),
     ]
     for name, manifest, plugin, client in entries:
         directory = workspace / name
@@ -686,6 +779,16 @@ def write_fixtures(home: Path, workspace: Path) -> None:
             f"      entry: {directory}",
             "      enabled: true",
         ]
+    # A real third-party plugin (MIT, vendored fixture): its client half is the
+    # upstream file, unmodified; the manifest only opts into the host runtime.
+    balance_source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / "deepseek-balance"
+    balance = workspace / "deepseek-balance"
+    shutil.copytree(balance_source, balance)
+    profile += [
+        "    - name: deepseek-balance",
+        f"      entry: {balance}",
+        "      enabled: true",
+    ]
     (home / "profiles" / "default" / "profile.yaml").write_text("\n".join(profile) + "\n", encoding="utf-8")
 
 
@@ -1025,7 +1128,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 11, names)
+        check("lists every configured client half", len(clients) == 14, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -1069,7 +1172,8 @@ def run(args: argparse.Namespace) -> int:
             "shared host runtime is one immutable versioned artifact",
             "immutable" in runtime_route.headers.get("Cache-Control", "")
             and "window.__DSHR_MODULES__" in runtime_js
-            and '"react/jsx-runtime"' in runtime_js,
+            and '"react/jsx-runtime"' in runtime_js
+            and '"@deepseek-ai/dsh-client-ui-primitives"' in runtime_js,
             runtime_route.headers.get("Cache-Control"),
         )
         hosted_page = urllib.request.urlopen(
@@ -1084,6 +1188,19 @@ def run(args: argparse.Namespace) -> int:
             "/v1/runtime/react-18.3.1.js" in hosted_page
             and "@license React" not in hosted_page,
             (len(hosted_page), "@license React" in hosted_page),
+        )
+        ui_kit_half = next((client for client in clients if client["name"] == "ui-kit"), None)
+        check(
+            "a half can opt into the design-system primitives shim",
+            ui_kit_half is not None
+            and "@deepseek-ai/dsh-client-ui-primitives" in ui_kit_half.get("host_modules", []),
+            ui_kit_half,
+        )
+        balance_half = next((client for client in clients if client["name"] == "deepseek-balance"), None)
+        check(
+            "the real DSH plugin is discovered as a client half",
+            balance_half is not None and "react" in balance_half.get("host_modules", []),
+            balance_half,
         )
 
         # A deterministic transcript: create a session over REST and replay one
@@ -1109,7 +1226,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 11)
+        wait_registry_ready(debug_port, 14)
 
         # Eager registry ----------------------------------------------------
         registry = shell.eval(
@@ -1121,7 +1238,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 11
+            len(registry) == 14
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1361,6 +1478,116 @@ def run(args: argparse.Namespace) -> int:
             (shell_theme, plugin_themes),
         )
 
+        # C-lite: host-provided React slot components, host services (hooks) and
+        # the design-system primitives shim. ---------------------------------
+        hooks_text = wait_frame_text(
+            debug_port, "theme: ", "hooks", "sidebar.footer.action", timeout=20
+        )
+        check(
+            "React slot components receive host theme/session hooks",
+            f"theme: {shell_theme}" in hooks_text
+            and f"session: {session}" in hooks_text
+            and "wide: true" in hooks_text,
+            hooks_text,
+        )
+        balance_text = wait_frame_text(
+            debug_port, "API 余额", "deepseek-balance", "sidebar.footer.action", timeout=20
+        )
+        check(
+            "a real DSH plugin renders its React card in the sidebar footer",
+            "API 余额" in balance_text,
+            balance_text,
+        )
+        balance_ui = json.loads(
+            str(
+                poll_frame(
+                    debug_port,
+                    """JSON.stringify({
+                        css: !!document.querySelector('style[data-plugin="@kt11/dsh-deepseek-balance"]'),
+                        button: !!document.querySelector('.dshb-refresh'),
+                        text: (document.getElementById('dshr-slot-root')?.textContent || '').slice(0, 120),
+                    })""",
+                    lambda value: json.loads(str(value))["css"]
+                    and json.loads(str(value))["button"],
+                    plugin="deepseek-balance",
+                    slot="sidebar.footer.action",
+                    label="balance card ui",
+                )
+            )
+        )
+        check(
+            "the real plugin's own CSS and DOM are applied inside the slot",
+            balance_ui["css"] and balance_ui["button"],
+            balance_ui,
+        )
+        # Click once (a side-effectful expression inside the poll loop would
+        # toggle the popup closed on every retry), then poll the portal text.
+        balance_target = frame_target(
+            debug_port, "deepseek-balance", "slot", "sidebar.footer.action"
+        )
+        if balance_target is not None:
+            balance_frame = DevTools(balance_target["webSocketDebuggerUrl"])
+            try:
+                balance_frame.call("Runtime.enable")
+                balance_frame.eval(
+                    """(() => {
+                        const wrap = document.querySelector('#dshr-slot-root > div');
+                        const card = wrap ? wrap.firstElementChild || wrap : null;
+                        if (card) card.click();
+                    })()"""
+                )
+            finally:
+                balance_frame.close()
+        popup_text = str(
+            poll_frame(
+                debug_port,
+                "String(document.body.innerText || '')",
+                lambda value: "查询失败" in str(value),
+                plugin="deepseek-balance",
+                slot="sidebar.footer.action",
+                label="balance popup",
+            )
+        )
+        check(
+            "the real plugin's popup interaction works",
+            # Its data fetches 404 against dshr, so the popup renders its error
+            # branch — opening it still proves the React click handler runs.
+            "查询失败" in popup_text,
+            popup_text[:200],
+        )
+
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=ui-kit"},
+        )
+        wait_until(
+            lambda: shell.eval("document.getElementById('plugin-stage')?.className === 'plugin-stage open'"),
+            timeout=LOAD_TIMEOUT,
+            label="ui-kit panel opens",
+        )
+        ui_text = wait_frame_text(debug_port, "Kit button", "ui-kit", "panel", timeout=20)
+        ui_dom = json.loads(
+            str(
+                poll_frame(
+                    debug_port,
+                    """JSON.stringify({
+                        button: !!document.querySelector('.dshr-button'),
+                        dot: !!document.querySelector('.dshr-state-dot-success'),
+                        text: (document.getElementById('dshr-slot-root')?.textContent || ''),
+                    })""",
+                    lambda value: json.loads(str(value))["button"],
+                    plugin="ui-kit",
+                    slot="panel",
+                    label="ui-kit dom",
+                )
+            )
+        )
+        check(
+            "design-system primitives shim renders through host React",
+            ui_dom["button"] and ui_dom["dot"] and "Kit button" in ui_dom["text"],
+            {"text": ui_text, **ui_dom},
+        )
+
         # Settings dialog: region frames exist only while it is open. ------
         click("header button", "Settings")
         wait_until(
@@ -1433,7 +1660,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 11)
+        wait_registry_ready(debug_port, 14)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1585,7 +1812,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 11)
+        wait_registry_ready(debug_port, 14)
 
         # ctx.action round-trips from a panel frame -------------------------
         def panel_eval(expression: str, await_promise: bool = False):
@@ -1728,7 +1955,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 11)
+        wait_registry_ready(debug_port, 14)
 
         def surviving_frames() -> int:
             count = 0
@@ -1765,7 +1992,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 11)
+            wait_registry_ready(debug_port, 14)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

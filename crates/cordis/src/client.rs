@@ -62,12 +62,13 @@ pub struct FrameSpec {
 pub const HOST_RUNTIME_VERSION: &str = "18.3.1";
 
 /// Module ids the shared host runtime publishes in `window.__DSHR_MODULES__`.
-pub const HOST_MODULES: [&str; 5] = [
+pub const HOST_MODULES: [&str; 6] = [
     "react",
     "react/jsx-runtime",
     "react/jsx-dev-runtime",
     "react-dom",
     "react-dom/client",
+    "@deepseek-ai/dsh-client-ui-primitives",
 ];
 
 /// URL of the shared host runtime, relative to the server origin.
@@ -530,6 +531,24 @@ mod tests {
         assert!(
             half.runtime.is_none(),
             "host modules are not a shipped runtime"
+        );
+    }
+
+    #[test]
+    fn accepts_the_design_system_primitives_shim() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let spec = package(
+            dir.path(),
+            r#"{"name":"demo","dsh":{"client":{"platform":"web","entry":"client.js","host_modules":["react","@deepseek-ai/dsh-client-ui-primitives"]}}}"#,
+            &[("client.js", "export default 1;")],
+        );
+        let half = discover_client_half(&spec).expect("client half");
+        assert!(
+            half.host_modules
+                .iter()
+                .any(|id| id == "@deepseek-ai/dsh-client-ui-primitives"),
+            "{:?}",
+            half.host_modules
         );
     }
 

@@ -1,0 +1,40 @@
+{
+  "name": "@kt11/dsh-deepseek-balance",
+  "version": "0.2.1",
+  "description": "dsh plugin: DeepSeek API balance and daily spend card in the sidebar footer (conformance fixture)",
+  "type": "module",
+  "main": "./dsh/stub.mjs",
+  "exports": {
+    ".": "./dsh/stub.mjs",
+    "./dsh": "./dsh/stub.mjs",
+    "./client": "./dsh/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dsh/client.js",
+    "dsh/stub.mjs",
+    "README.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "conformance"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "host_modules": [
+        "react",
+        "react-dom/client"
+      ]
+    }
+  },
+  "license": "MIT",
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/@kt11/dsh-deepseek-balance",
+    "upstreamVersion": "0.2.1",
+    "upstreamLicense": "MIT",
+    "clientSha256": "f0a40800e1e14da3e4bf470be986930d10e70478e8ae2e38ac6df1ee0f0a4bbc",
+    "changes": "client half copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}

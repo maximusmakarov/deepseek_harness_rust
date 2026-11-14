@@ -24,8 +24,8 @@ Gates that need their own invocation:
 cargo test -p dshr-cli --test evals -- --nocapture   # 10-task eval suite, budgets in target/evals/report.json
 cargo test -p dshr-perf --release -- --nocapture     # ARCHITECTURE §20 budgets (debug runs print SKIP)
 python3 scripts/web-e2e.py                           # chat -> approval -> tool -> journal in headless Chrome
-python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, plugin-shipped runtime (`dsh.client.runtime`), shared host runtime (`dsh.client.host_modules`), actions (53 checks)
-scripts/check-runtime-assets.sh                      # vendored shared runtime (React/ReactDOM UMD + bootstrap) matches crates/server/assets/runtime/checksums.txt
+python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, plugin-shipped runtime (`dsh.client.runtime`), shared host runtime (`dsh.client.host_modules`), C-lite React slot components with host hooks/`ctx.get('sessions')` (fixture `hooks`), design-system primitives shim (fixture `ui-kit`) and the real `@kt11/dsh-deepseek-balance` conformance fixture, actions (60 checks)
+scripts/check-runtime-assets.sh                      # vendored shared runtime (React/ReactDOM UMD + bootstrap + the partial primitives shim) matches crates/server/assets/runtime/checksums.txt
 ```
 
 ## Web UI

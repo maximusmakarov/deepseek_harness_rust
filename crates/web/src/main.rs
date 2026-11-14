@@ -434,6 +434,46 @@ fn push_theme_all(theme: &str) {
     }
 }
 
+/// Pushes the host state (theme, sidebar width, current session, session list)
+/// into every frame. `ctx.get('sessions')` and the `useTheme`/`useSession`/
+/// `useSessions` hook props read it, so a React slot component re-renders when
+/// the shell switches sessions or themes.
+fn push_host_state_all(theme: &str, session: Option<&str>, sessions: &[(String, String)]) {
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return;
+    };
+    let Ok(frames) = document.query_selector_all("iframe") else {
+        return;
+    };
+    let state = serde_json::json!({
+        "theme": theme,
+        "wide": true,
+        "session": session.map(|id| serde_json::json!({ "id": id, "title": id })),
+        "sessions": sessions
+            .iter()
+            .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+            .collect::<Vec<_>>(),
+    });
+    let state = js_sys::JSON::parse(&state.to_string()).unwrap_or(wasm_bindgen::JsValue::NULL);
+    for index in 0..frames.length() {
+        let Some(node) = frames.item(index) else {
+            continue;
+        };
+        let Ok(frame) = node.dyn_into::<web_sys::HtmlIFrameElement>() else {
+            continue;
+        };
+        let Some(target) = frame.content_window() else {
+            continue;
+        };
+        let message = js_sys::Object::new();
+        let _ = js_sys::Reflect::set(&message, &"v".into(), &1u32.into());
+        let _ = js_sys::Reflect::set(&message, &"ns".into(), &"dshr-shell".into());
+        let _ = js_sys::Reflect::set(&message, &"type".into(), &"host-state".into());
+        let _ = js_sys::Reflect::set(&message, &"state".into(), &state);
+        let _ = target.post_message(&message.into(), "*");
+    }
+}
+
 /// Applies the height a slot frame asked for, clamped to a range that works in
 /// every region (a footer button and a full panel share the mechanism).
 fn apply_frame_height(token: &str, height: f64) {
@@ -1186,6 +1226,24 @@ fn App() -> impl IntoView {
         theme,
         versions: frame_versions,
     });
+    // Host state for C-lite hook props and `ctx.get('sessions')`. The sidebar is
+    // always expanded in the dshr shell, so `wide` is constant for now.
+    let session_entries = move || {
+        sessions
+            .get_untracked()
+            .iter()
+            .map(|session| (session.id.clone(), session.model.clone()))
+            .collect::<Vec<_>>()
+    };
+    let broadcast_host_state = move || {
+        let entries = session_entries();
+        let current_session = current.get_untracked();
+        push_host_state_all(
+            &theme.get_untracked(),
+            current_session.as_deref(),
+            &entries,
+        );
+    };
     {
         let token_value = token.get_untracked();
         spawn_local(async move {
@@ -1207,6 +1265,7 @@ fn App() -> impl IntoView {
             match get_json::<SessionsResponse>("/v1/sessions", &value).await {
                 Ok(data) => {
                     sessions.set(data.sessions);
+                    broadcast_host_state();
                     if let Ok(health) = get_json::<HealthResponse>("/v1/health", &value).await {
                         version.set(health.version);
                     }
@@ -1301,6 +1360,7 @@ fn App() -> impl IntoView {
             }
         });
         connect_events(id, value, messages, streaming, busy, status, approval, question);
+        broadcast_host_state();
     };
 
     let new_session = move || {
@@ -1324,6 +1384,7 @@ fn App() -> impl IntoView {
                     streaming.set(false);
                     approval.set(None);
                     current.set(Some(id.clone()));
+                    broadcast_host_state();
                     connect_events(
                         id,
                         value.clone(),
@@ -1393,6 +1454,7 @@ fn App() -> impl IntoView {
                     // ready keeps a reloaded frame consistent with the shell.
                     let theme = theme.get_untracked();
                     post_to_token(&frame, "theme", &[("theme", theme.as_str())]);
+                    broadcast_host_state();
                 }
                 "slots" => {
                     // Only the eager registry frame defines the shell registry.
@@ -1768,6 +1830,7 @@ fn App() -> impl IntoView {
                 let next = if theme.get_untracked() == "dark" { "light" } else { "dark" };
                 theme.set(next.to_owned());
                 apply_theme(next.to_owned());
+                broadcast_host_state();
             }>"Theme"</button>
             <span id="version">{move || version.get()}</span>
             <span id="status">{move || status.get()}</span>

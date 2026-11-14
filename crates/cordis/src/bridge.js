@@ -59,8 +59,131 @@
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) context = parsed;
       else contextProblem = "frame context must be a JSON object";
     } catch (error) {
-      contextProblem = "invalid frame context: " + (error && error.message ? error.message : String(error));
+      contextProblem =
+        "invalid frame context: " + (error && error.message ? error.message : String(error));
     }
+  }
+
+  // Tier B / C-lite: when the host module table provides React, slot
+  // registrations are React components (the reference renderer contract)
+  // instead of imperative `render(element, props)` callbacks. Detection is lazy:
+  // the bridge script runs before the shared runtime script in the host page,
+  // so `window.__DSHR_MODULES__` only exists by the time the bundle activates.
+  let reactRuntime = null;
+  function reactRuntimeNow() {
+    if (reactRuntime) return reactRuntime;
+    const modules = window.__DSHR_MODULES__ || null;
+    const React = modules && modules["react"];
+    const ReactDOM = modules && (modules["react-dom/client"] || modules["react-dom"]);
+    if (!React || !ReactDOM || !ReactDOM.createRoot) return null;
+    reactRuntime = { React: React, ReactDOM: ReactDOM };
+    return reactRuntime;
+  }
+
+  // Small host-state store shared by `ctx.get('sessions')` and the hook props.
+  // The shell pushes it as a `host-state` message on ready and whenever the
+  // current session, the session list or the theme changes.
+  const hostState = { theme: theme, wide: true, session: null, sessions: [] };
+  const hostStateListeners = new Set();
+
+  function subscribeHostState(listener) {
+    if (typeof listener !== "function") return function () {};
+    hostStateListeners.add(listener);
+    return function () {
+      hostStateListeners.delete(listener);
+    };
+  }
+
+  function notifyHostState() {
+    hostStateListeners.forEach(function (listener) {
+      try {
+        listener(hostState);
+      } catch (error) {
+        fail(error);
+      }
+    });
+    rerenderActive();
+  }
+
+  function setHostState(next) {
+    if (!next || typeof next !== "object") return;
+    if (typeof next.theme === "string") {
+      hostState.theme = next.theme === "light" ? "light" : "dark";
+    }
+    if (typeof next.wide === "boolean") hostState.wide = next.wide;
+    if (next.session === null || (next.session && typeof next.session === "object")) {
+      hostState.session = next.session;
+    }
+    if (Array.isArray(next.sessions)) hostState.sessions = next.sessions;
+    notifyHostState();
+  }
+
+  // The reference `sessions` service surface that a simple half uses. It is
+  // populated from host-state messages, so it is empty at apply() time and
+  // becomes live once the shell answers `ready`.
+  const sessionsService = {
+    currentProvideInfo: {
+      getSnapshot: function () {
+        return hostState.session;
+      },
+      subscribe: subscribeHostState,
+    },
+    get: function (id) {
+      return (
+        hostState.sessions.filter(function (candidate) {
+          return candidate && candidate.id === id;
+        })[0] || null
+      );
+    },
+    list: function () {
+      return hostState.sessions.slice();
+    },
+  };
+
+  // Hook props handed to React slot components (the documented dshr subset).
+  // Built lazily from the same host-state store as `ctx.get('sessions')`.
+  let cachedHostProps = null;
+
+  function hostPropsNow() {
+    const runtime = reactRuntimeNow();
+    if (!runtime) return {};
+    if (cachedHostProps) return cachedHostProps;
+    const React = runtime.React;
+
+    function useHostState(selector) {
+      const read = function () {
+        return typeof selector === "function" ? selector(hostState) : hostState;
+      };
+      const pair = React.useState(read);
+      const value = pair[0];
+      const setValue = pair[1];
+      React.useEffect(function () {
+        return subscribeHostState(function () {
+          setValue(read());
+        });
+      }, []);
+      return value;
+    }
+
+    cachedHostProps = {
+      useHostState: useHostState,
+      useTheme: function () {
+        return useHostState(function (state) {
+          return state.theme;
+        });
+      },
+      useSession: function () {
+        return useHostState(function (state) {
+          return state.session;
+        });
+      },
+      useSessions: function (selector) {
+        return useHostState(function (state) {
+          return typeof selector === "function" ? selector(state.sessions) : state.sessions;
+        });
+      },
+    };
+    return cachedHostProps;
   }
 
   // DSH slot name -> shell region id. Exhaustive over the 116-key DSH catalog
@@ -290,7 +413,87 @@
     }
   }
 
+  // React slot rendering (C-lite): one root per frame, re-rendered on theme,
+  // host-state and context changes. A reference-style error boundary keeps a
+  // throwing component from blanking the region and reports it to the shell.
+  let reactRoot = null;
+  let reactEntry = null;
+  let reactProps = null;
+  let cachedBoundary = null;
+
+  function slotBoundary() {
+    const runtime = reactRuntimeNow();
+    if (!runtime) return null;
+    if (cachedBoundary) return cachedBoundary;
+    const React = runtime.React;
+    cachedBoundary = class DshrSlotBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { error: null };
+      }
+
+      static getDerivedStateFromError(error) {
+        return { error: error };
+      }
+
+      componentDidCatch(error) {
+        fail(error);
+      }
+
+      render() {
+        if (this.state.error) {
+          const message =
+            this.state.error && this.state.error.message
+              ? this.state.error.message
+              : String(this.state.error);
+          return React.createElement(
+            "div",
+            { className: "dshr-plugin-error" },
+            "Plugin render error: " + message,
+          );
+        }
+        return this.props.children;
+      }
+    };
+    return cachedBoundary;
+  }
+
+  function mountReact(entry, props) {
+    const runtime = reactRuntimeNow();
+    if (!runtime) return false;
+    const React = runtime.React;
+    if (!reactRoot) reactRoot = runtime.ReactDOM.createRoot(root);
+    reactEntry = entry;
+    reactProps = props;
+    reactRoot.render(
+      React.createElement(
+        slotBoundary(),
+        null,
+        React.createElement(
+          entry.render,
+          Object.assign({}, props, hostPropsNow()),
+        ),
+      ),
+    );
+    return true;
+  }
+
+  function rerenderActive() {
+    if (!reactRoot || !reactEntry || !reactProps) return;
+    mountReact(reactEntry, reactProps);
+  }
+
   function clear() {
+    if (reactRoot) {
+      try {
+        reactRoot.unmount();
+      } catch (error) {
+        // The frame may already be torn down; nothing to report.
+      }
+      reactRoot = null;
+      reactEntry = null;
+      reactProps = null;
+    }
     while (root.firstChild) root.removeChild(root.firstChild);
     root.removeAttribute("data-dshr-slot");
     active = null;
@@ -325,10 +528,21 @@
 
   async function mount(entry, props) {
     try {
-      clear();
-      root.dataset.dshrSlot = entry.id;
-      active = entry;
-      await entry.render(root, props);
+      const reactPropsHost = Object.assign({}, props, {
+        theme: theme,
+        wide: hostState.wide,
+        context: props && props.context !== undefined ? props.context : null,
+      });
+      if (mountReact(entry, reactPropsHost)) {
+        root.dataset.dshrSlot = entry.id;
+        active = entry;
+      } else {
+        // `clear()` also resets `active`, so set the slot identity after it.
+        clear();
+        root.dataset.dshrSlot = entry.id;
+        active = entry;
+        await entry.render(root, props);
+      }
       reportResize(entry);
     } catch (error) {
       report("render " + entry.id, error);
@@ -404,7 +618,9 @@
 
   function setTheme(next) {
     theme = next === "light" ? "light" : "dark";
+    hostState.theme = theme;
     document.documentElement.dataset.theme = theme;
+    notifyHostState();
     themeListeners.forEach(function (listener) {
       try {
         listener(theme);
@@ -448,6 +664,7 @@
     if (data.type === "activate") activate(data.slot || data.name, data.id);
     else if (data.type === "deactivate") deactivate();
     else if (data.type === "theme") setTheme(data.theme);
+    else if (data.type === "host-state") setHostState(data.state);
     else if (data.type === "action-result") {
       const settle = actionWaiters.get(data.id);
       if (settle) {
@@ -490,6 +707,12 @@
   const ctx = {
     protocol: 1,
     name: plugin,
+    // Reference `ctx.get(service)` subset: `sessions` is populated from
+    // host-state messages; anything else is unknown in the dshr bridge.
+    get: function (name) {
+      if (name === "sessions") return sessionsService;
+      return undefined;
+    },
     get theme() {
       return theme;
     },

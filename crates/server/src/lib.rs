@@ -1319,6 +1319,9 @@ fn shared_runtime_body() -> &'static [u8] {
         ));
         body.push(b'\n');
         body.extend_from_slice(include_bytes!("../assets/runtime/bootstrap.js"));
+        body.push(b'\n');
+        // Partial, independently implemented design-system shim (C-lite).
+        body.extend_from_slice(include_bytes!("../assets/runtime/primitives.js"));
         body
     })
 }

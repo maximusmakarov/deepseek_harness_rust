@@ -360,8 +360,9 @@ network-free, отдельной подписи у runtime нет (часть п
 
 Доступные id: `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react-dom`,
 `react-dom/client` (React 18.3.1, версия закреплена
-`dshr_cordis::client::HOST_RUNTIME_VERSION`). Незнакомый id отклоняется при
-discovery.
+`dshr_cordis::client::HOST_RUNTIME_VERSION`) и
+`@deepseek-ai/dsh-client-ui-primitives` (частичный независимый шим
+design-system, см. ниже). Незнакомый id отклоняется при discovery.
 
 Как это работает:
 
@@ -381,11 +382,53 @@ discovery.
   из сети разрешён только скрипт с origin сервера (`script-src ... <origin>`).
   Кадры без `host_modules` по-прежнему полностью network-free.
 
-Ограничения тира B: это React-рантайм и модульная таблица, но **не** design-system
-`@deepseek-ai/dsh-client-ui-*`, не React-контекст шелла, не композиция между
-плагинами и не SlotMap-семантика (`ownerProps`/framework-hooks) — для них нужен
-тир C. PoC проверен в smoke: фикстура `hosted` не содержит React в бандле и
-рендерит интерактивный React-компонент из общего рантайма.
+Ограничения тира B: это React-рантайм и модульная таблица, но **не** полный
+design-system `@deepseek-ai/dsh-client-ui-*`, не React-контекст шелла, не
+композиция между плагинами и не SlotMap-семантика
+(`ownerProps`/framework-hooks) — для них нужен тир C-full. PoC проверен в smoke:
+фикстура `hosted` не содержит React в бандле и рендерит интерактивный
+React-компонент из общего рантайма.
+
+### C-lite: React-компоненты слотов, host-hooks и design-system шим
+
+Если у кадра есть host React (`host_modules` содержит `react`), мост переключается
+на **референсный контракт рендера**: значение, переданное в
+`ctx.slots.register(entry, Component)`, трактуется как React-компонент (функция
+или класс), а не как imperative-колбэк `render(element, props)`. Компонент
+получает props:
+
+| Prop | Значение |
+|---|---|
+| `theme`, `wide` | текущая тема и признак широкого сайдбара (обновляются) |
+| `slot`, `id`, `plugin`, `context` | как в imperative-режиме; `context` — из `mode=slot` |
+| `useTheme()` | React-хук текущей темы |
+| `useSession()` | React-хук текущей сессии (`{id, title}` или `null`) |
+| `useSessions(selector?)` | React-хук списка сессий |
+| `useHostState(selector?)` | React-хук всего host-state |
+
+Host-state приходит от шелла сообщением `host-state` (`theme`, `wide`, `session`,
+`sessions`) при `ready`, смене сессии/списка и темы; компонент перерисовывается
+сам, без ремоунта кадра. Ошибка рендера ловится error boundary: в регионе
+появляется `Plugin render error: …`, а шелл получает `error`.
+
+Сервис `ctx.get(name)` в React-режиме: поддерживается `sessions` (подмножество
+референсного сервиса — `currentProvideInfo.getSnapshot()`, `get(id)`, `list()`,
+`subscribe`); неизвестный сервис — `undefined`. Этого достаточно, чтобы простой
+DSH-плагин деградировал мягко (например, `ctx.get('sessions')` без проекций).
+
+**Дизайн-система:** host-рантайм публикует
+`@deepseek-ai/dsh-client-ui-primitives` — **частичный независимый шим**
+(не пакет upstream): `Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner` на host
+React и CSS-переменных темы. Этого хватает простым плагинам; полный набор
+`@deepseek-ai/dsh-client-ui-*` — тир C-full.
+
+**Conformance:** реальный MIT-плагин `@kt11/dsh-deepseek-balance@0.2.1`
+(vendored fixture `crates/cordis/tests/fixtures/deepseek-balance/`, клиентская
+половина — upstream без изменений; в манифесте только `host_modules`) рендерит
+свою React-карточку в `sidebar.footer.action`, вставляет собственный CSS,
+реагирует на клики (popup) — проверяется в smoke. Его data-запросы идут на
+host-маршруты DSH, которых в dshr нет, поэтому popup показывает ветку «查询失败»;
+это записанное ограничение, а не ошибка рендера.
 
 Чего не хватает и после тиров A и B: design-system пакетов
 `@deepseek-ai/dsh-client-ui-*`, React-контекста и состояния шелла, композиции между
@@ -468,5 +511,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами, host-действиями, экспериментальным `dsh.client.runtime` (плагин приносит свой UI-стек) и общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера, тир B PoC); design-system, общей React-контекстной модели шелла и `ownerProps`/hooks-семантики слотов нет — это тир C из [ADR-040](adr/040-react-client-half.md).
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами, host-действиями, `dsh.client.runtime` (свой UI-стек), общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера) и C-lite-совместимостью: React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим, один реальный DSH-плагин в conformance; полный design-system, React-контекст шелла и SlotMap-семантика (`ownerProps`/framework-hooks) остаются тиром C-full по [ADR-040](adr/040-react-client-half.md).
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.
