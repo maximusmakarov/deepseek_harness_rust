@@ -27,7 +27,8 @@ safe mode / Restart normally,
 New profile…, Export diagnostics…, Check for updates…, Profile (список
 `default` + `<home>/profiles/*`, переключение через `desktop-profile` и рестарт
 shell) и Quit. Окно: трей Window → Compatibility/Enhanced/Extended и Material (macOS vibrancy,
-прозрачность). Extended — overlay title bar со сдвинутыми traffic lights.
+прозрачность). Extended — overlay title bar со сдвинутыми traffic lights (macOS); на Linux/Windows
+— frameless-окно с кастомным titlebar (drag/minimize/maximize/close через Tauri).
 Настройки хранятся в `<home>/desktop-window.json`; смена перезапускает shell.
 
 Папка: аргумент `<folder>`, сохранённая `<home>/desktop-folder` или

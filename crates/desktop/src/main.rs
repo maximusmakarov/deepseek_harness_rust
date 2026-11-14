@@ -91,13 +91,22 @@ fn main() {
                 token: token.clone(),
             });
 
-            let url = format!("http://127.0.0.1:{port}/?token={token}");
+            #[allow(unused_mut)]
+            let mut url = format!("http://127.0.0.1:{port}/?token={token}");
             let window_settings = load_window_settings(&home);
+            #[cfg(not(target_os = "macos"))]
+            if window_settings.mode == "extended" {
+                url.push_str("&frame=custom");
+            }
             let mut builder =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url.parse()?))
                     .title("dshr")
                     .inner_size(1280.0, 860.0)
                     .min_inner_size(720.0, 480.0);
+            #[cfg(not(target_os = "macos"))]
+            if window_settings.mode == "extended" {
+                builder = builder.decorations(false);
+            }
             #[cfg(target_os = "macos")]
             {
                 if window_settings.mode == "enhanced" {

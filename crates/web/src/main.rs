@@ -334,6 +334,12 @@ fn App() -> impl IntoView {
     let plugin_hits = RwSignal::new(Vec::<PackageHit>::new());
     let plugin_status = RwSignal::new(String::new());
     let version = RwSignal::new(String::new());
+    let custom_frame = web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .is_some_and(|search| search.contains("frame=custom"))
+        && web_sys::window()
+            .and_then(|window| js_sys::Reflect::get(&window, &"__TAURI__".into()).ok())
+            .is_some_and(|value| !value.is_undefined());
     let initial_theme = web_sys::window()
         .and_then(|window| window.local_storage().ok().flatten())
         .and_then(|storage| storage.get_item("dshr-theme").ok().flatten())
@@ -563,6 +569,15 @@ fn App() -> impl IntoView {
     };
 
     view! {
+        {move || custom_frame.then(|| view! {
+            <div class="titlebar" data-tauri-drag-region="true">
+                <strong>"dshr"</strong>
+                <div class="spacer" data-tauri-drag-region="true"></div>
+                <button on:click=move |_| { let _ = js_sys::eval("window.__TAURI__.window.getCurrentWindow().minimize()"); }>"–"</button>
+                <button on:click=move |_| { let _ = js_sys::eval("window.__TAURI__.window.getCurrentWindow().toggleMaximize()"); }>"□"</button>
+                <button on:click=move |_| { let _ = js_sys::eval("window.__TAURI__.window.getCurrentWindow().close()"); }>"×"</button>
+            </div>
+        })}
         <header>
             <strong>"dshr"</strong>
             <input
