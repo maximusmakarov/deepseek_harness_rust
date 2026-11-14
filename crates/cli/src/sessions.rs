@@ -82,6 +82,9 @@ pub enum SessionsAction {
         /// Model label stored in the imported header
         #[arg(long)]
         model: Option<String>,
+        /// Import every session file under the path
+        #[arg(long)]
+        all: bool,
     },
 }
 
@@ -112,14 +115,16 @@ pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
             path,
             provider,
             model,
+            all,
         } => {
-            let id = crate::dsh_import::import(
-                &store,
-                path,
-                provider.as_deref().unwrap_or("dsh-import"),
-                model.as_deref().unwrap_or("dsh-import"),
-            )?;
-            println!("{id}");
+            let provider = provider.as_deref().unwrap_or("dsh-import");
+            let model = model.as_deref().unwrap_or("dsh-import");
+            if *all {
+                let count = crate::dsh_import::import_tree(&store, path, provider, model)?;
+                println!("{count}");
+            } else {
+                println!("{}", crate::dsh_import::import(&store, path, provider, model)?);
+            }
             Ok(0)
         }
     }

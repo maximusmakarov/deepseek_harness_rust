@@ -169,6 +169,35 @@ pub fn import(store: &SessionStore, path: &Path, provider: &str, model: &str) ->
     Ok(session.header.id.to_string())
 }
 
+/// Imports every `session.v4.jsonl.zstd` under `root`.
+pub fn import_tree(
+    store: &SessionStore,
+    root: &Path,
+    provider: &str,
+    model: &str,
+) -> Result<usize> {
+    let mut imported = 0;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.file_name().and_then(|name| name.to_str())
+                == Some("session.v4.jsonl.zstd")
+            {
+                if import(store, &path, provider, model).is_ok() {
+                    imported += 1;
+                }
+            }
+        }
+    }
+    Ok(imported)
+}
+
 fn ensure_turn(
     store: &SessionStore,
     session: &mut Session,
@@ -240,6 +269,28 @@ fn content_blocks(blocks: Option<&Vec<Value>>) -> Vec<ContentBlock> {
 mod tests {
     use super::*;
     use dshr_session_jsonl::SessionStore;
+
+    #[test]
+    fn imports_all_sessions_under_a_tree() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path().join("sessions"));
+        let events = vec![
+            json!({"type":"session","cwd":"/tmp/a"}),
+            json!({"type":"turn/start","data":{"turn":1}}),
+            json!({"type":"user/message","data":{"turn":1,"content":[{"type":"text","text":"hi"}]}}),
+        ];
+        let text = events.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        let compressed = zstd::encode_all(text.as_bytes(), 3).expect("zstd");
+        for name in ["one", "two"] {
+            let session_dir = dir.path().join("root").join(name);
+            std::fs::create_dir_all(&session_dir).expect("dir");
+            std::fs::write(session_dir.join("session.v4.jsonl.zstd"), &compressed).expect("write");
+        }
+        let count = import_tree(&store, &dir.path().join("root"), "dsh-import", "dsh-import")
+            .expect("import");
+        assert_eq!(count, 2);
+        assert_eq!(store.list().expect("list").len(), 2);
+    }
 
     #[test]
     fn imports_a_v4_session() {
