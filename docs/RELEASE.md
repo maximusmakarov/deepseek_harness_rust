@@ -75,6 +75,11 @@ Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.
 для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на
 GitHub Releases, не GHCR; pour проверяется при следующем теге.
 
+## Bottle packaging
+
+`package-bottle.sh` создаёт выходной каталог до записи архива; macOS/Linux
+сборка бутылки проверена в Actions.
+
 ## Desktop CI
 
 Linux/Windows desktop-сборка и упаковка проверены в Actions (tar+deb, zip);

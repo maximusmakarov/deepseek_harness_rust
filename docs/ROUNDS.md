@@ -69,6 +69,7 @@ release-бинарь воспроизводим.
 - Market: локальные отзывы + агрегаты ★/count (`/v1/plugins/review(s)`).
 - WASM: hot reload (fingerprint watcher + `/v1/plugins/reload`).
 - GHCR: реальный push/pull OCI-бутылки подтверждён в Actions.
+- Bottle: `package-bottle.sh` создаёт dist до записи; macOS build проверен.
 - Desktop: Linux/Windows сборка и упаковка (tar/deb/zip) проверены в Actions;
   добавлен Windows `icon.ico`, vibrancy оставлен macOS-only.
 - Windows: runtime-тест AppContainer прошёл на windows-latest (запись внутри/снаружи workspace) добавлен
