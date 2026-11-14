@@ -1642,6 +1642,7 @@ name = "dshr-tools"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "dshr-core",
  "dshr-llm",
  "dshr-llm-mock",

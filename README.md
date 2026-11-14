@@ -16,14 +16,14 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
 - **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search; опциональный FTS5-индекс.
 - **Контекст:** детерминированный промпт, `AGENTS.md`, skills, compaction с событием журнала.
-- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`apply_patch`/`glob`/`grep`/`bash`/`todo`/`ask_user`/`present`, web, worktrees, LSP, Office, browser/CUA.
+- **Инструменты:** реестр, схемы, `read`/`write`/`edit`/`apply_patch`/`glob`/`grep`/`bash` (persistent shell)/`todo`/`ask_user`/`present`, web, worktrees, LSP, Office, browser/CUA.
 - **Агент:** цикл turn/step, approvals, отмена, лимит шагов, субагенты, общий бюджет токенов, allowlist инструментов.
 - **Внешние:** MCP stdio/HTTP с tools, resources, prompts и stdio-sampling; `web_fetch`/`web_search`, фоновые jobs.
 - **Автономность:** YAML-workflows, agent teams с доской задач, durable cron-расписания с lock.
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-282 теста; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, полный Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+284 теста; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, полный Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 

@@ -8,6 +8,7 @@ license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+base64.workspace = true
 dshr-core.workspace = true
 dshr-llm.workspace = true
 dshr-sandbox.workspace = true

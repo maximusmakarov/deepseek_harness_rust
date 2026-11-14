@@ -36,7 +36,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | LLM-заголовки сессий | `run`, HTTP server и TUI генерируют заголовок провайдером (DSH-промпт), fallback — первая строка | ✅ |
 | Импорт сессий DSH v4 | `sessions import` (zstd JSONL → наша модель, title/tool calls) | ✅ |
 | `ask_user` | TUI, Web, ACP elicitation (при capability клиента); headless fail-closed | ✅ |
-| persistent bash, diff-view | TUI показывает diff-детали edit/write/apply_patch, Web-карточки — summary+результат; persistent bash нет | ⚠️ |
+| persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | есть; hot reload, grants/audit, client half нет | ⚠️ |
