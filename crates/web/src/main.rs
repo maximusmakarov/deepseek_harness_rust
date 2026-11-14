@@ -53,6 +53,7 @@ struct ToolsResponse {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 struct PackageHit {
     name: String,
+    #[serde(default)]
     version: String,
     description: String,
 }
@@ -354,6 +355,7 @@ fn App() -> impl IntoView {
     let plugin_query = RwSignal::new(String::new());
     let plugin_hits = RwSignal::new(Vec::<PackageHit>::new());
     let installed_plugins = RwSignal::new(Vec::<InstalledPlugin>::new());
+    let featured = RwSignal::new(Vec::<PackageHit>::new());
     let plugin_status = RwSignal::new(String::new());
     let version = RwSignal::new(String::new());
     let custom_frame = web_sys::window()
@@ -415,6 +417,11 @@ fn App() -> impl IntoView {
                         get_json::<InstalledResponse>("/v1/plugins/installed", &value).await
                     {
                         installed_plugins.set(installed.plugins);
+                    }
+                    if let Ok(catalog) =
+                        get_json::<PackagesResponse>("/v1/plugins/catalog", &value).await
+                    {
+                        featured.set(catalog.packages);
                     }
                     match get_json::<ToolsResponse>("/v1/tools", &value).await {
                         Ok(list) => tools.set(list.tools),
@@ -755,6 +762,20 @@ fn App() -> impl IntoView {
                     <button on:click=move |_| plugins_open.set(false)>"Close"</button>
                 </div>
                 <p>{move || plugin_status.get()}</p>
+                <h4>"Featured"</h4>
+                <ul>
+                    {move || featured.get().into_iter().map(|package| {
+                        let install_name = package.name.clone();
+                        let info_name = package.name.clone();
+                        view! {
+                            <li>
+                                {format!("{} — {}", package.name, package.description)}
+                                <button on:click=move |_| install_package(install_name.clone())>"Install"</button>
+                                <button on:click=move |_| show_info(info_name.clone())>"Info"</button>
+                            </li>
+                        }
+                    }).collect_view()}
+                </ul>
                 <h4>"Cordis plugins"</h4>
                 <ul>
                     {move || installed_plugins.get().into_iter().map(|plugin| {

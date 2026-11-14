@@ -361,6 +361,23 @@ async fn serves_leptos_assets() {
 }
 
 #[tokio::test]
+async fn lists_the_featured_plugin_catalog() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/v1/plugins/catalog",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let packages = body["packages"].as_array().expect("packages");
+    assert!(packages.iter().any(|package| package["name"] == "cordis"));
+}
+
+#[tokio::test]
 async fn rejects_invalid_plugin_info_names() {
     let dir = tempfile::tempdir().expect("tempdir");
     let app = router(state(dir.path()));

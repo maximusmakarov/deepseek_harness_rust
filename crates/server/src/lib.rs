@@ -338,6 +338,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/tools", get(list_tools))
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/info", get(plugin_info))
+        .route("/v1/plugins/catalog", get(plugin_catalog))
         .route("/v1/plugins/install", post(install_plugin))
         .route("/v1/plugins/installed", get(installed_plugins))
         .route("/v1/plugins/toggle", post(toggle_plugin))
@@ -442,6 +443,18 @@ async fn search_plugins(
         })
         .collect();
     Ok(Json(json!({"packages": objects})))
+}
+
+const PLUGIN_CATALOG: &str = include_str!("catalog.json");
+
+async fn plugin_catalog(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let packages: Value =
+        serde_json::from_str(PLUGIN_CATALOG).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"packages": packages})))
 }
 
 #[derive(Debug, Deserialize)]

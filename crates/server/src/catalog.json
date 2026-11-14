@@ -1,0 +1,5 @@
+[
+  {"name": "cordis", "description": "Meta-framework of spatiotemporal composability"},
+  {"name": "@deepseek-ai/cordis-plugin-loader", "description": "Plugin loader for cordis"},
+  {"name": "@deepseek-ai/cordis-plugin-timer", "description": "Timer service for cordis"}
+]
