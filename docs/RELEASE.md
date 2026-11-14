@@ -11,7 +11,8 @@
 | `SHA256SUMS.sig` | Ed25519-подпись `SHA256SUMS` (при наличии ключа) |
 | `SHA256SUMS.pub` | публичный ключ подписи |
 | `dshr.rb` | бинарная Homebrew-формула с закреплёнными `sha256` |
-| `dshr-<version>-macos.zip` | подписанный ad-hoc `.app` (Tauri + `dshr`) |
+| `dshr-<version>-macos.zip` | `.app` (ad-hoc или Developer ID + notarization) |
+| `dshr-<version>.dmg` | установочный DMG (`.app` + Applications) |
 | `dshr--<version>.<tag>.bottle.tar.gz` | Homebrew bottle для macOS/Linux (GitHub Releases) |
 | `dshr-<version>-linux-desktop.tar.gz` | `dshr` + `dshr-desktop` (WebKitGTK build) |
 | `dshr-<version>-windows-desktop.zip` | `dshr.exe` + `dshr-desktop.exe` |

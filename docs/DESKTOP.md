@@ -80,6 +80,11 @@ scripts/package-desktop.sh 0.1.0
 (compatibility/extended/enhanced) пока не реализованы — это следующий
 срез desktop; матрица — [PARITY.md](PARITY.md).
 
+## DMG
+
+`scripts/package-dmg.sh <version>` собирает `dist/dshr-<version>.dmg` из `.app`
+(Applications-ссылка, UDZO); release-workflow добавляет его после notarization.
+
 ## Linux / Windows
 
 Release workflow собирает `dshr-<version>-linux-desktop.tar.gz` и

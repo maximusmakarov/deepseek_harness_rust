@@ -122,12 +122,20 @@ jobs:
         if: env.APPLE_ID != '' && env.DSHR_CODESIGN_IDENTITY != ''
         shell: bash
         run: scripts/notarize-app.sh dist/dshr.app
+      - name: package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
           ditto -c -k --keepParent dist/dshr.app "dist/dshr-$version-macos.zip"
           shasum -a 256 "dist/dshr-$version-macos.zip" > "dist/dshr-$version-macos.zip.sha256"
+          scripts/package-dmg.sh "$version"
       - uses: actions/upload-artifact@v4
         with:
           name: dist-desktop-macos
-          path: dist/*.zip*
+          path: |
+            dist/*.zip*
+            dist/*.dmg*
           if-no-files-found: error
 
   desktop-linux:
@@ -247,6 +255,7 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.dmg
             dist/*.bottle.tar.gz
             dist/SHA256SUMS
             dist/SHA256SUMS.sig
