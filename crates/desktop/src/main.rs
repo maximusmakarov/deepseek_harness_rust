@@ -89,6 +89,7 @@ fn main() {
                     return Err(error);
                 }
             };
+            save_last_good(&home, &profile);
             if first_run {
                 notify("dshr", "First run: home initialized");
             }
@@ -201,6 +202,7 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
+    let rollback = MenuItem::with_id(app, "rollback", "Rollback profile", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let window_settings = load_window_settings(home);
@@ -269,6 +271,7 @@ fn build_tray(
             &download,
             &safe_restart,
             &normal_restart,
+            &rollback,
             &diagnostics,
             &quit,
         ],
@@ -308,6 +311,17 @@ fn build_tray(
                 let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
                 stop_server(app);
                 app.restart();
+            }
+            "rollback" => {
+                let home = home_dir();
+                match load_last_good(&home) {
+                    Some(profile) => {
+                        let _ = std::fs::write(home.join("desktop-profile"), &profile);
+                        stop_server(app);
+                        app.restart();
+                    }
+                    None => notify("dshr", "No last-known-good profile yet"),
+                }
             }
             "normal-restart" => {
                 let home = home_dir();
@@ -507,6 +521,23 @@ fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".dshr"))
         .unwrap_or_else(|| PathBuf::from(".dshr"))
+}
+
+fn last_good_path(home: &Path) -> PathBuf {
+    home.join("desktop-last-good")
+}
+
+fn load_last_good(home: &Path) -> Option<String> {
+    std::fs::read_to_string(last_good_path(home))
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty() && value != "default")
+}
+
+fn save_last_good(home: &Path, profile: &str) {
+    if profile != "default" {
+        let _ = std::fs::write(last_good_path(home), format!("{profile}\n"));
+    }
 }
 
 fn current_profile(home: &Path) -> String {
@@ -1267,6 +1298,17 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn remembers_the_last_known_good_profile() {
+        let dir = std::env::temp_dir().join(format!("dshr-lastgood-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        save_last_good(&dir, "default");
+        assert!(load_last_good(&dir).is_none());
+        save_last_good(&dir, "work");
+        assert_eq!(load_last_good(&dir).as_deref(), Some("work"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -29,6 +29,9 @@ New profile…, Export diagnostics…, Check for updates…, Profile (списо
 shell) и Quit. Окно: трей Window → Compatibility/Enhanced и Material (macOS vibrancy, прозрачность).
 Настройки хранятся в `<home>/desktop-window.json`; смена перезапускает shell.
 
+После успешного health профиль (не `default`) пишется в `<home>/desktop-last-good`;
+трей **Rollback profile** переключается на него и перезапускает shell.
+
 Safe mode пишет маркер `<home>/desktop-safe-mode` и передаёт `--safe-mode` серверу
 (пропускает MCP/Cordis/WASM-плагины); «Restart normally» убирает маркер.
 
