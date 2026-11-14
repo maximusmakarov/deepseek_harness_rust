@@ -67,6 +67,17 @@ P1: композиция профилей из бандлов, полный plug
 P2: ghcr-хостинг бутылок, прогон brew/desktop CI на теге, Cordis hot reload и grants,
 приватные terminal shim'ы.
 
+## Проверка (14.11.2026)
+
+- `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
+- `cargo test --workspace`: 280 passed + 3 ignored; desktop 21 passed (итого 301).
+- `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
+  (`abdca627…`).
+- `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
+  DMG собран (UDZO); установочный/архивный dry-run проверен ранее.
+- Headless Chrome: light-тема, версия, Plugins; `/v1/tools`, `/v1/plugins/catalog`
+  отвечают.
+
 ## Известные блокеры
 
 - **GHCR-бутылки:** нет tap-репозитория/учётных данных пакетов; бутылки публикуются
