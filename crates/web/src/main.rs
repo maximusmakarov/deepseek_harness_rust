@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 
 use gloo_net::http::Request;
+use std::collections::BTreeMap;
 use leptos::prelude::*;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -67,6 +68,11 @@ struct PackagesResponse {
 struct InstalledPlugin {
     name: String,
     enabled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct RatingsResponse {
+    ratings: BTreeMap<String, u8>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -356,6 +362,7 @@ fn App() -> impl IntoView {
     let plugin_hits = RwSignal::new(Vec::<PackageHit>::new());
     let installed_plugins = RwSignal::new(Vec::<InstalledPlugin>::new());
     let featured = RwSignal::new(Vec::<PackageHit>::new());
+    let ratings = RwSignal::new(BTreeMap::<String, u8>::new());
     let plugin_status = RwSignal::new(String::new());
     let version = RwSignal::new(String::new());
     let custom_frame = web_sys::window()
@@ -422,6 +429,11 @@ fn App() -> impl IntoView {
                         get_json::<PackagesResponse>("/v1/plugins/catalog", &value).await
                     {
                         featured.set(catalog.packages);
+                    }
+                    if let Ok(data) =
+                        get_json::<RatingsResponse>("/v1/plugins/ratings", &value).await
+                    {
+                        ratings.set(data.ratings);
                     }
                     match get_json::<ToolsResponse>("/v1/tools", &value).await {
                         Ok(list) => tools.set(list.tools),
@@ -566,6 +578,24 @@ fn App() -> impl IntoView {
                     info["homepage"].as_str().unwrap_or("")
                 )),
                 Err(error) => plugin_status.set(format!("info error: {error}")),
+            }
+        });
+    };
+
+    let rate_plugin = move |name: String, rating: u8| {
+        let token_value = token.get_untracked();
+        plugin_status.set(format!("rating {name}: {rating}/5"));
+        spawn_local(async move {
+            let body = serde_json::json!({"name": name, "rating": rating});
+            if let Ok(request) = gloo_net::http::Request::post("/v1/plugins/rate")
+                .header("Authorization", &format!("Bearer {token_value}"))
+                .header("Content-Type", "application/json")
+                .body(body.to_string())
+            {
+                let _ = request.send().await;
+                ratings.update(|map| {
+                    map.insert(name, rating);
+                });
             }
         });
     };
@@ -769,9 +799,20 @@ fn App() -> impl IntoView {
                         let info_name = package.name.clone();
                         view! {
                             <li>
-                                {format!("{} — {}", package.name, package.description)}
+                                {format!(
+                                    "{} — {} {}/5",
+                                    package.name,
+                                    package.description,
+                                    ratings.get().get(&package.name).copied().unwrap_or(0),
+                                )}
                                 <button on:click=move |_| install_package(install_name.clone())>"Install"</button>
                                 <button on:click=move |_| show_info(info_name.clone())>"Info"</button>
+                                {(1..=5).map(|rating| {
+                                    let rate_name = package.name.clone();
+                                    view! {
+                                        <button on:click=move |_| rate_plugin(rate_name.clone(), rating)>{rating.to_string()}</button>
+                                    }
+                                }).collect_view()}
                             </li>
                         }
                     }).collect_view()}

@@ -18,6 +18,8 @@ dshr serve --bind 127.0.0.1 --port 55678
 | GET | `/v1/plugins/search` | `?q=` | `{packages: [{name, version, description}]}` (npm registry) |
 | GET | `/v1/plugins/info` | `?name=` | npm metadata (version/description/homepage/repository) |
 | GET | `/v1/plugins/catalog` | — | `{packages: [{name, description}]}` (featured) |
+| GET | `/v1/plugins/ratings` | — | `{ratings: {name: 1..5}}` |
+| POST | `/v1/plugins/rate` | `{name, rating}` | `{ok}` (сохраняет локальную оценку) |
 | POST | `/v1/plugins/install` | `{name}` | `{ok, output}` — запускает `plugin npm add` (bearer-token) |
 | GET | `/v1/plugins/installed` | — | `{plugins: [{name, enabled}]}` |
 | POST | `/v1/plugins/toggle` | `{name, enabled}` | `{ok, output}` (enable/disable) |

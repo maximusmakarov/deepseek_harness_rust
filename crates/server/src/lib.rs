@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 //! HTTP/SSE server and embedded web UI.
 
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::hash::{Hash, Hasher};
@@ -339,6 +340,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/info", get(plugin_info))
         .route("/v1/plugins/catalog", get(plugin_catalog))
+        .route("/v1/plugins/ratings", get(plugin_ratings))
+        .route("/v1/plugins/rate", post(rate_plugin))
         .route("/v1/plugins/install", post(install_plugin))
         .route("/v1/plugins/installed", get(installed_plugins))
         .route("/v1/plugins/toggle", post(toggle_plugin))
@@ -446,6 +449,54 @@ async fn search_plugins(
 }
 
 const PLUGIN_CATALOG: &str = include_str!("catalog.json");
+
+async fn plugin_ratings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let ratings = load_ratings(&state.config.home);
+    Ok(Json(json!({"ratings": ratings})))
+}
+
+#[derive(Debug, Deserialize)]
+struct RatePlugin {
+    name: String,
+    rating: u8,
+}
+
+async fn rate_plugin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RatePlugin>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_package_name(&body.name) || !(1..=5).contains(&body.rating) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    save_rating(&state.config.home, &body.name, body.rating)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+fn ratings_path(home: &std::path::Path) -> PathBuf {
+    home.join("plugin-ratings.json")
+}
+
+fn load_ratings(home: &std::path::Path) -> BTreeMap<String, u8> {
+    std::fs::read_to_string(ratings_path(home))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_rating(home: &std::path::Path, name: &str, rating: u8) -> std::io::Result<()> {
+    let mut ratings = load_ratings(home);
+    ratings.insert(name.to_owned(), rating);
+    let text = serde_json::to_string_pretty(&ratings)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    std::fs::write(ratings_path(home), text)
+}
 
 async fn plugin_catalog(
     State(state): State<AppState>,
@@ -1062,6 +1113,13 @@ async fn style_css() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saves_and_loads_plugin_ratings() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        save_rating(dir.path(), "cordis", 4).expect("save");
+        assert_eq!(load_ratings(dir.path()).get("cordis"), Some(&4));
+    }
 
     #[test]
     fn tool_end_event_carries_content() {
