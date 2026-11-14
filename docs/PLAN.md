@@ -109,7 +109,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 | TUI | ✓ | ✓ | ✓ | ✅ |
 | Headless / one-shot | ✓ | ✓ | ✓ | ✅ |
 | HTTP/WS API | ✓ | — | ✓ | ✅ |
-| Web UI (чат, diff, approvals) | ✓ | — | ✓ | ⚠️ чат/стрим/карточки/approvals ✅ (e2e); визуального diff нет, экрана настроек провайдера нет |
+| Web UI (чат, diff, approvals) | ✓ | — | ✓ | ⚠️ чат/стрим/карточки/approvals ✅ (e2e); карточки показывают превью diff (`-old`/`+new`) ✅; экрана настроек провайдера нет |
 | Desktop (Tauri) | Electron | — | — | ⚠️ macOS `.app`+DMG ✅; Linux deb/tar.gz и Windows zip собираются, NSIS-инсталлятора нет |
 | SDK (JSON-RPC, Python/TS) | ✓ | — | ✓ | ✅ |
 | ACP | ✓ | — | — | ✅ v1 (сессии, permissions, fs, terminal, MCP, elicitation) |

@@ -34,6 +34,7 @@ TOKEN = "web-e2e-token"
 LOAD_TIMEOUT = 90.0
 STEP_TIMEOUT = 60.0
 PROMPT = "write the artifact file and report back"
+SECOND_PROMPT = "fix the notes file"
 
 CASSETTE = {
     "model": "deepseek-flash",
@@ -47,6 +48,18 @@ CASSETTE = {
         [
             {"type": "start", "model": "deepseek-flash"},
             {"type": "text_delta", "text": "Wrote the artifact."},
+            {"type": "done", "stop_reason": "end_turn"},
+        ],
+        [
+            {"type": "start", "model": "deepseek-flash"},
+            {"type": "tool_use_start", "index": 0, "id": "call_2", "name": "edit"},
+            {"type": "tool_input_delta", "index": 0, "json": json.dumps({
+                "path": "notes.txt", "old_string": "old line", "new_string": "new line"})},
+            {"type": "done", "stop_reason": "tool_use"},
+        ],
+        [
+            {"type": "start", "model": "deepseek-flash"},
+            {"type": "text_delta", "text": "Edited the notes."},
             {"type": "done", "stop_reason": "end_turn"},
         ],
     ],
@@ -123,6 +136,7 @@ def run(args: argparse.Namespace) -> int:
 
     home = Path(tempfile.mkdtemp(prefix="dshr-web-home-"))
     workspace = Path(tempfile.mkdtemp(prefix="dshr-web-work-"))
+    (workspace / "notes.txt").write_text("old line\n")
     profile = Path(tempfile.mkdtemp(prefix="dshr-web-chrome-"))
     cassette = home / "cassette.json"
     cassette.write_text(json.dumps(CASSETTE))
@@ -134,6 +148,27 @@ def run(args: argparse.Namespace) -> int:
     smoke_server = smoke_chrome = None
     failures: list[str] = []
     checks = 0
+
+    def send_prompt(text: str) -> None:
+        # Wait for the send button: it is disabled while a turn is running.
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!document.querySelector('button[type=submit]')?.disabled"),
+            timeout=STEP_TIMEOUT,
+            label="composer idle",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const ta = document.querySelector('textarea');
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, 'value').set;
+                setter.call(ta, %s);
+                ta.dispatchEvent(new Event('input', {bubbles: true}));
+                document.querySelector('button[type=submit]').click();
+                return true;
+            })()""" % json.dumps(text),
+        )
 
     def check(label: str, condition: bool, detail: object = "") -> None:
         nonlocal checks
@@ -184,19 +219,7 @@ def run(args: argparse.Namespace) -> int:
 
         # Send the prompt through the real form path (native setter + input event
         # so the Leptos signal sees the change).
-        evaluate(
-            smoke,
-            dt,
-            """(() => {
-                const ta = document.querySelector('textarea');
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLTextAreaElement.prototype, 'value').set;
-                setter.call(ta, %s);
-                ta.dispatchEvent(new Event('input', {bubbles: true}));
-                document.querySelector('button[type=submit]').click();
-                return true;
-            })()""" % json.dumps(PROMPT),
-        )
+        send_prompt(PROMPT)
 
         smoke.wait_until(
             lambda: evaluate(
@@ -237,6 +260,27 @@ def run(args: argparse.Namespace) -> int:
 
         messages = evaluate(smoke, dt, "document.querySelector('#messages')?.textContent || ''")
         check("tool card is rendered for bash", "bash" in messages, messages)
+
+        # Second turn: `edit` must show a -old/+new preview and change the file.
+        send_prompt(SECOND_PROMPT)
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "document.querySelector('#messages')?.textContent.includes('Edited the notes.')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="second answer",
+        )
+        transcript = evaluate(smoke, dt, "document.querySelector('#messages')?.textContent || ''")
+        check("diff preview shows the removed line", "-old line" in transcript, transcript)
+        check("diff preview shows the added line", "+new line" in transcript, transcript)
+        notes = workspace / "notes.txt"
+        check(
+            "the edit really changed the file",
+            notes.exists() and notes.read_text() == "new line\n",
+            notes.read_text() if notes.exists() else "missing",
+        )
 
         artifact = workspace / "artifact.txt"
         tool_ok = "✓ bash" in messages

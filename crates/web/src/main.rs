@@ -311,6 +311,44 @@ fn post_to_frame(plugin: &str, kind: &str, fields: &[(&str, &str)]) {
     let _ = target.post_message(&message.into(), "*");
 }
 
+/// Builds a short diff preview for tools that change file contents.
+///
+/// The server sends the tool input with `tool_start`, so the shell can show
+/// `-old`/`+new` lines without re-reading the session journal.
+fn tool_diff_preview(name: &str, input: &serde_json::Value) -> String {
+    fn lines(prefix: char, text: &str, limit: usize) -> String {
+        let mut out = String::new();
+        for line in text.lines().take(limit) {
+            out.push(prefix);
+            out.push_str(line);
+            out.push('\n');
+        }
+        out
+    }
+    match name {
+        "edit" => {
+            let old = input["old_string"].as_str().unwrap_or_default();
+            let new = input["new_string"].as_str().unwrap_or_default();
+            if old.is_empty() && new.is_empty() {
+                return String::new();
+            }
+            format!("\n{} {}", lines('-', old, 20), lines('+', new, 20))
+        }
+        "write" => input["content"]
+            .as_str()
+            .map(|content| format!("\n{}", lines('+', content, 20)))
+            .unwrap_or_default(),
+        "apply_patch" => input["patch"]
+            .as_str()
+            .map(|patch| {
+                let body: Vec<&str> = patch.lines().take(40).collect();
+                format!("\n{}", body.join("\n"))
+            })
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 fn activate_slot(plugin: &str, slot: &ClientSlot) {
     post_to_frame(
         plugin,
@@ -498,13 +536,20 @@ fn connect_events(
             "tool_start" => {
                 let name = value["name"].as_str().unwrap_or("tool");
                 let summary = value["summary"].as_str().unwrap_or("");
+                // `input` travels as a JSON string (capped server-side), so it
+                // has to be parsed before the diff fields can be read.
+                let parsed: serde_json::Value = value["input"]
+                    .as_str()
+                    .and_then(|raw| serde_json::from_str(raw).ok())
+                    .unwrap_or_default();
+                let preview = tool_diff_preview(name, &parsed);
                 messages.update(|items| {
                     items.push(ChatItem {
                         role: "tool".into(),
                         text: if summary.is_empty() {
-                            format!("→ {name}")
+                            format!("→ {name}{preview}")
                         } else {
-                            format!("→ {name} · {summary}")
+                            format!("→ {name} · {summary}{preview}")
                         },
                     });
                 });

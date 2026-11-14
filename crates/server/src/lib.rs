@@ -142,6 +142,10 @@ pub enum ServerEvent {
     ToolStart {
         name: String,
         summary: String,
+        /// Tool input as JSON, so the UI can render a diff preview for
+        /// `edit`/`write`/`apply_patch` without re-reading the session log.
+        #[serde(default)]
+        input: String,
     },
     ToolEnd {
         name: String,
@@ -219,6 +223,7 @@ impl AgentObserver for BroadcastObserver {
         let _ = self.tx.send(ServerEvent::ToolStart {
             name: call.name.clone(),
             summary: summary.chars().take(160).collect(),
+            input: summary.chars().take(4000).collect(),
         });
     }
 
