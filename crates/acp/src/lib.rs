@@ -335,34 +335,6 @@ impl AcpServer {
                         }
                     }
                 }
-                "session/resume" => {
-                    let Some(id) = id else { continue };
-                    let Some(session_id) = params["sessionId"].as_str() else {
-                        send_error(&writer, id, -32602, "sessionId is required").await?;
-                        continue;
-                    };
-                    match self.store.open(session_id) {
-                        Ok(_) => {
-                            send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}}))
-                                .await?;
-                        }
-                        Err(error) => {
-                            send_error(&writer, id, -32002, &error.to_string()).await?;
-                        }
-                    }
-                }
-                "session/close" => {
-                    let Some(id) = id else { continue };
-                    let Some(session_id) = params["sessionId"].as_str() else {
-                        send_error(&writer, id, -32602, "sessionId is required").await?;
-                        continue;
-                    };
-                    if let Some(cancel) = active.lock().await.remove(session_id) {
-                        cancel.cancel();
-                    }
-                    self.session_mcp.lock().await.remove(session_id);
-                    send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}})).await?;
-                }
                 "session/prompt" => {
                     let Some(id) = id else { continue };
                     let Some(session_id) = params["sessionId"].as_str() else {
@@ -463,6 +435,44 @@ impl AcpServer {
                     }
                     if let Some(id) = id {
                         send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}})).await?;
+                    }
+                }
+                "session/close" => {
+                    let session_id = params["sessionId"].as_str().unwrap_or_default();
+                    if let Some(cancel) = active.lock().await.remove(session_id) {
+                        cancel.cancel();
+                    }
+                    self.session_mcp.lock().await.remove(session_id);
+                    self.session_modes.lock().await.remove(session_id);
+                    if let Some(id) = id {
+                        send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}})).await?;
+                    }
+                }
+                "session/resume" => {
+                    let Some(id) = id else { continue };
+                    let Some(session_id) = params["sessionId"].as_str() else {
+                        send_error(&writer, id, -32602, "sessionId is required").await?;
+                        continue;
+                    };
+                    match self.store.open(session_id) {
+                        Ok(session) => {
+                            self.session_mcp.lock().await.insert(
+                                session.header.id.to_string(),
+                                params["mcpServers"].clone(),
+                            );
+                            send(
+                                &writer,
+                                json!({
+                                    "jsonrpc": "2.0",
+                                    "id": id,
+                                    "result": {"sessionId": session.header.id.as_str()}
+                                }),
+                            )
+                            .await?;
+                        }
+                        Err(error) => {
+                            send_error(&writer, id, -32000, &error.to_string()).await?;
+                        }
                     }
                 }
                 "session/cancel" => {
