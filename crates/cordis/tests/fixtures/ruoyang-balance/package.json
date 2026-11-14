@@ -1,0 +1,34 @@
+{
+  "name": "deepeek-balance",
+  "version": "1.0.2",
+  "description": "Floating DeepSeek API balance badge for the DeepSeek Harness Web UI, backed by the harness's own DEEPSEEK_API_KEY credential (conformance fixture)",
+  "type": "module",
+  "main": "./stub.mjs",
+  "exports": {
+    ".": "./stub.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "client.js",
+    "stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "host_modules": [
+        "react"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/@ruoyang/dsh-plugin-deepseek-balance",
+    "upstreamVersion": "1.0.2",
+    "upstreamLicense": "MIT",
+    "clientSha256": "ca700695eb8c49f6be2b02a29e235a5db0a32da0b453d02efe084fcf868fb192",
+    "changes": "client half and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}

@@ -457,6 +457,36 @@ async function registryScenario() {
     injected === 1 && injectedInner === dshr,
     { injected: injected, inner: injectedInner === dshr },
   );
+  // Reference slots surface: subscribe/getVersion/entriesOfSlot + locale.bind.
+  let slotChanges = 0;
+  const stopSlots = dshr.slots.subscribe("sidebar.footer.action", () => {
+    slotChanges += 1;
+  });
+  const versionBefore = dshr.slots.getVersion("sidebar.footer.action");
+  dshr.slots.register(
+    { name: "sidebar.footer.action", id: "surface-entry", title: "Surface" },
+    render,
+  );
+  stopSlots();
+  check(
+    "ctx.slots.subscribe fires for the registered region",
+    slotChanges > 0 && dshr.slots.getVersion("sidebar.footer.action") > versionBefore,
+    { changes: slotChanges, version: dshr.slots.getVersion("sidebar.footer.action") },
+  );
+  check(
+    "ctx.slots.entriesOfSlot returns reference-shaped entries",
+    dshr.slots
+      .entriesOfSlot("sidebar.footer.action")
+      .some((entry) => entry.id === "surface-entry" && Boolean(entry.options)),
+    dshr.slots.entriesOfSlot("sidebar.footer.action"),
+  );
+  dshr.locale.register("probe", { en: { hi: "Hi {name}" } });
+  check(
+    "ctx.locale.bind returns a working t()",
+    dshr.locale.bind("probe")("hi", { name: "dshr" }) === "Hi dshr",
+    dshr.locale.bind("probe")("hi", { name: "dshr" }),
+  );
+
   dshr.__fail(new Error("diagnostic probe"));
   check(
     "__DSHR_LAST_ERROR__ records the failure for diagnostics",
@@ -480,6 +510,112 @@ async function registryScenario() {
   check("dispose clears every slot", dshr.slots.list().length === 0, dshr.slots.list());
   check("dispose runs effect cleanup", effectCleanup === 1, effectCleanup);
   check("dispose clears the rendered view", page.root.textContent === "", page.root.textContent);
+}
+
+// C-lite React mode: when the host module table provides React, registrations
+// are React components (including React.memo/forwardRef types), receive host
+// props/hooks and a `t()` seat for their locale namespace.
+async function reactScenario() {
+  const React = {
+    createElement(type, props) {
+      const children = Array.prototype.slice.call(arguments, 2);
+      return {
+        type,
+        props: Object.assign({}, props || {}, children.length ? { children: children.length === 1 ? children[0] : children } : {}),
+      };
+    },
+    memo(type) {
+      return { $$typeof: Symbol.for("react.memo"), type };
+    },
+    forwardRef(render) {
+      return { $$typeof: Symbol.for("react.forward_ref"), render };
+    },
+    useState(initial) {
+      return [typeof initial === "function" ? initial() : initial, function () {}];
+    },
+    useEffect() {},
+    Component: class Component {
+      constructor(props) {
+        this.props = props;
+      }
+    },
+    Fragment: Symbol("Fragment"),
+  };
+  const ReactDOM = {
+    createRoot(container) {
+      return {
+        render(element) {
+          container.__reactElement = element;
+        },
+        unmount() {
+          container.__reactElement = null;
+        },
+      };
+    },
+  };
+  const MemoSlot = React.memo(function MemoSlot() {
+    return null;
+  });
+  const page = createPage({
+    frameConfig: {
+      plugin: "harness",
+      frame: "slot:harness:react:0",
+      mode: "slot",
+      slot: "sidebar.footer.action",
+      id: "memo",
+      theme: "dark",
+    },
+  });
+  page.window.__DSHR_MODULES__ = { react: React, "react-dom/client": ReactDOM };
+  const dshr = page.dshr;
+  dshr.locale.register("harness", { en: { greet: "Hello {name}" } });
+  dshr.slots.register(
+    { name: "sidebar.footer.action", id: "memo", title: "Memo", locale: "harness" },
+    MemoSlot,
+  );
+  dshr.__frameActivated();
+  await tick();
+
+  const tree = page.root.__reactElement;
+  const child = tree && tree.props && tree.props.children;
+  check(
+    "host React mode accepts a React.memo registration",
+    Boolean(child) && child.type === MemoSlot,
+    child && typeof child.type,
+  );
+  check(
+    "React slot components receive reference-style host props",
+    Boolean(child) &&
+      child.props.wide === true &&
+      typeof child.props.useTheme === "function" &&
+      typeof child.props.useSession === "function",
+    child && Object.keys(child.props),
+  );
+  check(
+    "React slot components get a working t() seat for their locale",
+    Boolean(child) && child.props.t("greet", { name: "dshr" }) === "Hello dshr",
+    child && typeof child.props.t === "function" && child.props.t("greet", { name: "dshr" }),
+  );
+
+  const component = function KeyedSlot() {
+    return null;
+  };
+  dshr.slots.register({ name: "panel", key: "a" }, component);
+  dshr.slots.register({ name: "panel", key: "b" }, component);
+  const ids = dshr.slots.list().map((slot) => slot.id);
+  check(
+    "keyed registrations without an id get distinct ids",
+    ids.includes("panel:a") && ids.includes("panel:b"),
+    ids,
+  );
+  const entries = dshr.get("slots").entries("panel");
+  check(
+    "ctx.get('slots').entries exposes component and options for reference code",
+    entries.length >= 2 &&
+      entries.every((entry) => typeof entry.component === "function" && Boolean(entry.options)),
+    entries.map((entry) => entry.id),
+  );
+  dshr.dispose();
 }
 
 function urlFallbackScenario() {
@@ -673,6 +809,7 @@ function slotMissingScenario() {
 
 async function main() {
   await registryScenario();
+  await reactScenario();
   urlFallbackScenario();
   await slotAutoRenderScenario();
   await slotByNameScenario();

@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–80)
+# Журнал раундов паритета (1–81)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 361 root-тест
@@ -322,6 +322,47 @@ release-бинарь воспроизводим.
     eval-based бандлы требуют ослабления CSP, SlotMap-семантика и инъекция в DOM
     шелла по-прежнему вне scope — решение по C-full за владельцем.
 
+- 81: conformance C-lite до **n=4** и доработки React-контракта, найденные
+  реальными плагинами ([ADR-040](adr/040-react-client-half.md),
+  [PLUGINS.md](PLUGINS.md)):
+  - Тип компонента: `React.memo`/`forwardRef` возвращают объект с `$$typeof`, а не
+    функцию; `normalize` в host-React-режиме теперь принимает такие типы (раньше
+    падало `slot: render is required`).
+  - Keyed-регистрации: регистрация с `key` без `id` получает уникальный id
+    `<slot>:<key>` (второй key того же слота больше не заменяет первый), а
+    `ctx.get('slots').entries(key)` отдаёт референсную форму с `component` и
+    `options` для кода, который ищет свои entries.
+  - Локали: `ctx.locale.register(ns, dicts)` + `t()` в props компонента
+    (английский словарь, `{name}`-подстановки); таймеры `ctx.interval`/
+    `ctx.timeout` регистрируются во фрейме и снимаются вместе с ним
+    (`crates/cordis/src/bridge.js`).
+  - Primitives: шим расширен `JsonBlock`/`MarkdownText` (нужны genui) — теперь
+    `Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`,
+    `MarkdownText`; общий рантайм-артефакт — 149 442 байта
+    (`crates/server/assets/runtime/`, `checksums.txt` обновлён).
+  - Conformance n=4: к `@kt11/dsh-deepseek-balance@0.2.1` и `dsh-remote@1.1.2`
+    добавлены `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (MIT; клиентская
+    половина upstream без изменений; плавающий бейдж в `shell.overlay`,
+    `ctx.effect`/`ctx.interval`/`ctx.locale`; sha256 `ca700695…` в `package.json`)
+    и `dsh-genui@0.3.3` (MIT; тумблер GenUI в `conversation.input.left`,
+    регистрации через `React.memo` и keyed-слот `conversation.chat.node`; sha256
+    `8f0500ad…`); фикстуры
+    `crates/cordis/tests/fixtures/{ruoyang-balance,dsh-genui}/`, host-половины —
+    заглушки.
+  - Проверки: bridge harness 87 (+8: React-режим с memo-типом, host props/hooks,
+    `t()`-место компонента, keyed-ids, форма `slots.entries`), smoke — 66/66
+    (+3: discovery двух новых плагинов, рендер бейджа в `shell.overlay`, рендер
+    тумблера GenUI в `conversation.input.left`), cordis lib 26, server
+    `plugins_live` 12, workspace 361 passed + 3 ignored (desktop 21, итого 382),
+    web-e2e 16/16.
+  - Границы: набор n=4 (цель M5b 5.19 — 8–12 плагинов); по-прежнему нет полного
+    design-system `@deepseek-ai/dsh-client-ui-*`, SlotMap-семантики
+    (`ownerProps`/framework-hooks/cardinality/scope), React-контекста шелла и
+    композиции между плагинами, host-маршрутов DSH-плагинов и выбора версии
+    React; `@michengai/dsh-archive-manager` требует `'unsafe-eval'` в CSP
+    (сознательно не включён), `@michengai/dsh-skills-manager` падает на
+    инициализации бандла — оба вне набора и ждут триажа.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
@@ -334,7 +375,10 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
 на страницу) — и C-lite: React-компоненты слотов с host-hooks/`ctx.get('sessions')`,
 частичный design-system шим и первый реальный DSH-плагин в conformance; раунд 80
 довёл conformance до n=2 (`dsh-remote@1.1.2`) и добавил сервисы моста
-(`ctx.get('slots')`/`locale`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`).
+(`ctx.get('slots')`/`locale`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`);
+раунд 81 довёл conformance до n=4 и закрыл пробелы React-контракта
+(типы `React.memo`/`forwardRef`, keyed-ids, `locale.register`/`t()`,
+`ctx.interval`/`ctx.timeout`) и расширил primitives шим до семи компонентов.
 
 Открыто и не заблокировано:
 
@@ -343,18 +387,23 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
   `dsh.client.host_modules`: classic script, без ESM и отдельной подписи, версия
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов)
   могут поменяться до полного тира C по [ADR-040](adr/040-react-client-half.md).
-- C-lite-ограничения: design-system шим частичный (5 компонентов), `wide` в
-  host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальный плагин
-  в smoke показывает ветку ошибки данных), conformance-набор — n=2 (цель 8–12),
-  мостовые сервисы — подмножество референсных (нет проекций `sessions`,
-  `sessionStats`), eval-based бандлы требуют ослабления CSP, а
-  `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
+- C-lite-ограничения: design-system шим частичный (7 компонентов: `Button`,
+  `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`), `wide`
+  в host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальный
+  плагин в smoke показывает ветку ошибки данных), conformance-набор — n=4
+  (цель 8–12), SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст
+  шелла по-прежнему отсутствуют, мостовые сервисы — подмножество референсных
+  (нет проекций `sessions`, `sessionStats`), eval-based бандлы требуют
+  ослабления CSP, а `@michengai/dsh-skills-manager` падает на инициализации
+  бандла — нужен триаж.
 
 Ожидает решения (ADR-040 Proposed, тир C/C-full):
 
 - **Полный тир C** — C-lite PoC сделан (раунд 79: React-компоненты слотов,
   host-hooks/`ctx.get('sessions')` и частичный design-system шим; раунд 80:
-  conformance n=2 и сервисы моста `ctx.get('slots')`/`locale`/`ctx.inject`).
+  conformance n=2 и сервисы моста `ctx.get('slots')`/`locale`/`ctx.inject`;
+  раунд 81: React-контракт — типы `memo`/`forwardRef`, keyed-ids, локали
+  `register`/`t()`, таймеры — и conformance n=4).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, host-маршрутов

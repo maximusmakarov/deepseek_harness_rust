@@ -1,0 +1,37 @@
+{
+  "name": "genui",
+  "version": "0.3.3",
+  "description": "GenUI for DeepSeek Harness: interactive charts, forms, calculators, dashboards, and mini apps rendered inline in assistant replies, with actions that flow back to the model. (conformance fixture)",
+  "type": "module",
+  "main": "./lib/stub.mjs",
+  "exports": {
+    ".": "./lib/stub.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/client.js",
+    "lib/stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "host_modules": [
+        "react",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/dsh-genui",
+    "upstreamVersion": "0.3.3",
+    "upstreamLicense": "MIT",
+    "clientSha256": "8f0500adc436be2113dfcfc73d27b61cd585be52ddec21f603ee2b5cd6d605c5",
+    "changes": "client half and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}

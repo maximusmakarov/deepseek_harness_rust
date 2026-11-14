@@ -91,4 +91,27 @@
   total 382), cordis lib 26, server `plugins_live` 12, web-e2e 16/16; the shared
   runtime artifact is unchanged (148,140 bytes).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics) and a partial design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and a wider conformance set (n=2 now; target 8–12) await the ADR-040 C-full decision (D not recommended). The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C-lite conformance n=4 and the React-contract gaps the two new real
+  plugins exposed (ADR-040). The bridge now accepts React component *types*
+  (`React.memo`/`forwardRef` objects carrying `$$typeof`, not only functions),
+  gives keyed registrations without an `id` a unique `<slot>:<key>` id (and
+  `ctx.get('slots').entries(key)` returns the reference shape with `component`
+  and `options`), supports `ctx.locale.register(ns, dicts)` plus a `t()` seat in
+  component props (English dictionary, `{name}` substitution), and tears down
+  `ctx.interval`/`ctx.timeout` with the frame. The primitives shim gained
+  `JsonBlock`/`MarkdownText` (`Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`,
+  `JsonBlock`, `MarkdownText` — 7 components), so the shared runtime artifact is
+  now 149,442 bytes. Conformance n=4: the vendored
+  `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (MIT, client half verbatim, sha256
+  `ca700695…`, host half stubbed) renders a floating badge in `shell.overlay`
+  via `ctx.effect`/`ctx.interval`/`ctx.locale`, and `dsh-genui@0.3.3`
+  (MIT, client half verbatim, sha256 `8f0500ad…`, host half stubbed) adds a GenUI
+  toggle in `conversation.input.left` and a keyed `conversation.chat.node`
+  registration; the existing `@kt11/dsh-deepseek-balance@0.2.1` and
+  `dsh-remote@1.1.2` fixtures stay. Evidence: bridge harness 87 checks (+8: memo
+  type, host props/hooks, `t()` seat, keyed ids, `slots.entries` shape), smoke
+  66/66 (+3: two-plugin discovery, the overlay badge render, the GenUI toggle render
+  in `conversation.input.left`), cordis lib 26, server `plugins_live` 12,
+  workspace 361 passed + 3 ignored (desktop 21, total 382), web-e2e 16/16.
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics and the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout`) and a partial 7-component design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and a wider conformance set (n=4 now; target 8–12) await the ADR-040 C-full decision (D not recommended). The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

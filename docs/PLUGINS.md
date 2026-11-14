@@ -415,10 +415,13 @@ Host-state приходит от шелла сообщением `host-state` (`
 
 - `ctx.get('sessions')` — `currentProvideInfo.getSnapshot()/subscribe`, `get(id)`,
   `list()` (подмножество референсного сервиса, без проекций);
-- `ctx.get('slots')` — тот же реестр, что `ctx.slots`
-  (`inject`/`register`/`remove`/`list`) плюс `entries(key)`;
-- `ctx.get('locale')` — минимальный сервис с `getSnapshot()` →
-  `{active: "en", locale: "en"}` (шелл англоязычный для кадров плагинов);
+- `ctx.get('slots')` / `ctx.slots` — реестр (`inject`/`register`/`remove`/`list`,
+  `entries(key)`/`entriesOfSlot(region)`) плюс референсные
+  `subscribe(region, listener)`/`getVersion(region)` для плагинов, которые
+  сверяют собственные shadow-регистрации;
+- `ctx.get('locale')` / `ctx.locale` — минимальный сервис с `getSnapshot()` →
+  `{active: "en", locale: "en"}`, `register(ns, dicts)` и `bind(ns)` (возвращает
+  `t(key, params)`; шелл англоязычный для кадров плагинов);
 - `ctx.inject(deps, callback)` — референсный fiber-хелпер: `callback(inner)`
   вызывается только если **все** зависимости резолвятся, иначе не вызывается
   (опциональные интеграции `betterSidebar`/`sidebarRight`/`webTerminals` и т.п.
@@ -429,11 +432,17 @@ Host-state приходит от шелла сообщением `host-state` (`
 
 **Дизайн-система:** host-рантайм публикует
 `@deepseek-ai/dsh-client-ui-primitives` — **частичный независимый шим**
-(не пакет upstream): `Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner` на host
-React и CSS-переменных темы. Этого хватает простым плагинам; полный набор
-`@deepseek-ai/dsh-client-ui-*` — тир C-full.
+(не пакет upstream): `Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`,
+`JsonBlock`, `MarkdownText` на host React и CSS-переменных темы. Этого хватает
+простым плагинам; полный набор `@deepseek-ai/dsh-client-ui-*` — тир C-full.
+Компоненты `React.memo`/`forwardRef` принимаются как тип слота; регистрации с
+`key` без `id` получают уникальный id (`<slot>:<key>`), а
+`ctx.get('slots').entries(key)` отдаёт референсную форму с `component`/`options`.
+Локаль: `ctx.locale.register(ns, dicts)` + `t()` в props компонента
+(английский словарь; шелл англоязычный). Таймеры: `ctx.interval`/`ctx.timeout`
+снимаются вместе с фреймом.
 
-**Conformance (n=2):** реальные MIT-плагины с upstream-клиентской половиной без
+**Conformance (n=4):** реальные MIT-плагины с upstream-клиентской половиной без
 изменений (в манифесте только `host_modules`):
 
 - `@kt11/dsh-deepseek-balance@0.2.1` — React-карточка в `sidebar.footer.action`,
@@ -442,13 +451,17 @@ React и CSS-переменных темы. Этого хватает прост
 - `dsh-remote@1.1.2` — регистрирует React-слоты в `conversation.session.header.*`,
   `sidebar.workspaces.directoryFlow`; активируется без ошибок, опциональные
   сервисы (`betterSidebar`, `sidebarRight`, `webTerminals`) отсутствуют и
-  интеграции не монтируются — штатная деградация.
+  интеграции не монтируются — штатная деградация;
+- `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` — плавающий бейдж в
+  `shell.overlay` с `ctx.effect`/`ctx.interval`/`ctx.locale`;
+- `dsh-genui@0.3.3` — тумблер GenUI в `conversation.input.left`, регистрации
+  через `React.memo` и keyed-слот `conversation.chat.node`.
 
-Оба fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в `package.json`).
-Известные ограничения conformance-набора: `@michengai/dsh-archive-manager`
-требует `unsafe-eval` в CSP (не включён), `@michengai/dsh-skills-manager`
-падает на инициализации бандла (`Object.assign` над undefined) — оба записаны в
-TECH-DEBT и не входят в n=2.
+Все четыре fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в
+`package.json`). Известные ограничения conformance-набора:
+`@michengai/dsh-archive-manager` требует `unsafe-eval` в CSP (не включён),
+`@michengai/dsh-skills-manager` падает на инициализации бандла (`Object.assign`
+над undefined) — оба записаны в TECH-DEBT и не входят в n=4.
 
 Чего не хватает и после тиров A и B: design-system пакетов
 `@deepseek-ai/dsh-client-ui-*`, React-контекста и состояния шелла, композиции между

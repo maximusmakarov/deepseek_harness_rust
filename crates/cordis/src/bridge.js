@@ -155,16 +155,39 @@
     list: function () {
       return ctx.slots.list();
     },
+    subscribe: subscribeSlots,
+    getVersion: function (region) {
+      return slotVersionNow(region);
+    },
+    entriesOfSlot: function (region) {
+      return slotsService.entries(region);
+    },
     entries: function (key) {
       return sorted()
         .filter(function (entry) {
           return !key || entry.name === key;
         })
-        .map(described);
+        .map(function (entry) {
+          return Object.assign({}, described(entry), {
+            component: entry.render,
+            options: {
+              name: entry.name,
+              id: entry.id,
+              key: entry.key,
+              title: entry.title,
+              order: entry.order,
+              priority: entry.priority,
+              locale: entry.locale,
+            },
+          });
+        });
     },
   };
 
-  // Minimal `locale` service: the dshr shell is English-only for plugin frames.
+  // Minimal `locale` service: the dshr shell is English-only for plugin frames,
+  // but `register(namespace, dicts)` is supported so components that declare
+  // `locale` get a working `t()` prop.
+  const localeDictionaries = new Map();
   const localeService = {
     getSnapshot: function () {
       return { active: "en", locale: "en" };
@@ -179,7 +202,37 @@
       }
       return function () {};
     },
+    register: function (namespace, dictionaries) {
+      if (typeof namespace !== "string" || !namespace) return function () {};
+      localeDictionaries.set(namespace, dictionaries || {});
+      return function () {
+        localeDictionaries.delete(namespace);
+      };
+    },
+    // Reference `locale.bind(namespace)` returns the `t(key, params)` function
+    // plugins use in non-component code.
+    bind: function (namespace) {
+      return translatorFor(typeof namespace === "string" ? namespace : "");
+    },
   };
+
+  function translate(namespace, key, params) {
+    const dictionaries = localeDictionaries.get(namespace);
+    const table = dictionaries && (dictionaries.en || dictionaries);
+    let text = table && typeof table[key] === "string" ? table[key] : String(key);
+    if (params && typeof params === "object") {
+      text = text.replace(/\{(\w+)\}/g, function (match, name) {
+        return params[name] === undefined ? match : String(params[name]);
+      });
+    }
+    return text;
+  }
+
+  function translatorFor(namespace) {
+    return function (key, params) {
+      return translate(namespace || "", key, params);
+    };
+  }
 
   // Hook props handed to React slot components (the documented dshr subset).
   // Built lazily from the same host-state store as `ctx.get('sessions')`.
@@ -357,6 +410,40 @@
 
   const slots = new Map();
   const disposers = [];
+  // Region change notifications: `ctx.slots.subscribe(region, listener)` and
+  // `ctx.slots.getVersion(region)` are part of the reference slots surface used
+  // by feature plugins that reconcile their own shadow registrations.
+  const slotVersions = new Map();
+  const slotSubscribers = new Set();
+
+  function slotVersionNow(region) {
+    return slotVersions.get(region) || 0;
+  }
+
+  function notifySlotChange(region) {
+    slotVersions.set(region, slotVersionNow(region) + 1);
+    slotSubscribers.forEach(function (subscriber) {
+      if (subscriber.region !== "" && subscriber.region !== region) return;
+      try {
+        subscriber.listener(region);
+      } catch (error) {
+        fail(error);
+      }
+    });
+  }
+
+  function subscribeSlots(region, listener) {
+    if (typeof region === "function") {
+      listener = region;
+      region = "";
+    }
+    if (typeof listener !== "function") return function () {};
+    const subscriber = { region: region || "", listener: listener };
+    slotSubscribers.add(subscriber);
+    return function () {
+      slotSubscribers.delete(subscriber);
+    };
+  }
   const themeListeners = new Set();
   const actionWaiters = new Map();
   let actionSeq = 0;
@@ -409,16 +496,29 @@
 
   function normalize(entry, renderArgument) {
     if (!entry || typeof entry !== "object") throw new Error("slot entry must be an object");
-    const render = typeof renderArgument === "function" ? renderArgument : entry.render;
-    if (typeof render !== "function") throw new Error("slot: render is required");
+    const render =
+      typeof renderArgument === "function" || (renderArgument && typeof renderArgument === "object")
+        ? renderArgument
+        : entry.render;
+    // React component types are functions, but React.memo/forwardRef wrap them in
+    // an object carrying `$$typeof`; a host-React frame must accept those too.
+    const reactType =
+      render && typeof render === "object" && Boolean(render.$$typeof) && Boolean(reactRuntimeNow());
+    if (typeof render !== "function" && !reactType) throw new Error("slot: render is required");
     const name = entry.name || entry.slot || "panel";
-    const id = entry.id || name;
+    const key = typeof entry.key === "string" ? entry.key : "";
+    // Keyed registrations need a distinct id per key, otherwise a second key of
+    // the same slot would silently replace the first one in the frame.
+    const id = entry.id || (key ? String(name) + ":" + key : name);
     if (typeof id !== "string" || !id) throw new Error("slot entry needs a string id");
     return {
       name: String(name),
       id: id,
+      key: key,
       title: typeof entry.title === "string" && entry.title ? entry.title : id,
       order: Number.isFinite(entry.order) ? Number(entry.order) : 0,
+      priority: Number.isFinite(entry.priority) ? Number(entry.priority) : 0,
+      locale: typeof entry.locale === "string" ? entry.locale : "",
       render: render,
     };
   }
@@ -443,9 +543,19 @@
   }
 
   function publish() {
+    const wireSlots = sorted().map(described);
     post({
       type: "slots",
-      slots: sorted().map(described),
+      slots: wireSlots,
+    });
+    // Reference subscriptions are keyed by slot name (not by the mount region).
+    const names = new Set(
+      wireSlots.map(function (entry) {
+        return entry.name;
+      }),
+    );
+    names.forEach(function (name) {
+      notifySlotChange(name);
     });
     // A registration may arrive after the frame reported ready (async setup);
     // slot frames render as soon as their registration shows up.
@@ -518,7 +628,9 @@
         null,
         React.createElement(
           entry.render,
-          Object.assign({}, props, hostPropsNow()),
+          Object.assign({}, props, hostPropsNow(), {
+            t: translatorFor(entry.locale),
+          }),
         ),
       ),
     );
@@ -754,6 +866,26 @@
   const ctx = {
     protocol: 1,
     name: plugin,
+    locale: localeService,
+    // Fiber-style timers: registered in the frame so dispose() tears them down.
+    interval: function (callback, milliseconds) {
+      if (typeof callback !== "function") return function () {};
+      const handle = setInterval(callback, Number(milliseconds) || 0);
+      const stop = function () {
+        clearInterval(handle);
+      };
+      disposers.push(stop);
+      return stop;
+    },
+    timeout: function (callback, milliseconds) {
+      if (typeof callback !== "function") return function () {};
+      const handle = setTimeout(callback, Number(milliseconds) || 0);
+      const stop = function () {
+        clearTimeout(handle);
+      };
+      disposers.push(stop);
+      return stop;
+    },
     // Reference `ctx.get(service)` subset: `sessions` is populated from
     // host-state messages; anything else is unknown in the dshr bridge.
     get: function (name) {
@@ -833,6 +965,17 @@
       },
       list: function () {
         return sorted().map(described);
+      },
+      // Reference helpers used by feature plugins for reconciliation.
+      subscribe: subscribeSlots,
+      getVersion: function (region) {
+        return slotVersionNow(region);
+      },
+      entriesOfSlot: function (region) {
+        return slotsService.entries(region);
+      },
+      entries: function (key) {
+        return slotsService.entries(key);
       },
     },
     effect: function (factory) {

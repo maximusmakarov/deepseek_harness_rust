@@ -30,6 +30,8 @@
       ".dshr-tooltip{display:inline-flex;align-items:center;gap:4px}",
       ".dshr-icon{display:inline-flex;align-items:center;justify-content:center;line-height:1}",
       ".dshr-spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--dsw-alias-border-secondary,#3a3a3a);border-top-color:var(--dsw-alias-brand-primary,#4da3ff);border-radius:50%;animation:dshr-spin .8s linear infinite}",
+      ".dshr-json-block{margin:6px 0;padding:8px;border-radius:6px;background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12));overflow-x:auto;font:12px/1.4 ui-monospace,monospace}",
+      ".dshr-markdown-text{white-space:pre-wrap}",
       "@keyframes dshr-spin{to{transform:rotate(360deg)}}",
     ].join("\n");
     document.head.appendChild(style);
@@ -79,6 +81,33 @@
     );
   }
 
+  function JsonBlock(props) {
+    var value = props.value !== undefined ? props.value : props.data !== undefined ? props.data : props.children;
+    var text;
+    try {
+      text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    } catch (error) {
+      text = String(value);
+    }
+    return React.createElement(
+      "pre",
+      { className: classNames("dshr-json-block", props.className) },
+      text,
+    );
+  }
+
+  function MarkdownText(props) {
+    // Deliberately small: block-level plain text with line breaks preserved.
+    // Plugins that need the full DSH markdown renderer still get readable text.
+    var value = props.source !== undefined ? props.source : props.text !== undefined ? props.text : props.children;
+    var text = Array.isArray(value) ? value.join("\n") : value === undefined || value === null ? "" : String(value);
+    return React.createElement(
+      "div",
+      { className: classNames("dshr-markdown-text", props.className) },
+      text,
+    );
+  }
+
   function Spinner(props) {
     return React.createElement("span", {
       className: classNames("dshr-spinner", props.className),
@@ -93,5 +122,7 @@
     Tooltip: Tooltip,
     Icon: Icon,
     Spinner: Spinner,
+    JsonBlock: JsonBlock,
+    MarkdownText: MarkdownText,
   };
 })();

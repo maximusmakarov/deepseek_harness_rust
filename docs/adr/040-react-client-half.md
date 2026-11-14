@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -187,3 +187,31 @@ cardinality/scope/chain/hoc), React-контекст/состояние шелл
 - **Проверка:** bridge harness 79 checks, smoke 63/63 (+3: второй плагин,
   его регионы и отсутствие ошибок), cordis lib 26, server plugins_live 12,
   workspace 361 passed + 3 ignored, web-e2e 16/16.
+
+## Conformance n=4 и доработки React-контракта (15.11.2026, раунд 81)
+
+Ещё два реальных плагина выявили конкретные пробелы моста — все закрыты:
+
+- **Тип компонента.** `React.memo`/`forwardRef` возвращают объект с `$$typeof`,
+  а не функцию; `normalize` теперь принимает такие типы в host-React-режиме
+  (раньше падало `slot: render is required`).
+- **Keyed-регистрации.** Регистрация с `key` без `id` получает уникальный id
+  `<slot>:<key>`; иначе второй key того же слота молча заменял первый.
+  `ctx.get('slots').entries(key)` отдаёт референсную форму с `component` и
+  `options` для кода, который ищет свои entries.
+- **Локали.** `ctx.locale.register(ns, dicts)` + `t()` в props компонента
+  (английский словарь; `{name}`-подстановки).
+- **Таймеры.** `ctx.interval`/`ctx.timeout` снимаются вместе с фреймом.
+- **Референсная поверхность слотов.** `ctx.slots.subscribe(region, listener)`,
+  `getVersion(region)`, `entries(key)`/`entriesOfSlot(region)` (entries несут
+  `component` и `options`) — нужны плагинам, которые держат собственные
+  shadow-регистрации; `ctx.locale.bind(ns)` отдаёт `t(key, params)`.
+- **Primitives.** Шим расширен `JsonBlock`/`MarkdownText` (нужны genui).
+- **Conformance n=4:** к `@kt11/dsh-deepseek-balance` и `dsh-remote` добавлены
+  `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (плавающий бейдж в
+  `shell.overlay`, `ctx.interval`/`ctx.locale`) и `dsh-genui@0.3.3` (тумблер в
+  `conversation.input.left`, `React.memo`, keyed `conversation.chat.node`).
+  Все — MIT, клиентские половины upstream без изменений, sha256 в `package.json`.
+- **Проверка:** bridge harness 87 checks (+8: React-режим с memo/props/t и reference slots surface — subscribe/getVersion/entriesOfSlot, locale.bind),
+  smoke 66/66 (+3), cordis 26, server plugins_live 12, workspace 361 passed +
+  3 ignored, web-e2e 16/16.

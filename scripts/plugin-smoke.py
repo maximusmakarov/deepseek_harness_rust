@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with fifteen throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with seventeen throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -784,6 +784,8 @@ def write_fixtures(home: Path, workspace: Path) -> None:
     for fixture_name, plugin_name in [
         ("deepseek-balance", "deepseek-balance"),
         ("dsh-remote", "dsh-remote"),
+        ("ruoyang-balance", "ruoyang-balance"),
+        ("dsh-genui", "dsh-genui"),
     ]:
         source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / fixture_name
         target = workspace / fixture_name
@@ -1132,7 +1134,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 15, names)
+        check("lists every configured client half", len(clients) == 17, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -1213,6 +1215,16 @@ def run(args: argparse.Namespace) -> int:
             and "@deepseek-ai/dsh-client-ui-primitives" in remote_half.get("host_modules", []),
             remote_half,
         )
+        ruoyang_half = next((client for client in clients if client["name"] == "ruoyang-balance"), None)
+        genui_half = next((client for client in clients if client["name"] == "dsh-genui"), None)
+        check(
+            "two more real DSH plugins are discovered as client halves",
+            ruoyang_half is not None
+            and ruoyang_half.get("host_modules") == ["react"]
+            and genui_half is not None
+            and "@deepseek-ai/dsh-client-ui-primitives" in genui_half.get("host_modules", []),
+            (ruoyang_half, genui_half),
+        )
 
         # A deterministic transcript: create a session over REST and replay one
         # assistant turn, so per-message regions have rows to mount into.
@@ -1237,7 +1249,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 15)
+        wait_registry_ready(debug_port, 17)
         # Registry frames load in inject order; wait until the multi-region half
         # has published all of its startup registrations before snapshotting the
         # mounted slot frames (otherwise the snapshot races the last frame).
@@ -1263,7 +1275,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 15
+            len(registry) == 17
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1625,6 +1637,40 @@ def run(args: argparse.Namespace) -> int:
             {"frame": remote_frame, "slot": remote_slot},
         )
 
+        # C-lite conformance n=4: a floating badge in shell.overlay and a
+        # composer snippet using React.memo/keyed registrations.
+        ruoyang_slot = poll_frame(
+            debug_port,
+            "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null, text: String(document.getElementById('dshr-slot-root')?.textContent || '')})",
+            lambda value: json.loads(str(value))["ready"] == "1"
+            and json.loads(str(value))["text"].strip() != "",
+            plugin="ruoyang-balance",
+            slot="shell.overlay",
+            label="ruoyang-balance overlay",
+        )
+        ruoyang_state = json.loads(str(ruoyang_slot))
+        check(
+            "a floating real plugin renders in the shell overlay",
+            ruoyang_state["error"] is None
+            and "Balance unavailable" in ruoyang_state["text"],
+            ruoyang_state,
+        )
+        genui_slot = poll_frame(
+            debug_port,
+            "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null, text: String(document.getElementById('dshr-slot-root')?.textContent || '')})",
+            lambda value: json.loads(str(value))["ready"] == "1"
+            and "GenUI" in json.loads(str(value))["text"],
+            plugin="dsh-genui",
+            slot="conversation.input.left",
+            label="genui prompt toggle",
+        )
+        genui_state = json.loads(str(genui_slot))
+        check(
+            "a real plugin using React.memo/keyed slots renders in the composer",
+            genui_state["error"] is None and "GenUI" in genui_state["text"],
+            genui_state,
+        )
+
         shell.call(
             "Page.navigate",
             {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=ui-kit"},
@@ -1729,7 +1775,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 15)
+        wait_registry_ready(debug_port, 17)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1881,7 +1927,18 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 15)
+        wait_registry_ready(debug_port, 17)
+        # React/multi-plugin loading can delay the stage's first tab selection;
+        # wait for the active panel frame before driving actions through it.
+        wait_until(
+            lambda: bool(
+                shell.eval(
+                    "document.querySelector('#plugin-stage iframe.slot-frame')?.dataset.slot || ''"
+                )
+            ),
+            timeout=LOAD_TIMEOUT,
+            label="active panel frame",
+        )
 
         # ctx.action round-trips from a panel frame -------------------------
         def panel_eval(expression: str, await_promise: bool = False):
@@ -2024,7 +2081,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 15)
+        wait_registry_ready(debug_port, 17)
 
         def surviving_frames() -> int:
             count = 0
@@ -2061,7 +2118,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 15)
+            wait_registry_ready(debug_port, 17)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

@@ -24,8 +24,8 @@ Gates that need their own invocation:
 cargo test -p dshr-cli --test evals -- --nocapture   # 10-task eval suite, budgets in target/evals/report.json
 cargo test -p dshr-perf --release -- --nocapture     # ARCHITECTURE §20 budgets (debug runs print SKIP)
 python3 scripts/web-e2e.py                           # chat -> approval -> tool -> journal in headless Chrome
-python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, plugin-shipped runtime (`dsh.client.runtime`), shared host runtime (`dsh.client.host_modules`), C-lite React slot components with host hooks/`ctx.get('sessions')` (fixture `hooks`), bridge services `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__`, design-system primitives shim (fixture `ui-kit`), and the two real conformance fixtures `@kt11/dsh-deepseek-balance` and `dsh-remote` (63 checks)
-scripts/check-runtime-assets.sh                      # vendored shared runtime (React/ReactDOM UMD + bootstrap + the partial primitives shim) matches crates/server/assets/runtime/checksums.txt
+python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, plugin-shipped runtime (`dsh.client.runtime`), shared host runtime (`dsh.client.host_modules`), C-lite React slot components with host hooks/`ctx.get('sessions')` (fixture `hooks`) and the React contract (component types from `React.memo`/`forwardRef`, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout`), bridge services `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__`, design-system primitives shim (fixture `ui-kit`; 7 components), and the four real conformance fixtures `@kt11/dsh-deepseek-balance`, `dsh-remote`, `@ruoyang/dsh-plugin-deepseek-balance`, `dsh-genui` (66 checks)
+scripts/check-runtime-assets.sh                      # vendored shared runtime (React/ReactDOM UMD + bootstrap + the partial 7-component primitives shim; 149,442 bytes total) matches crates/server/assets/runtime/checksums.txt
 ```
 
 ## Web UI
