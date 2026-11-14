@@ -247,6 +247,6 @@ docs/adr              001–039
 1. Windows sandbox (persistent helper), сеть Windows.
 2. Tauri: трей, автообновление, notarization (бандл `.app` уже собирается).
 3. Полный Cordis: HMR, кэш грантов/аудит, клиентская UI-половина.
-4. ghcr-бутылки Homebrew и воспроизводимые сборки.
+4. ghcr-бутылки Homebrew (сборка уже детерминирована и воспроизводима).
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

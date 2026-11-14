@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+env:
+  SOURCE_DATE_EPOCH: "0"
+  CARGO_INCREMENTAL: "0"
+  RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=/dshr --remap-path-prefix=${{ github.workspace }}/target=/target -C debuginfo=0"
+
 jobs:
   build:
     name: build (${{ matrix.target }})

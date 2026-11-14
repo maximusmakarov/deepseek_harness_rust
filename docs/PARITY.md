@@ -51,7 +51,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 |---|---|---|
 | Бинарные архивы 5 таргетов, SHA256SUMS, Ed25519, provenance | есть | ✅ |
 | Homebrew: бинарная формула | есть; ghcr-бутылки нет | ⚠️ |
-| Reproducible builds | архивы детерминированы (mtime/uid/gid/sort); бинарь побайтово не воспроизводим | ⚠️ |
+| Reproducible builds | архивы детерминированы; бинарь воспроизводим при том же toolchain с remap/SOURCE_DATE_EPOCH (проверено локально); cross-Linux может отличаться | ✅ |
 | Desktop в release CI | macOS `.app` zip | ✅ |
 | Windows/Linux desktop packages | нет | ❌ |
 
@@ -62,6 +62,6 @@ P0 (закрыто 14.11): трей и close-to-tray, профили/созда�
 Осталось: тихая установка/замена приложения и каналы обновлений.
 P1: setup/onboarding, запуск с папкой, обновления, npm/Cordis install/update,
 плагин-маркет, elicitation, Windows sandbox.
-P2: режимы окна/материалы, recovery-окна, reproducible builds, ghcr-бутылки.
+P2: extended/Linux window modes, recovery-окна, ghcr-бутылки.
 
 Каждый срез: код + тест/сборка + обновление этой матрицы.

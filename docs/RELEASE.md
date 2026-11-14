@@ -55,6 +55,15 @@ scripts/render-formula.sh 0.1.0 SHA256SUMS dshr.rb   # нужны все 4 та�
 `scripts/install.sh` умеет ставить из локального каталога:
 `DSHR_RELEASE_BASE_URL=file://$PWD/dist DSHR_VERSION=0.1.0 DSHR_TARGET=... scripts/install.sh`.
 
+## Воспроизводимость
+
+Сборка с `SOURCE_DATE_EPOCH=0`, `CARGO_INCREMENTAL=0` и
+`RUSTFLAGS="--remap-path-prefix=$PWD=/dshr --remap-path-prefix=$PWD/target=/target -C debuginfo=0"`
+даёт побайтово одинаковый бинарь при том же toolchain: проверка
+`scripts/check-reproducible.sh` сравнивает два независимых target-каталога.
+CI использует эти переменные; `cross`-сборка Linux aarch64 может отличаться
+путями внутри контейнера.
+
 ## Границы
 
 - Архивы детерминированы (одинаковый бинарь → одинаковый sha256), но сами бинари
