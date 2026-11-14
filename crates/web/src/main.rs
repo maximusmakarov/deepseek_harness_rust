@@ -62,6 +62,17 @@ struct PackagesResponse {
     packages: Vec<PackageHit>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct InstalledPlugin {
+    name: String,
+    enabled: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct InstalledResponse {
+    plugins: Vec<InstalledPlugin>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct NewSessionResponse {
     session: SessionHeader,
@@ -342,6 +353,7 @@ fn App() -> impl IntoView {
     let plugins_open = RwSignal::new(false);
     let plugin_query = RwSignal::new(String::new());
     let plugin_hits = RwSignal::new(Vec::<PackageHit>::new());
+    let installed_plugins = RwSignal::new(Vec::<InstalledPlugin>::new());
     let plugin_status = RwSignal::new(String::new());
     let version = RwSignal::new(String::new());
     let custom_frame = web_sys::window()
@@ -398,6 +410,11 @@ fn App() -> impl IntoView {
                     sessions.set(data.sessions);
                     if let Ok(health) = get_json::<HealthResponse>("/v1/health", &value).await {
                         version.set(health.version);
+                    }
+                    if let Ok(installed) =
+                        get_json::<InstalledResponse>("/v1/plugins/installed", &value).await
+                    {
+                        installed_plugins.set(installed.plugins);
                     }
                     match get_json::<ToolsResponse>("/v1/tools", &value).await {
                         Ok(list) => tools.set(list.tools),
@@ -523,6 +540,29 @@ fn App() -> impl IntoView {
                 }
                 Ok(response) => plugin_status.set(format!("install failed: HTTP {}", response.status())),
                 Err(error) => plugin_status.set(format!("install error: {error}")),
+            }
+        });
+    };
+
+    let plugin_action = move |path: &'static str, body: serde_json::Value| {
+        let token_value = token.get_untracked();
+        plugin_status.set("working…".into());
+        spawn_local(async move {
+            let request = gloo_net::http::Request::post(path)
+                .header("Authorization", &format!("Bearer {token_value}"))
+                .header("Content-Type", "application/json")
+                .body(body.to_string());
+            match request {
+                Ok(request) => match request.send().await {
+                    Ok(response) if response.ok() => {
+                        plugin_status.set("done — restart dshr to apply".into());
+                    }
+                    Ok(response) => {
+                        plugin_status.set(format!("failed: HTTP {}", response.status()));
+                    }
+                    Err(error) => plugin_status.set(format!("failed: {error}")),
+                },
+                Err(error) => plugin_status.set(format!("failed: {error}")),
             }
         });
     };
@@ -696,6 +736,29 @@ fn App() -> impl IntoView {
                     <button on:click=move |_| plugins_open.set(false)>"Close"</button>
                 </div>
                 <p>{move || plugin_status.get()}</p>
+                <h4>"Cordis plugins"</h4>
+                <ul>
+                    {move || installed_plugins.get().into_iter().map(|plugin| {
+                        let name = plugin.name.clone();
+                        let toggle_name = plugin.name.clone();
+                        let remove_name = plugin.name.clone();
+                        let enabled = plugin.enabled;
+                        view! {
+                            <li>
+                                {format!("{} ({})", plugin.name, if enabled { "enabled" } else { "disabled" })}
+                                <button on:click=move |_| plugin_action(
+                                    "/v1/plugins/toggle",
+                                    serde_json::json!({"name": toggle_name.clone(), "enabled": !enabled}),
+                                )>{if enabled { "Disable" } else { "Enable" }}</button>
+                                <button on:click=move |_| plugin_action(
+                                    "/v1/plugins/remove",
+                                    serde_json::json!({"name": remove_name.clone()}),
+                                )>"Remove"</button>
+                                {name}
+                            </li>
+                        }
+                    }).collect_view()}
+                </ul>
                 <h4>"Installed tools"</h4>
                 <ul>
                     {move || tools.get().into_iter().map(|tool| view! {

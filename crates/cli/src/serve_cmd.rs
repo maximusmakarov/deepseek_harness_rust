@@ -155,6 +155,12 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
             auto_title: config.session.auto_title,
             home: loader.home().to_path_buf(),
             profile: config.profile.clone(),
+            cordis_plugins: config
+                .plugins
+                .cordis
+                .iter()
+                .map(|plugin| (plugin.name.clone(), plugin.enabled))
+                .collect(),
         },
         provider,
         Arc::new(tools),

@@ -28,6 +28,7 @@ async fn sdk_creates_and_runs_a_session() {
             auto_title: false,
             home: PathBuf::from("."),
             profile: "default".into(),
+            cordis_plugins: Vec::new(),
         },
         Arc::new(ScriptedProvider::new(
             "test-model",

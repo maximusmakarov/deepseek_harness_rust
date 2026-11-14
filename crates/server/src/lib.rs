@@ -51,6 +51,8 @@ pub struct ServerConfig {
     pub home: PathBuf,
     /// Active profile used by plugin install endpoints.
     pub profile: String,
+    /// Cordis plugins at startup (name, enabled).
+    pub cordis_plugins: Vec<(String, bool)>,
 }
 
 #[derive(Clone)]
@@ -336,6 +338,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/tools", get(list_tools))
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/install", post(install_plugin))
+        .route("/v1/plugins/installed", get(installed_plugins))
+        .route("/v1/plugins/toggle", post(toggle_plugin))
+        .route("/v1/plugins/remove", post(remove_plugin))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{id}", get(get_session))
         .route("/v1/sessions/{id}/turns", post(start_turn))
@@ -475,6 +480,86 @@ async fn install_plugin(
         "ok": output.status.success(),
         "output": text.chars().take(4000).collect::<String>()
     })))
+}
+
+async fn installed_plugins(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let plugins: Vec<Value> = state
+        .config
+        .cordis_plugins
+        .iter()
+        .map(|(name, enabled)| json!({"name": name, "enabled": enabled}))
+        .collect();
+    Ok(Json(json!({"plugins": plugins})))
+}
+
+#[derive(Debug, Deserialize)]
+struct TogglePlugin {
+    name: String,
+    enabled: bool,
+}
+
+async fn toggle_plugin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TogglePlugin>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_plugin_name(&body.name) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let action = if body.enabled { "enable" } else { "disable" };
+    run_plugin_cli(&state, &["plugin", "npm", action, &body.name]).await
+}
+
+#[derive(Debug, Deserialize)]
+struct RemovePlugin {
+    name: String,
+}
+
+async fn remove_plugin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RemovePlugin>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_plugin_name(&body.name) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    run_plugin_cli(&state, &["plugin", "npm", "remove", &body.name]).await
+}
+
+async fn run_plugin_cli(state: &AppState, arguments: &[&str]) -> Result<Json<Value>, StatusCode> {
+    let executable = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut command = tokio::process::Command::new(executable);
+    command.args([
+        "--home",
+        &state.config.home.display().to_string(),
+        "--profile",
+        &state.config.profile,
+    ]);
+    command.args(arguments);
+    let output = tokio::time::timeout(Duration::from_secs(180), command.output())
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    Ok(Json(json!({
+        "ok": output.status.success(),
+        "output": text.chars().take(4000).collect::<String>()
+    })))
+}
+
+fn valid_plugin_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 100
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "@/_.-".contains(ch))
 }
 
 fn valid_package_name(name: &str) -> bool {

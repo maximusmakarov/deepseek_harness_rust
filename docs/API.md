@@ -17,6 +17,9 @@ dshr serve --bind 127.0.0.1 --port 55678
 | GET | `/v1/tools` | — | `{tools: [{name, description, input_schema}]}` |
 | GET | `/v1/plugins/search` | `?q=` | `{packages: [{name, version, description}]}` (npm registry) |
 | POST | `/v1/plugins/install` | `{name}` | `{ok, output}` — запускает `plugin npm add` (bearer-token) |
+| GET | `/v1/plugins/installed` | — | `{plugins: [{name, enabled}]}` |
+| POST | `/v1/plugins/toggle` | `{name, enabled}` | `{ok, output}` (enable/disable) |
+| POST | `/v1/plugins/remove` | `{name}` | `{ok, output}` |
 | GET | `/v1/sessions` | — | `{sessions: SessionSummary[]}` |
 | POST | `/v1/sessions` | `{title?}` | `{session: SessionHeader}` |
 | GET | `/v1/sessions/{id}` | — | `{session, messages}` |

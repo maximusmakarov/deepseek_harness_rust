@@ -42,6 +42,7 @@ fn state(dir: &std::path::Path) -> AppState {
             auto_title: false,
             home: PathBuf::from("."),
             profile: "default".into(),
+            cordis_plugins: vec![("demo".into(), true)],
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),
@@ -261,6 +262,7 @@ async fn rate_limits_api_requests() {
         auto_title: false,
         home: PathBuf::from("."),
         profile: "default".into(),
+        cordis_plugins: Vec::new(),
     };
     let app = router(AppState::new(
         config,
@@ -356,6 +358,38 @@ async fn serves_leptos_assets() {
         .await
         .expect("js");
     assert_eq!(js.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn lists_installed_cordis_plugins() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/v1/plugins/installed",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["plugins"][0]["name"], "demo");
+    assert_eq!(body["plugins"][0]["enabled"], true);
+}
+
+#[tokio::test]
+async fn rejects_invalid_plugin_toggle_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/plugins/toggle",
+        Some("test-token"),
+        Body::from(json!({"name": "bad name!", "enabled": false}).to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
