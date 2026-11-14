@@ -112,6 +112,16 @@ jobs:
         run: |
           set -o pipefail
           cargo test -p dshr-cli --test evals -- --nocapture 2>&1 | tee evals.log
+      - name: publish eval failures
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Eval suite failed"
+            echo '```'
+            grep -a -E "^(FAIL|evals:)" evals.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -135,11 +145,32 @@ jobs:
         run: |
           set -o pipefail
           python3 scripts/web-e2e.py --binary target/debug/dshr 2>&1 | tee web-e2e.log
+      - name: client-half bridge and DSH slot names
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/plugin-smoke.py 2>&1 | tee plugin-smoke.log
+      - name: publish browser gate failures
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Browser gates failed"
+            for log in web-e2e.log plugin-smoke.log; do
+              [ -f "$log" ] || continue
+              echo "### $log"
+              echo '```'
+              grep -a -E "^(FAIL|::error|  FAIL)" "$log" | head -40 || true
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: web-e2e-log
-          path: web-e2e.log
+          path: |
+            web-e2e.log
+            plugin-smoke.log
           if-no-files-found: ignore
 
   perf:

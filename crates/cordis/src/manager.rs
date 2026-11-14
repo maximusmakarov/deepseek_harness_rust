@@ -295,7 +295,10 @@ impl CordisManager {
     }
 
     async fn start_locked(&self, spec: CordisPluginSpec) -> Result<(), CordisError> {
-        self.stop_locked(&spec.name);
+        // Detach the previous generation but keep its tools registered until the
+        // new connection is up: `replace_prefix` swaps both in one write-lock
+        // section, so a reader never sees the plugin's tools disappear mid-reload.
+        let previous = lock(&self.running).remove(&spec.name);
         match connect(spec.clone(), &self.home).await {
             Ok(connection) => {
                 let tools: Vec<_> = connection
@@ -319,8 +322,12 @@ impl CordisManager {
                     },
                 );
                 lock(&self.errors).remove(&spec.name);
-                let registered = self.registry.register_all(tools);
+                let prefix = format!("{TOOL_PREFIX}{}__", spec.name);
+                let (_removed, registered) = self.registry.replace_prefix(&prefix, tools);
                 debug_assert_eq!(registered, tool_names);
+                // The new sidecar owns the tools now; dropping the old
+                // connection terminates the previous child process.
+                drop(previous);
                 let _ = self.events.send(PluginEvent {
                     action: "started".into(),
                     plugin: spec.name.clone(),
@@ -331,6 +338,11 @@ impl CordisManager {
                 Ok(())
             }
             Err(error) => {
+                // A failed reload must not take a working plugin offline: put the
+                // previous generation back (its tools were never removed).
+                if let Some(previous) = previous {
+                    lock(&self.running).insert(spec.name.clone(), previous);
+                }
                 lock(&self.errors).insert(spec.name.clone(), error.to_string());
                 let generation = self.generation.load(Ordering::SeqCst);
                 let _ = self.events.send(PluginEvent {

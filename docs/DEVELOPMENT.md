@@ -11,6 +11,13 @@ cargo deny check
 cargo llvm-cov --workspace --summary-only
 ```
 
+One command runs every gate exactly like CI:
+
+```sh
+scripts/check.sh          # everything (fmt, clippy, tests, evals, perf, browser)
+scripts/check.sh quick    # fmt, clippy, workspace tests
+```
+
 Gates that need their own invocation:
 
 ```sh

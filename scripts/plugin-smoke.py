@@ -453,6 +453,8 @@ def start_chrome(binary: str, port: int, profile: Path) -> subprocess.Popen:
             "--headless=new",
             "--disable-gpu",
             "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
             "--hide-scrollbars",
             "--window-size=960,760",
             f"--remote-debugging-port={port}",

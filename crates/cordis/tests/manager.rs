@@ -250,7 +250,9 @@ async fn watches_entry_files_and_reloads() {
 
     let reloaded = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            if call(&registry, &tool).await == "v4" {
+            // A reload may replace the tool between polls; only call it when
+            // the registry currently has it.
+            if registry.contains(&tool) && call(&registry, &tool).await == "v4" {
                 return true;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;

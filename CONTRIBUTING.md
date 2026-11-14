@@ -13,6 +13,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo deny check
 ```
 
+Before pushing, run the gates CI runs:
+
+```sh
+scripts/check.sh          # fmt, clippy, workspace tests, evals, perf, browser gates
+scripts/check.sh quick    # fmt, clippy, workspace tests only
+```
+
 ## Rules
 
 1. Keep the workspace MSRV green; no new `unsafe` outside platform crates and vendored code.

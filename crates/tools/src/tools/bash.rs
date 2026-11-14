@@ -287,7 +287,21 @@ mod tests {
             .execute(&second, json!({"command": "pwd"}))
             .await
             .expect("pwd");
-        assert!(!outcome.content.contains("\n/tmp"), "{}", outcome.content);
+        // Compare against the session's own cwd instead of a `/tmp` needle:
+        // `tempfile::tempdir()` itself lives under `/tmp` on Linux, so a
+        // substring check would fail there even though the sessions are isolated.
+        let workspace = dir.path().canonicalize().expect("canonical workspace");
+        let printed = outcome
+            .content
+            .lines()
+            .map(str::trim)
+            .find(|line| line.starts_with('/'))
+            .unwrap_or_default();
+        let printed = std::path::Path::new(printed)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(printed));
+        assert_eq!(printed, workspace, "{}", outcome.content);
+        assert_ne!(printed, std::path::Path::new("/tmp"), "{}", outcome.content);
     }
 
     #[tokio::test]

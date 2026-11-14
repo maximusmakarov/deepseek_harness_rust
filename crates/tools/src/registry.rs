@@ -192,6 +192,38 @@ impl ToolRegistry {
         removed
     }
 
+    /// Replaces every tool whose name starts with `prefix` with `tools` inside
+    /// a single write-lock section, so concurrent readers never observe the
+    /// plugin's generation gap. Returns `(removed, inserted)` names.
+    pub fn replace_prefix(
+        &self,
+        prefix: &str,
+        tools: impl IntoIterator<Item = Arc<dyn Tool>>,
+    ) -> (Vec<String>, Vec<String>) {
+        let mut removed = Vec::new();
+        let mut inserted = Vec::new();
+        {
+            let mut map = self.map_mut();
+            let names: Vec<String> = map
+                .keys()
+                .filter(|name| name.starts_with(prefix))
+                .cloned()
+                .collect();
+            for name in names {
+                map.remove(&name);
+                removed.push(name);
+            }
+            for tool in tools {
+                inserted.push(tool.name().to_owned());
+                map.insert(tool.name().to_owned(), tool);
+            }
+        }
+        if !removed.is_empty() || !inserted.is_empty() {
+            self.bump();
+        }
+        (removed, inserted)
+    }
+
     /// Removes every tool whose name starts with `prefix` and returns the
     /// removed names. Plugins use this to swap a whole generation at once.
     pub fn remove_prefix(&self, prefix: &str) -> Vec<String> {
@@ -396,6 +428,63 @@ mod tests {
         assert!(!serving.contains("cordis__demo__later"));
         assert!(registry.contains("cordis__demo__later"));
     }
+    #[test]
+    fn replace_prefix_swaps_a_generation_atomically() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let registry = Arc::new(ToolRegistry::new());
+        registry.register_all([
+            Arc::new(NamedTool("swap__old_a")) as Arc<dyn Tool>,
+            Arc::new(NamedTool("swap__old_b")),
+        ]);
+        let (removed, inserted) = registry.replace_prefix(
+            "swap__",
+            [
+                Arc::new(NamedTool("swap__new_a")) as Arc<dyn Tool>,
+                Arc::new(NamedTool("swap__new_b")),
+            ],
+        );
+        assert_eq!(
+            removed,
+            vec!["swap__old_a".to_owned(), "swap__old_b".to_owned()]
+        );
+        assert_eq!(
+            inserted,
+            vec!["swap__new_a".to_owned(), "swap__new_b".to_owned()]
+        );
+
+        // Readers must never observe a generation gap while the swap repeats.
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let registry = Arc::clone(&registry);
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let live = registry
+                        .names()
+                        .into_iter()
+                        .filter(|name| name.starts_with("swap__"))
+                        .count();
+                    assert!(live == 2, "generation gap: {live} tools visible");
+                }
+            })
+        };
+        for round in 0_u32..500 {
+            let suffix = if round % 2 == 0 { "old" } else { "new" };
+            let first: &'static str = Box::leak(format!("swap__{suffix}_a").into_boxed_str());
+            let second: &'static str = Box::leak(format!("swap__{suffix}_b").into_boxed_str());
+            registry.replace_prefix(
+                "swap__",
+                [
+                    Arc::new(NamedTool(first)) as Arc<dyn Tool>,
+                    Arc::new(NamedTool(second)),
+                ],
+            );
+        }
+        stop.store(true, Ordering::Relaxed);
+        reader.join().expect("reader");
+    }
+
     #[test]
     fn concurrent_readers_never_observe_a_partial_generation() {
         use std::sync::atomic::{AtomicBool, Ordering};
