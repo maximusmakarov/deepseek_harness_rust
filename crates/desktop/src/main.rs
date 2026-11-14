@@ -402,7 +402,10 @@ fn build_tray(
                     ));
                 }
             }
-            "terminal" => open_terminal(),
+            "terminal" => {
+                let home = home_dir();
+                open_terminal(&home, &current_profile(&home));
+            }
             "config-folder" => open_reveal(&home_dir()),
             "safe-restart" => {
                 let home = home_dir();
@@ -1154,13 +1157,71 @@ fn open_url(url: &str) {
     let _ = Command::new("xdg-open").arg(url).status();
 }
 
-fn open_terminal() {
+fn open_terminal(home: &Path, profile: &str) {
+    let folder = load_desktop_folder(home).unwrap_or_else(|| home.to_path_buf());
+    let script = write_terminal_script(home, profile, &folder);
     #[cfg(target_os = "macos")]
-    let _ = Command::new("open").args(["-a", "Terminal"]).status();
+    if let Ok(script) = &script {
+        let _ = Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(script)
+            .status();
+    }
     #[cfg(target_os = "windows")]
-    let _ = Command::new("cmd").args(["/C", "start", "cmd"]).status();
+    {
+        let _ = profile;
+        let _ = Command::new("cmd")
+            .args([
+                "/C",
+                "start",
+                "cmd",
+                "/K",
+                &format!("cd /d {}", folder.display()),
+            ])
+            .status();
+    }
     #[cfg(all(unix, not(target_os = "macos")))]
-    let _ = Command::new("x-terminal-emulator").status();
+    if let Ok(script) = &script {
+        let _ = Command::new("x-terminal-emulator")
+            .args(["-e", script.to_str().unwrap_or_default()])
+            .status();
+    }
+}
+
+fn write_terminal_script(home: &Path, profile: &str, folder: &Path) -> Result<PathBuf, String> {
+    let bin = home.join("bin");
+    std::fs::create_dir_all(&bin).map_err(|error| error.to_string())?;
+    if let Ok(binary) = find_binary() {
+        let shim = format!(
+            "#!/bin/sh\nexec \"{}\" --home \"{}\" --profile \"{}\" \"$@\"\n",
+            binary.display(),
+            home.display(),
+            profile
+        );
+        std::fs::write(bin.join("dshr"), shim).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(bin.join("dshr"), std::fs::Permissions::from_mode(0o755))
+                .map_err(|error| error.to_string())?;
+        }
+    }
+    let script = home.join("terminal.sh");
+    let contents = format!(
+        "#!/bin/sh\ncd \"{}\"\nexport DSHR_HOME=\"{}\"\nexport PATH=\"{}:$PATH\"\nexec \"${{SHELL:-/bin/sh}}\" -l\n",
+        folder.display(),
+        home.display(),
+        bin.display()
+    );
+    std::fs::write(&script, contents).map_err(|error| error.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(script)
 }
 
 fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Error>> {
@@ -1820,6 +1881,19 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn writes_terminal_shims() {
+        let home =
+            std::env::temp_dir().join(format!("dshr-terminal-test-{}", uuid::Uuid::new_v4()));
+        let folder = home.join("workspace");
+        std::fs::create_dir_all(&folder).expect("folder");
+        let script = write_terminal_script(&home, "work", &folder).expect("script");
+        let text = std::fs::read_to_string(&script).expect("script text");
+        assert!(text.contains("DSHR_HOME"), "{text}");
+        assert!(text.contains("work"), "{text}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]

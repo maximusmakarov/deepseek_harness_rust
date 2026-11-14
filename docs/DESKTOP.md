@@ -34,6 +34,9 @@ shell) и Quit. Окно: трей Window → Compatibility/Enhanced/Extended и
 Папка: аргумент `<folder>`, сохранённая `<home>/desktop-folder` или
 drag-and-drop папки на окно (перезапуск сервера с новым cwd).
 
+Терминал: открывается скрипт `<home>/terminal.sh` с `DSHR_HOME`, профилем и
+`<home>/bin` в PATH (приватный shim `dshr`).
+
 Трей **Network**: Local only / LAN (0.0.0.0, с предупреждением о токене) /
 Set port… (0 = случайный). Настройки — `<home>/desktop-network.json`; смена
 перезапускает shell.
