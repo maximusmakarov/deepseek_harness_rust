@@ -337,6 +337,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/health", get(health))
         .route("/v1/tools", get(list_tools))
         .route("/v1/plugins/search", get(search_plugins))
+        .route("/v1/plugins/info", get(plugin_info))
         .route("/v1/plugins/install", post(install_plugin))
         .route("/v1/plugins/installed", get(installed_plugins))
         .route("/v1/plugins/toggle", post(toggle_plugin))
@@ -441,6 +442,45 @@ async fn search_plugins(
         })
         .collect();
     Ok(Json(json!({"packages": objects})))
+}
+
+#[derive(Debug, Deserialize)]
+struct PluginInfoQuery {
+    name: String,
+}
+
+async fn plugin_info(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<PluginInfoQuery>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_package_name(&query.name) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let url = format!("https://registry.npmjs.org/{}", percent_encode(&query.name));
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("User-Agent", "dshr-server")
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if !response.status().is_success() {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+    let value: Value = response.json().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let latest = value["dist-tags"]["latest"].as_str().unwrap_or("");
+    let entry = &value["versions"][latest];
+    Ok(Json(json!({
+        "name": query.name,
+        "version": latest,
+        "description": entry["description"].as_str().or_else(|| value["description"].as_str()).unwrap_or(""),
+        "homepage": entry["homepage"].as_str().or_else(|| value["homepage"].as_str()).unwrap_or(""),
+        "repository": entry["repository"]["url"].as_str().unwrap_or("")
+    })))
 }
 
 #[derive(Debug, Deserialize)]

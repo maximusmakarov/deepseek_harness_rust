@@ -361,6 +361,21 @@ async fn serves_leptos_assets() {
 }
 
 #[tokio::test]
+async fn rejects_invalid_plugin_info_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, _) = call(
+        &app,
+        "GET",
+        "/v1/plugins/info?name=bad%20name!",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn lists_installed_cordis_plugins() {
     let dir = tempfile::tempdir().expect("tempdir");
     let app = router(state(dir.path()));

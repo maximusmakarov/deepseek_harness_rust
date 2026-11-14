@@ -544,6 +544,25 @@ fn App() -> impl IntoView {
         });
     };
 
+    let show_info = move |name: String| {
+        let token_value = token.get_untracked();
+        plugin_status.set(format!("loading {name}…"));
+        spawn_local(async move {
+            let encoded = js_sys::encode_uri_component(&name);
+            let url = format!("/v1/plugins/info?name={encoded}");
+            match get_json::<serde_json::Value>(&url, &token_value).await {
+                Ok(info) => plugin_status.set(format!(
+                    "{}@{} — {} {}",
+                    info["name"].as_str().unwrap_or(&name),
+                    info["version"].as_str().unwrap_or(""),
+                    info["description"].as_str().unwrap_or(""),
+                    info["homepage"].as_str().unwrap_or("")
+                )),
+                Err(error) => plugin_status.set(format!("info error: {error}")),
+            }
+        });
+    };
+
     let plugin_action = move |path: &'static str, body: serde_json::Value| {
         let token_value = token.get_untracked();
         plugin_status.set("working…".into());
@@ -769,6 +788,7 @@ fn App() -> impl IntoView {
                 <ul>
                     {move || plugin_hits.get().into_iter().map(|package| {
                         let install_name = package.name.clone();
+                        let info_name = package.name.clone();
                         view! {
                             <li>
                                 {format!(
@@ -779,6 +799,7 @@ fn App() -> impl IntoView {
                                     package.name,
                                 )}
                                 <button on:click=move |_| install_package(install_name.clone())>"Install"</button>
+                                <button on:click=move |_| show_info(info_name.clone())>"Info"</button>
                             </li>
                         }
                     }).collect_view()}
