@@ -69,7 +69,7 @@ Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.
 для macOS/Linux; job `bottles-ghcr` публикует их в GHCR как OCI-индекс
 (`ghcr.io/<owner>/<repo>/dshr:<ver>`), а `dist/dshr-ghcr.rb` содержит
 `root_url https://ghcr.io/v2/<owner>/<repo>`. Требуются `packages: write`
-и `GITHUB_TOKEN`; локально проверены dry-run OCI-layout, push в mock-регистр и выбор манифеста настоящим Homebrew (bottle manifest ✔︎); полный pour с локального OCI невозможен — brew тянет blobs с ghcr.io.
+и `GITHUB_TOKEN`; dry-run OCI-layout, mock-push и выбор манифеста Homebrew проверены локально; реальный push в GHCR и анонимный pull индекса подтверждены в Actions (run 43585903547). Полный pour с локального OCI невозможен — brew тянет blobs с ghcr.io.
 
 Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
 для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на

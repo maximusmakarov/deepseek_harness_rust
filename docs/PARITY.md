@@ -51,7 +51,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Пункт | dshr | Статус |
 |---|---|---|
 | Бинарные архивы 5 таргетов, SHA256SUMS, Ed25519, provenance | есть | ✅ |
-| Homebrew: бинарная формула | binary + бутылки; `bottles-ghcr` публикует OCI в GHCR и рендерит `dshr-ghcr.rb`; push не прогонялся (нет credentials) | ⚠️ |
+| Homebrew: бинарная формула | binary + бутылки; `bottles-ghcr` публикует OCI в GHCR; реальный push и анонимный pull манифеста подтверждены в Actions | ✅ |
 | Reproducible builds | архивы детерминированы; бинарь воспроизводим при том же toolchain с remap/SOURCE_DATE_EPOCH (проверено локально); cross-Linux может отличаться | ✅ |
 | Desktop в release CI | macOS `.app` zip; Linux/Windows desktop-архивы добавлены в workflow (прогон на теге не выполнялся) | ⚠️ |
 | Windows/Linux desktop packages | Linux tar.gz и Windows zip собираются release-джобами; installer'ов нет, джобы не прогонялись | ⚠️ |
@@ -64,8 +64,8 @@ recovery-окно с профилями/плагинами, first-run home. Ос
 с секретами Apple.
 P1: композиция профилей из бандлов, полный plugin market/catalog, GUI-менеджер плагинов,
 верификация Windows sandbox на реальном Windows.
-P2: ghcr-хостинг бутылок, прогон brew/desktop CI на теге,
-React-слоты клиентских плагинов (сейчас мост, ADR-013 §5), приватные terminal shim'ы.
+P2: прогон brew/desktop CI на теге, React-слоты клиентских плагинов
+(сейчас мост, ADR-013 §5), приватные terminal shim'ы.
 
 ## Проверка (14.11.2026)
 

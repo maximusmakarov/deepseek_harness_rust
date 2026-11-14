@@ -68,7 +68,8 @@ release-бинарь воспроизводим.
   `bottles-ghcr`, формула `dshr-ghcr.rb`; push проверен против mock-регистра.
 - Market: локальные отзывы + агрегаты ★/count (`/v1/plugins/review(s)`).
 - WASM: hot reload (fingerprint watcher + `/v1/plugins/reload`).
-- Windows: runtime-тест AppContainer (запись внутри/снаружи workspace) добавлен
+- GHCR: реальный push/pull OCI-бутылки подтверждён в Actions.
+- Windows: runtime-тест AppContainer прошёл на windows-latest (запись внутри/снаружи workspace) добавлен
   в CI; реальный Windows-хост по-прежнему недоступен.
 - 61: `ToolRegistry` стал общим мутируемым handle'ом (Arc+RwLock, generation,
   `unregister`/`remove_prefix`/`register_all`), `dshr_cordis::CordisManager`
