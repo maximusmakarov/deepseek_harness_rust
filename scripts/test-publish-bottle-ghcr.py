@@ -85,7 +85,7 @@ def main():
     assert index["mediaType"] == "application/vnd.oci.image.index.v1+json"
     child = index["manifests"][0]
     assert child["annotations"]["org.opencontainers.image.ref.name"] == "0.1.0.arm64_sequoia"
-    assert child["annotations"]["sh.brew.bottle.digest"].startswith("sha256:")
+    assert len(child["annotations"]["sh.brew.bottle.digest"]) == 64
     manifest = json.loads(stored[child["digest"]])
     assert manifest["layers"][0]["digest"].startswith("sha256:")
     print("ghcr publisher smoke ok")

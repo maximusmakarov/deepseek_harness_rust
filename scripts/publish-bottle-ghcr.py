@@ -24,6 +24,7 @@ INDEX_MEDIA = "application/vnd.oci.image.index.v1+json"
 LAYER_MEDIA = "application/vnd.oci.image.layer.v1.tar+gzip"
 
 PLATFORMS = {
+    "arm64_tahoe": ("darwin", "arm64", "26"),
     "arm64_sequoia": ("darwin", "arm64", "15"),
     "sonoma": ("darwin", "amd64", "14"),
     "x86_64_linux": ("linux", "amd64", None),
@@ -50,7 +51,7 @@ def manifests(version: str, tag: str, bottle: bytes, receipt: str):
     ref = f"{version}.{tag}"
     annotations = {
         "org.opencontainers.image.ref.name": ref,
-        "sh.brew.bottle.digest": layer_digest,
+        "sh.brew.bottle.digest": layer_digest.removeprefix("sha256:"),
         "sh.brew.tab": receipt,
     }
     manifest = {

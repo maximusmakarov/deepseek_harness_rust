@@ -16,8 +16,15 @@ stage="$work/stage"
 mkdir -p "$stage/dshr/$version/bin"
 cp "$binary" "$stage/dshr/$version/bin/dshr"
 chmod 755 "$stage/dshr/$version/bin/dshr"
+case "$tag" in
+  arm64_*) arch="arm64"; os="Macintosh"; os_version="macOS 15" ;;
+  sonoma) arch="x86_64"; os="Macintosh"; os_version="macOS 14" ;;
+  x86_64_linux) arch="x86_64"; os="Linux"; os_version="Ubuntu 24.04" ;;
+  aarch64_linux) arch="arm64"; os="Linux"; os_version="Ubuntu 24.04" ;;
+  *) arch="arm64"; os="Macintosh"; os_version="macOS 15" ;;
+esac
 cat > "$stage/dshr/$version/INSTALL_RECEIPT.json" <<RECEIPT
-{"homebrew_version":"4.6.0","used_options":[],"unused_options":[],"built_as_bottle":true,"poured_from_bottle":true,"installed_as_dependency":false,"installed_on_request":true,"runtime_dependencies":[],"source":{"spec":"stable","versions":{"stable":"$version","head":null,"version_scheme":0,"compatibility_version":null}}}
+{"homebrew_version":"4.6.0","used_options":[],"unused_options":[],"built_as_bottle":true,"poured_from_bottle":true,"installed_as_dependency":false,"installed_on_request":true,"arch":"$arch","built_on":{"os":"$os","os_version":"$os_version"},"runtime_dependencies":[],"source":{"spec":"stable","versions":{"stable":"$version","head":null,"version_scheme":0,"compatibility_version":null}}}
 RECEIPT
 
 python3 - "$stage" "$dist/$name" <<'PYTHON'
