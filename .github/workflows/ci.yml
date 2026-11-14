@@ -85,15 +85,35 @@ jobs:
           scripts/package-bottle.sh 0.0.0 x86_64_linux target/debug/dshr /tmp/bottles
           python3 scripts/test-publish-bottle-ghcr.py /tmp/bottles/*.bottle.tar.gz 0.0.0 x86_64_linux
 
-      - name: windows sandbox (AppContainer)
+      # AppContainer is opt-in and deferred by decision (docs/TECH-DEBT.md): it
+      # needs a real Windows host and its setup is known to hang on hosted
+      # runners. It stays a visible signal, but must not block trunk.
+      - name: windows sandbox (AppContainer, experimental)
+        id: windows-sandbox
         if: runner.os == 'Windows'
+        continue-on-error: true
         shell: bash
         env:
           DSHR_WINDOWS_SANDBOX: "1"
           DSHR_SANDBOX_SETUP_TIMEOUT_SECS: "300"
         run: |
-          cargo test -p dshr-sandbox -- --ignored
-          cargo test -p dshr-cli --test windows_sandbox -- --ignored
+          set -o pipefail
+          {
+            cargo test -p dshr-sandbox -- --ignored --nocapture
+            cargo test -p dshr-cli --test windows_sandbox -- --ignored --nocapture
+          } 2>&1 | tee windows-sandbox.log
+      - name: publish windows sandbox outcome
+        if: runner.os == 'Windows' && steps.windows-sandbox.outcome == 'failure'
+        shell: bash
+        run: |
+          {
+            echo "## Windows sandbox (experimental) failed"
+            echo
+            echo "Non-blocking: AppContainer is opt-in and deferred; see docs/TECH-DEBT.md."
+            echo '```'
+            grep -a -E "(FAILED|panicked|error\[|failures:)" windows-sandbox.log | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - run: cargo test --workspace --doc
       - name: desktop check
         if: matrix.os == 'macos-latest'

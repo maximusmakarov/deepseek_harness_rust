@@ -49,7 +49,7 @@ macOS CI runs its tests separately.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on macOS/Ubuntu/Windows: fmt, clippy, nextest, doc tests; separate `cargo-deny` and `coverage` jobs, plus `evals`, `perf` (release) and `web-e2e` (headless Chrome) gates. Failed nextest/clippy output is annotated and uploaded on failure.
+`.github/workflows/ci.yml` runs on macOS/Ubuntu/Windows: fmt, clippy, nextest, doc tests; separate `cargo-deny` and `coverage` jobs, plus `evals`, `perf` (release) and `web-e2e` (headless Chrome + client-half smoke) gates. The experimental Windows AppContainer check is `continue-on-error`: it reports into the job summary but does not block trunk while the feature is deferred (see `docs/TECH-DEBT.md`). Failed nextest/clippy output is annotated and uploaded on failure.
 
 `release.yml` builds tag releases (`v*`) for the three OSes.
 

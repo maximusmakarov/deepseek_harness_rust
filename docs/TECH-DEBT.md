@@ -43,7 +43,7 @@
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
-| Deferred | Windows sandbox и сеть | Отложено по решению пользователя: нужен реальный Windows-хост. По умолчанию fail-closed; experimental `DSHR_WINDOWS_SANDBOX` проходит CI-шаг на `windows-latest` (запись внутри/снаружи workspace), локальной проверки нет. Enforcement сети на Windows — `Partial`. |
+| Deferred | Windows sandbox и сеть | Отложено по решению пользователя: нужен реальный Windows-хост. По умолчанию fail-closed; `DSHR_WINDOWS_SANDBOX` — opt-in, его CI-шаг помечен `continue-on-error` (AppContainer setup на hosted runner'ах зависает; прогон виден в summary, но не блокирует trunk). Enforcement сети на Windows — `Partial`. |
 | Out of scope | Полный набор React-слотов клиентских плагинов | Решение ADR-013 §5: React-совместимости нет, есть iframe-мост. Имена слотов подмножества (`panel`, `settings.section`, `message.action`, `settings.action`) проходят через мост (smoke 29/29); региональный монтаж слотов требует eager-монтажа и iframe на слот — отдельная фаза. Replica 98.0/100. |
 | P2 | Notarization | Тулинг есть (`scripts/notarize-app.sh`), нужны Apple Developer ID, сертификат и app-specific password; без них распространяется ad-hoc подпись. |
 | P2 | GHCR-бутылки и brew-прогон | OCI-publisher и формула есть, push/pull подтверждены против mock и в Actions; нет tap-репозитория и учётных данных пакетов, brew-прогон на реальном GHCR не делался. |
