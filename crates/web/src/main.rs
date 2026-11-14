@@ -234,20 +234,30 @@ fn connect_events(
             }
             "tool_start" => {
                 let name = value["name"].as_str().unwrap_or("tool");
+                let summary = value["summary"].as_str().unwrap_or("");
                 messages.update(|items| {
                     items.push(ChatItem {
                         role: "tool".into(),
-                        text: format!("→ {name}"),
+                        text: if summary.is_empty() {
+                            format!("→ {name}")
+                        } else {
+                            format!("→ {name} · {summary}")
+                        },
                     });
                 });
             }
             "tool_end" => {
                 let name = value["name"].as_str().unwrap_or("tool");
                 let ok = value["ok"].as_bool().unwrap_or(true);
+                let content = value["content"].as_str().unwrap_or("").trim();
+                let mut text = format!("{} {name}", if ok { "✓" } else { "✗" });
+                if !content.is_empty() {
+                    text.push_str(&format!("\n{content}"));
+                }
                 messages.update(|items| {
                     items.push(ChatItem {
                         role: "tool".into(),
-                        text: format!("{} {name}", if ok { "✓" } else { "✗" }),
+                        text,
                     });
                 });
             }

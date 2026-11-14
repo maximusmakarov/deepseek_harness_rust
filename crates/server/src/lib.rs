@@ -126,6 +126,7 @@ pub enum ServerEvent {
     ToolEnd {
         name: String,
         ok: bool,
+        content: String,
     },
     Approval {
         id: String,
@@ -205,6 +206,7 @@ impl AgentObserver for BroadcastObserver {
         let _ = self.tx.send(ServerEvent::ToolEnd {
             name: call.name.clone(),
             ok: !outcome.is_error,
+            content: outcome.content.chars().take(2000).collect(),
         });
     }
 
@@ -861,6 +863,19 @@ async fn style_css() -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_end_event_carries_content() {
+        let value = serde_json::to_value(ServerEvent::ToolEnd {
+            name: "read".into(),
+            ok: true,
+            content: "hello".into(),
+        })
+        .expect("json");
+        assert_eq!(value["type"], "tool_end");
+        assert_eq!(value["name"], "read");
+        assert_eq!(value["content"], "hello");
+    }
 
     #[tokio::test]
     async fn question_observer_waits_for_the_answer() {
