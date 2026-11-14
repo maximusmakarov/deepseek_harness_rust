@@ -41,6 +41,11 @@ struct ToolInfo {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+struct HealthResponse {
+    version: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 struct ToolsResponse {
     tools: Vec<ToolInfo>,
 }
@@ -328,6 +333,40 @@ fn App() -> impl IntoView {
     let plugin_query = RwSignal::new(String::new());
     let plugin_hits = RwSignal::new(Vec::<PackageHit>::new());
     let plugin_status = RwSignal::new(String::new());
+    let version = RwSignal::new(String::new());
+    let initial_theme = web_sys::window()
+        .and_then(|window| window.local_storage().ok().flatten())
+        .and_then(|storage| storage.get_item("dshr-theme").ok().flatten())
+        .or_else(|| {
+            web_sys::window()
+                .and_then(|window| window.location().search().ok())
+                .filter(|search| search.contains("theme=light"))
+                .map(|_| "light".to_owned())
+        })
+        .unwrap_or_else(|| "dark".to_owned());
+    let theme = RwSignal::new(initial_theme);
+    let apply_theme = move |value: String| {
+        if let Some(root) = web_sys::window()
+            .and_then(|window| window.document())
+            .and_then(|document| document.document_element())
+        {
+            let _ = root.set_attribute("data-theme", &value);
+        }
+        if let Some(storage) = web_sys::window()
+            .and_then(|window| window.local_storage().ok().flatten())
+        {
+            let _ = storage.set_item("dshr-theme", &value);
+        }
+    };
+    apply_theme(theme.get_untracked());
+    {
+        let token_value = token.get_untracked();
+        spawn_local(async move {
+            if let Ok(health) = get_json::<HealthResponse>("/v1/health", &token_value).await {
+                version.set(health.version);
+            }
+        });
+    }
 
     let refresh_sessions = move || {
         let value = token.get_untracked();
@@ -341,6 +380,9 @@ fn App() -> impl IntoView {
             match get_json::<SessionsResponse>("/v1/sessions", &value).await {
                 Ok(data) => {
                     sessions.set(data.sessions);
+                    if let Ok(health) = get_json::<HealthResponse>("/v1/health", &value).await {
+                        version.set(health.version);
+                    }
                     match get_json::<ToolsResponse>("/v1/tools", &value).await {
                         Ok(list) => tools.set(list.tools),
                         Err(error) => plugin_status.set(format!("tools: {error}")),
@@ -532,6 +574,12 @@ fn App() -> impl IntoView {
             <button on:click=move |_| refresh_sessions()>"Connect"</button>
             <button on:click=move |_| new_session()>"New session"</button>
             <button on:click=move |_| plugins_open.set(true)>"Plugins"</button>
+            <button on:click=move |_| {
+                let next = if theme.get_untracked() == "dark" { "light" } else { "dark" };
+                theme.set(next.to_owned());
+                apply_theme(next.to_owned());
+            }>"Theme"</button>
+            <span id="version">{move || version.get()}</span>
             <span id="status">{move || status.get()}</span>
         </header>
         <main>

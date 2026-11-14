@@ -16,6 +16,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Режимы окна (compatibility/extended/enhanced), материалы macOS | Compatibility/Enhanced/Extended (overlay title bar) и Material (macOS vibrancy) через трей; Linux-режимы и кастомный titlebar нет | ⚠️ |
 | Локальный web-порт: random/фиксированный, LAN-подтверждение | трей Network: local/LAN с предупреждением, фиксированный/случайный порт; как в оригинале — без отдельного LAN-диалога подтверждения | ✅ |
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
+| Web UI: тема | light/dark через кнопку Theme, localStorage и `?theme=light` | ✅ |
 | Plugin market | UI-панель Plugins (установленные tools + поиск npm), `plugin npm search/info`, установка через `npm add`; отдельного каталога/маркета нет | ⚠️ |
 | Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` + привязка к `--profile` (profile.yaml, отдельные packages); UI-менеджера и market нет | ⚠️ |
 | Терминал из трея с приватными shim'ами | открывает системный терминал; приватных shim'ов нет | ⚠️ |
