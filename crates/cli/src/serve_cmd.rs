@@ -138,7 +138,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
                 watch_loader
                     .load()
                     .map(|loaded| crate::cordis_setup::specs(&loaded.config))
-                    .unwrap_or_default()
+                    .map_err(|error| error.to_string())
             });
             let _watch = manager.spawn_watch(dshr_cordis::WatchOptions {
                 interval: std::time::Duration::from_millis(750),

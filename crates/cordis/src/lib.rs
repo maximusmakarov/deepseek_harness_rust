@@ -24,7 +24,7 @@ pub mod manager;
 
 pub use client::{ClientHalf, ClientHalfError, discover_client_half};
 pub use dshr_config::CordisGrants;
-pub use manager::{CordisManager, PluginEvent, PluginStatus, WatchOptions};
+pub use manager::{CordisManager, PluginEvent, PluginStatus, RefreshFn, WatchOptions};
 
 const BOOTSTRAP: &str = include_str!("bootstrap.mjs");
 

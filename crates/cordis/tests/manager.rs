@@ -281,7 +281,7 @@ async fn watcher_reconciles_plugins_from_a_refreshed_config() {
     let watch = manager.spawn_watch(WatchOptions {
         interval: Duration::from_millis(100),
         config_files: vec![config.clone()],
-        refresh: Some(Arc::new(move || vec![spec(&root, "demo")])),
+        refresh: Some(Arc::new(move || Ok(vec![spec(&root, "demo")]))),
     });
 
     tokio::time::sleep(Duration::from_millis(250)).await;
@@ -301,4 +301,41 @@ async fn watcher_reconciles_plugins_from_a_refreshed_config() {
     watch.abort();
     assert!(started, "config refresh did not start the plugin");
     assert_eq!(call(&registry, &tool).await, "v1");
+}
+
+#[tokio::test]
+async fn a_broken_config_keeps_running_plugins() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping Cordis manager test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    let config = dir.path().join("profile.yaml");
+    std::fs::write(&config, "plugins: {}\n").expect("config");
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = CordisManager::new(
+        Arc::clone(&registry),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        ToolFilter::default(),
+    );
+    manager.sync(vec![spec(dir.path(), "demo")]).await;
+    let tool = format!("{TOOL_PREFIX}demo__echo");
+    assert!(registry.contains(&tool));
+
+    let watch = manager.spawn_watch(WatchOptions {
+        interval: Duration::from_millis(100),
+        config_files: vec![config.clone()],
+        refresh: Some(Arc::new(|| Err("config is mid-save".into()))),
+    });
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    std::fs::write(&config, "plugins: [\n").expect("config");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    watch.abort();
+
+    // A read error must not be interpreted as "no plugins configured".
+    assert!(manager.is_running("demo"));
+    assert!(registry.contains(&tool));
+    assert_eq!(manager.statuses()[0].error, None);
 }

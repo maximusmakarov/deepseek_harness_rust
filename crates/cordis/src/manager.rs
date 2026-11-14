@@ -73,14 +73,19 @@ struct Running {
     started_at: u64,
 }
 
+/// Rebuilds the desired plugin list from disk; `Err` means the config could not
+/// be read right now (mid-save, invalid), not that there are no plugins.
+pub type RefreshFn = Arc<dyn Fn() -> Result<Vec<CordisPluginSpec>, String> + Send + Sync>;
+
 /// Options for [`CordisManager::spawn_watch`].
 pub struct WatchOptions {
     pub interval: Duration,
     /// Files whose change triggers a config refresh (the profile/user config).
     pub config_files: Vec<PathBuf>,
     /// Rebuilds the desired plugin list from disk. `None` disables config
-    /// watching while entry watching stays active.
-    pub refresh: Option<Arc<dyn Fn() -> Vec<CordisPluginSpec> + Send + Sync>>,
+    /// watching while entry watching stays active. `Err` keeps the current set:
+    /// a half-written config must not stop every plugin.
+    pub refresh: Option<RefreshFn>,
 }
 
 /// Allow/deny policy applied to plugin tools before they reach the registry.
@@ -383,14 +388,23 @@ impl CordisManager {
                 if let Some(refresh) = &options.refresh {
                     let next = config_stamp(&options.config_files);
                     if next != configs {
-                        configs = next;
-                        tracing::info!("cordis config changed; reconciling plugins");
-                        manager.sync(refresh()).await;
-                        stamps = manager
-                            .specs()
-                            .into_iter()
-                            .map(|spec| (spec.name.clone(), entry_stamp(&spec)))
-                            .collect();
+                        match refresh() {
+                            Ok(specs) => {
+                                configs = next;
+                                tracing::info!("cordis config changed; reconciling plugins");
+                                manager.sync(specs).await;
+                                stamps = manager
+                                    .specs()
+                                    .into_iter()
+                                    .map(|spec| (spec.name.clone(), entry_stamp(&spec)))
+                                    .collect();
+                            }
+                            Err(error) => {
+                                // Retry on the next tick: the file is probably
+                                // mid-save or temporarily invalid.
+                                tracing::warn!(%error, "cordis config reload skipped");
+                            }
+                        }
                     }
                 }
                 let specs = manager.specs();
