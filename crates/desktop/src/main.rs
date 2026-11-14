@@ -71,22 +71,19 @@ fn main() {
                     return Err(error.into());
                 }
             };
-            let (port, token, child) = match start_server(
-                &home,
-                &profile,
-                folder.as_deref(),
-                provider.as_ref(),
-            ) {
-                Ok(started) => started,
-                Err(error) => {
-                    show_error(
-                        "dshr could not start",
-                        &format!(
-                            "{error}\n\nConfigure the provider (DEEPSEEK_API_KEY / config.yaml) \
-                             and check `dshr doctor`."
-                        ),
-                    );
-                    return Err(error);
+            let (port, token, child) = loop {
+                match start_server(&home, &profile, folder.as_deref(), provider.as_ref()) {
+                    Ok(started) => break started,
+                    Err(error) => match recovery_action(&error) {
+                        RecoveryAction::Retry => continue,
+                        RecoveryAction::SafeMode => {
+                            let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
+                        }
+                        RecoveryAction::Diagnostics => {
+                            let _ = export_diagnostics();
+                        }
+                        RecoveryAction::Quit => return Err(error),
+                    },
                 }
             };
             save_last_good(&home, &profile);
@@ -1119,6 +1116,30 @@ fn prompt_provider_setup() -> Result<ProviderSettings, String> {
         model: Some(model),
         env,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecoveryAction {
+    Retry,
+    SafeMode,
+    Diagnostics,
+    Quit,
+}
+
+fn recovery_action(error: &dyn std::fmt::Display) -> RecoveryAction {
+    let message = format!(
+        "{error}\n\nConfigure the provider (DEEPSEEK_API_KEY / config.yaml) or check `dshr doctor`."
+    );
+    match prompt_choice(
+        "dshr could not start",
+        &message,
+        &["Retry", "Safe mode", "Diagnostics"],
+    ) {
+        Ok(Some(0)) => RecoveryAction::Retry,
+        Ok(Some(1)) => RecoveryAction::SafeMode,
+        Ok(Some(2)) => RecoveryAction::Diagnostics,
+        _ => RecoveryAction::Quit,
+    }
 }
 
 fn prompt_choice(title: &str, prompt: &str, options: &[&str]) -> Result<Option<usize>, String> {

@@ -20,7 +20,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` + привязка к `--profile` (profile.yaml, отдельные packages); UI-менеджера и market нет | ⚠️ |
 | Терминал из трея с приватными shim'ами | открывает системный терминал; приватных shim'ов нет | ⚠️ |
 | Обновления: фоновая проверка, канал, installer, Linux → download page | проверка, уведомление, скачивание macOS zip с проверкой SHA256SUMS, распаковка/reveal, установка через helper (macOS); каналов/notarization нет | ⚠️ |
-| Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | `--safe-mode`, Restart in safe mode, last-known-good + Rollback profile, диагностика; recovery-окон нет | ⚠️ |
+| Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | при сбое старта — нативный выбор Retry/Safe mode/Diagnostics/Quit; safe-mode, last-known-good + Rollback profile; recovery-окна нет | ⚠️ |
 | `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`; экспорт диагностики — в работе | ⚠️ |
 | Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` (ad-hoc), 5 tar.gz, Linux/Windows desktop-архивы в release CI; installer'ов (deb/NSIS/DMG) нет | ⚠️ |
 | Автообновление/подпись/notarization | ad-hoc подпись `.app`; notarization нет | ⚠️ |
