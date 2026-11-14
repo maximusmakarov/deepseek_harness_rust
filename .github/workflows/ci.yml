@@ -90,6 +90,7 @@ jobs:
         shell: bash
         env:
           DSHR_WINDOWS_SANDBOX: "1"
+          DSHR_SANDBOX_SETUP_TIMEOUT_SECS: "300"
         run: |
           cargo test -p dshr-sandbox -- --ignored
           cargo test -p dshr-cli --test windows_sandbox -- --ignored
