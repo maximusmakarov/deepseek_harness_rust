@@ -1627,3 +1627,76 @@ async fn lists_sessions() {
     assert_eq!(sessions[0]["sessionId"], session_id);
     assert_eq!(sessions[0]["cwd"], dir.path().to_string_lossy().as_ref());
 }
+
+#[tokio::test]
+async fn sets_session_mode() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = AcpServer::new(
+        Arc::new(ScriptedProvider::new("test-model", vec![])),
+        Arc::new(ToolRegistry::new()),
+        Arc::new(SessionStore::new(dir.path().join("sessions"))),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 2,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("init");
+    let _ = read_json(&mut reader).await;
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":dir.path()}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("id");
+    assert!(created["result"]["modes"]["availableModes"].is_array());
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":session_id,"modeId":"read-only"}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("set mode");
+    let changed = read_json(&mut reader).await;
+    assert_eq!(changed["id"], 3);
+    assert!(changed.get("error").is_none());
+
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":session_id,"modeId":"bogus"}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("bad mode");
+    let rejected = read_json(&mut reader).await;
+    assert_eq!(rejected["error"]["code"], -32602);
+}

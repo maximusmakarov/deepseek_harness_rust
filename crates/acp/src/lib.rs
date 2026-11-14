@@ -61,6 +61,7 @@ pub struct AcpServer {
     terminal: Option<Arc<AcpTerminalClient>>,
     questions: Arc<AcpQuestionClient>,
     session_mcp: Arc<Mutex<HashMap<String, Value>>>,
+    session_modes: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl AcpServer {
@@ -80,6 +81,7 @@ impl AcpServer {
             terminal: None,
             questions: Arc::new(AcpQuestionClient::new()),
             session_mcp: Arc::new(Mutex::new(HashMap::new())),
+            session_modes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -258,7 +260,18 @@ impl AcpServer {
                                 json!({
                                     "jsonrpc": "2.0",
                                     "id": id,
-                                    "result": {"sessionId": session.header.id.as_str()}
+                                    "result": {
+                                        "sessionId": session.header.id.as_str(),
+                                        "modes": {
+                                            "currentModeId": "default",
+                                            "availableModes": [
+                                                {"id": "default", "name": "Default"},
+                                                {"id": "read-only", "name": "Read only"},
+                                                {"id": "workspace-write", "name": "Workspace write"},
+                                                {"id": "danger-full", "name": "Danger full access"}
+                                            ]
+                                        }
+                                    }
                                 }),
                             )
                             .await?;
@@ -425,6 +438,33 @@ impl AcpServer {
                         active.lock().await.remove(&session_id);
                     });
                 }
+                "session/set_mode" => {
+                    let session_id = params["sessionId"].as_str().unwrap_or_default();
+                    let requested = params["modeId"].as_str().unwrap_or_default();
+                    let mode = match requested {
+                        "default" => None,
+                        "read-only" | "plan" => Some(PermissionMode::ReadOnly),
+                        "workspace-write" | "acceptEdits" => Some(PermissionMode::WorkspaceWrite),
+                        "danger-full" | "bypassPermissions" => Some(PermissionMode::DangerFull),
+                        _ => {
+                            if let Some(id) = id {
+                                send_error(&writer, id, -32602, "unknown mode").await?;
+                            }
+                            continue;
+                        }
+                    };
+                    if let Some(mode) = mode {
+                        self.session_modes
+                            .lock()
+                            .await
+                            .insert(session_id.to_owned(), format!("{mode:?}"));
+                    } else {
+                        self.session_modes.lock().await.remove(session_id);
+                    }
+                    if let Some(id) = id {
+                        send(&writer, json!({"jsonrpc": "2.0", "id": id, "result": {}})).await?;
+                    }
+                }
                 "session/cancel" => {
                     if let Some(session_id) = params["sessionId"].as_str()
                         && let Some(cancel) = active.lock().await.get(session_id)
@@ -476,8 +516,20 @@ impl AcpServer {
             writer: Arc::clone(&writer),
             questions: Arc::clone(&self.questions),
         };
+        let mode = self
+            .session_modes
+            .lock()
+            .await
+            .get(session_id)
+            .and_then(|value| match value.as_str() {
+                "ReadOnly" => Some(PermissionMode::ReadOnly),
+                "WorkspaceWrite" => Some(PermissionMode::WorkspaceWrite),
+                "DangerFull" => Some(PermissionMode::DangerFull),
+                _ => None,
+            })
+            .unwrap_or(self.config.mode);
         let policy = ApprovalPolicy {
-            mode: self.config.mode,
+            mode,
             workspace: PathBuf::from(&session.header.cwd),
             approver: Arc::new(AcpApprover {
                 session_id: session_id.to_owned(),
