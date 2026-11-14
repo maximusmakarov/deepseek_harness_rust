@@ -411,10 +411,21 @@ Host-state приходит от шелла сообщением `host-state` (`
 сам, без ремоунта кадра. Ошибка рендера ловится error boundary: в регионе
 появляется `Plugin render error: …`, а шелл получает `error`.
 
-Сервис `ctx.get(name)` в React-режиме: поддерживается `sessions` (подмножество
-референсного сервиса — `currentProvideInfo.getSnapshot()`, `get(id)`, `list()`,
-`subscribe`); неизвестный сервис — `undefined`. Этого достаточно, чтобы простой
-DSH-плагин деградировал мягко (например, `ctx.get('sessions')` без проекций).
+Сервисы в мосте (C-lite; неизвестное имя — `undefined`):
+
+- `ctx.get('sessions')` — `currentProvideInfo.getSnapshot()/subscribe`, `get(id)`,
+  `list()` (подмножество референсного сервиса, без проекций);
+- `ctx.get('slots')` — тот же реестр, что `ctx.slots`
+  (`inject`/`register`/`remove`/`list`) плюс `entries(key)`;
+- `ctx.get('locale')` — минимальный сервис с `getSnapshot()` →
+  `{active: "en", locale: "en"}` (шелл англоязычный для кадров плагинов);
+- `ctx.inject(deps, callback)` — референсный fiber-хелпер: `callback(inner)`
+  вызывается только если **все** зависимости резолвятся, иначе не вызывается
+  (опциональные интеграции `betterSidebar`/`sidebarRight`/`webTerminals` и т.п.
+  просто не монтируются — именно на такую деградацию рассчитаны DSH-плагины).
+
+Последняя ошибка кадра доступна изнутри как `window.__DSHR_LAST_ERROR__`
+(`{message, stack}`) — это упрощает разбор несовместимости реального плагина.
 
 **Дизайн-система:** host-рантайм публикует
 `@deepseek-ai/dsh-client-ui-primitives` — **частичный независимый шим**
@@ -422,13 +433,22 @@ DSH-плагин деградировал мягко (например, `ctx.get
 React и CSS-переменных темы. Этого хватает простым плагинам; полный набор
 `@deepseek-ai/dsh-client-ui-*` — тир C-full.
 
-**Conformance:** реальный MIT-плагин `@kt11/dsh-deepseek-balance@0.2.1`
-(vendored fixture `crates/cordis/tests/fixtures/deepseek-balance/`, клиентская
-половина — upstream без изменений; в манифесте только `host_modules`) рендерит
-свою React-карточку в `sidebar.footer.action`, вставляет собственный CSS,
-реагирует на клики (popup) — проверяется в smoke. Его data-запросы идут на
-host-маршруты DSH, которых в dshr нет, поэтому popup показывает ветку «查询失败»;
-это записанное ограничение, а не ошибка рендера.
+**Conformance (n=2):** реальные MIT-плагины с upstream-клиентской половиной без
+изменений (в манифесте только `host_modules`):
+
+- `@kt11/dsh-deepseek-balance@0.2.1` — React-карточка в `sidebar.footer.action`,
+  свой CSS, popup по клику; data-запросы идут на host-маршруты DSH, которых в
+  dshr нет, поэтому popup показывает ветку «查询失败» (записанное ограничение);
+- `dsh-remote@1.1.2` — регистрирует React-слоты в `conversation.session.header.*`,
+  `sidebar.workspaces.directoryFlow`; активируется без ошибок, опциональные
+  сервисы (`betterSidebar`, `sidebarRight`, `webTerminals`) отсутствуют и
+  интеграции не монтируются — штатная деградация.
+
+Оба fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в `package.json`).
+Известные ограничения conformance-набора: `@michengai/dsh-archive-manager`
+требует `unsafe-eval` в CSP (не включён), `@michengai/dsh-skills-manager`
+падает на инициализации бандла (`Object.assign` над undefined) — оба записаны в
+TECH-DEBT и не входят в n=2.
 
 Чего не хватает и после тиров A и B: design-system пакетов
 `@deepseek-ai/dsh-client-ui-*`, React-контекста и состояния шелла, композиции между

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with fourteen throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with fifteen throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -781,14 +781,18 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ]
     # A real third-party plugin (MIT, vendored fixture): its client half is the
     # upstream file, unmodified; the manifest only opts into the host runtime.
-    balance_source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / "deepseek-balance"
-    balance = workspace / "deepseek-balance"
-    shutil.copytree(balance_source, balance)
-    profile += [
-        "    - name: deepseek-balance",
-        f"      entry: {balance}",
-        "      enabled: true",
-    ]
+    for fixture_name, plugin_name in [
+        ("deepseek-balance", "deepseek-balance"),
+        ("dsh-remote", "dsh-remote"),
+    ]:
+        source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / fixture_name
+        target = workspace / fixture_name
+        shutil.copytree(source, target)
+        profile += [
+            f"    - name: {plugin_name}",
+            f"      entry: {target}",
+            "      enabled: true",
+        ]
     (home / "profiles" / "default" / "profile.yaml").write_text("\n".join(profile) + "\n", encoding="utf-8")
 
 
@@ -1128,7 +1132,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 14, names)
+        check("lists every configured client half", len(clients) == 15, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -1202,6 +1206,13 @@ def run(args: argparse.Namespace) -> int:
             balance_half is not None and "react" in balance_half.get("host_modules", []),
             balance_half,
         )
+        remote_half = next((client for client in clients if client["name"] == "dsh-remote"), None)
+        check(
+            "a second real DSH plugin is discovered with the primitives shim",
+            remote_half is not None
+            and "@deepseek-ai/dsh-client-ui-primitives" in remote_half.get("host_modules", []),
+            remote_half,
+        )
 
         # A deterministic transcript: create a session over REST and replay one
         # assistant turn, so per-message regions have rows to mount into.
@@ -1226,7 +1237,21 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 14)
+        wait_registry_ready(debug_port, 15)
+        # Registry frames load in inject order; wait until the multi-region half
+        # has published all of its startup registrations before snapshotting the
+        # mounted slot frames (otherwise the snapshot races the last frame).
+        wait_until(
+            lambda: (
+                shell.eval(
+                    'document.querySelectorAll(\'iframe.slot-frame[data-plugin="regions"]\').length'
+                )
+                or 0
+            )
+            >= 7,
+            timeout=LOAD_TIMEOUT,
+            label="regions startup slot frames",
+        )
 
         # Eager registry ----------------------------------------------------
         registry = shell.eval(
@@ -1238,7 +1263,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 14
+            len(registry) == 15
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1370,7 +1395,9 @@ def run(args: argparse.Namespace) -> int:
             """JSON.stringify([...document.querySelectorAll('.session-row')].map(row => ({
                 region: row.querySelector('.slot-region')?.dataset.region || '',
                 occurrence: row.querySelector('.slot-region')?.dataset.occurrence || '',
-                slot: row.querySelector('iframe.slot-frame')?.dataset.slot || '',
+                frames: [...row.querySelectorAll('iframe.slot-frame')].map(f => ({
+                    plugin: f.dataset.plugin, slot: f.dataset.slot,
+                })),
             })))"""
         )
         session_rows = json.loads(str(session_row_state))
@@ -1386,7 +1413,11 @@ def run(args: argparse.Namespace) -> int:
             "sidebar.session.action frame mounts once per session row",
             session_row is not None
             and session_row["region"] == "sidebar.session.action"
-            and session_row["slot"] == "sidebar.session.row.trailing"
+            and any(
+                frame["plugin"] == "regions"
+                and frame["slot"] == "sidebar.session.row.trailing"
+                for frame in session_row["frames"]
+            )
             and "region:sidebar.session.action slot:sidebar.session.row.trailing" in session_text,
             session_row or session_rows,
         )
@@ -1556,6 +1587,44 @@ def run(args: argparse.Namespace) -> int:
             popup_text[:200],
         )
 
+        # Second real plugin: dsh-remote registers React slots in several
+        # supported regions; it must mount without a bridge error even though its
+        # optional DSH services (betterSidebar/sidebarRight/webTerminals) are
+        # absent — that is the graceful degradation its code is written for.
+        remote_registry = poll_frame(
+            debug_port,
+            "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null})",
+            lambda value: json.loads(str(value))["ready"] == "1",
+            plugin="dsh-remote",
+            mode="registry",
+            label="dsh-remote registry frame",
+        )
+        check(
+            "the second real plugin's registry frame activates without errors",
+            json.loads(str(remote_registry))["ready"] == "1"
+            and json.loads(str(remote_registry))["error"] is None,
+            remote_registry,
+        )
+        remote_slot = poll_frame(
+            debug_port,
+            "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null})",
+            lambda value: json.loads(str(value))["ready"] == "1",
+            plugin="dsh-remote",
+            slot="conversation.session.header.actions",
+            label="dsh-remote header slot",
+        )
+        remote_frame = shell.eval(
+            """JSON.stringify([...document.querySelectorAll(
+                '.slot-region[data-region="conversation.header"] iframe.slot-frame[data-plugin="dsh-remote"]'
+            )].map(f => ({slot: f.dataset.slot, region: f.dataset.region})))"""
+        )
+        check(
+            "the second real plugin's slot mounts in the conversation header region",
+            bool(json.loads(str(remote_frame)))
+            and json.loads(str(remote_slot))["error"] is None,
+            {"frame": remote_frame, "slot": remote_slot},
+        )
+
         shell.call(
             "Page.navigate",
             {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=ui-kit"},
@@ -1660,7 +1729,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 14)
+        wait_registry_ready(debug_port, 15)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1812,7 +1881,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 14)
+        wait_registry_ready(debug_port, 15)
 
         # ctx.action round-trips from a panel frame -------------------------
         def panel_eval(expression: str, await_promise: bool = False):
@@ -1955,7 +2024,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 14)
+        wait_registry_ready(debug_port, 15)
 
         def surviving_frames() -> int:
             count = 0
@@ -1992,7 +2061,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 14)
+            wait_registry_ready(debug_port, 15)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

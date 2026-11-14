@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–79)
+# Журнал раундов паритета (1–80)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 361 root-тест
@@ -281,17 +281,60 @@ release-бинарь воспроизводим.
     выбор версии React, настоящий `@dshr/cordis-compat`-шим и расширение
     conformance-набора (сейчас n=1). Решение — за владельцем, D не рекомендуется.
 
+- 80: расширение C-lite conformance до **n=2** и сервисы моста, которых ждут
+  референсные плагины ([ADR-040](adr/040-react-client-half.md),
+  [PLUGINS.md](PLUGINS.md)):
+  - `ctx.get('slots')` — тот же реестр, что `ctx.slots`
+    (`inject`/`register`/`remove`/`list`), плюс `entries(key)`;
+    `ctx.get('locale')` — минимальный сервис (`getSnapshot()` →
+    `{active: "en", locale: "en"}`, `subscribe`); неизвестное имя по-прежнему
+    `undefined` (`crates/cordis/src/bridge.js`).
+  - `ctx.inject(deps, callback)` — референсный fiber-хелпер: `callback(ctx)`
+    вызывается только если резолвятся **все** зависимости, иначе возвращается
+    пустой dispose. Опциональные интеграции DSH-плагинов
+    (`betterSidebar`/`sidebarRight`/`webTerminals`) в dshr не смонтированы —
+    это ровно та штатная деградация, на которую рассчитаны плагины.
+  - Диагностика: последняя ошибка кадра доступна изнутри как
+    `window.__DSHR_LAST_ERROR__` (`{message, stack}`) без раунд-трипа к шеллу —
+    так разбирается несовместимость реального плагина.
+  - Conformance n=2: к `@kt11/dsh-deepseek-balance@0.2.1` добавлен
+    `dsh-remote@1.1.2` (MIT; клиентская половина upstream без изменений,
+    sha256 `5016e5d3…` в `package.json`, host-половина — заглушка, в манифесте
+    только добавлен `host_modules`), фикстура
+    `crates/cordis/tests/fixtures/dsh-remote/`. Плагин регистрирует React-слоты
+    в `conversation.session.header.actions`/`utilities` и
+    `sidebar.workspaces.directoryFlow` и активируется без ошибок при отсутствии
+    опциональных сервисов.
+  - Найденные ограничения conformance-набора (вне n=2, записаны в
+    [TECH-DEBT.md](TECH-DEBT.md) и [LIMITATIONS.md](LIMITATIONS.md)):
+    `@michengai/dsh-archive-manager` 1.3.6 использует `new Function`/eval →
+    нужен `'unsafe-eval'` в CSP (сознательно не включён);
+    `@michengai/dsh-skills-manager` 1.4.8 падает на инициализации бандла
+    (`Object.assign` над undefined) — нужен триаж исходников.
+  - Проверки: bridge harness 79 (+6: alias `ctx.get('slots')`, `register` через
+    него, `entries`, `locale`, `ctx.inject`, `__DSHR_LAST_ERROR__`), cordis lib
+    26, server `plugins_live` 12, smoke — 63/63 (+3: второй реальный плагин в
+    discovery, его registry-кадр без ошибок, монтаж слота в регион
+    `conversation.header`), workspace 361 passed + 3 ignored (desktop 21, итого
+    382), web-e2e 16/16; shared runtime не менялся (148 140 байт).
+  - Границы: набор всё ещё n=2 (цель M5b 5.19 — 8–12 плагинов); мостовые
+    сервисы — подмножество (нет проекций `sessions`, `sessionStats` и т.п.);
+    eval-based бандлы требуют ослабления CSP, SlotMap-семантика и инъекция в DOM
+    шелла по-прежнему вне scope — решение по C-full за владельцем.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–79 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–80 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
 хоста `dsh.client.host_modules` (React 18.3.1 с сервера одним immutable-артефактом
 на страницу) — и C-lite: React-компоненты слотов с host-hooks/`ctx.get('sessions')`,
-частичный design-system шим и первый реальный DSH-плагин в conformance.
+частичный design-system шим и первый реальный DSH-плагин в conformance; раунд 80
+довёл conformance до n=2 (`dsh-remote@1.1.2`) и добавил сервисы моста
+(`ctx.get('slots')`/`locale`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`).
 
 Открыто и не заблокировано:
 
@@ -302,12 +345,16 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
   могут поменяться до полного тира C по [ADR-040](adr/040-react-client-half.md).
 - C-lite-ограничения: design-system шим частичный (5 компонентов), `wide` в
   host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальный плагин
-  в smoke показывает ветку ошибки данных), conformance-набор — n=1.
+  в smoke показывает ветку ошибки данных), conformance-набор — n=2 (цель 8–12),
+  мостовые сервисы — подмножество референсных (нет проекций `sessions`,
+  `sessionStats`), eval-based бандлы требуют ослабления CSP, а
+  `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
 
 Ожидает решения (ADR-040 Proposed, тир C/C-full):
 
-- **Полный тир C** — C-lite PoC сделан (раунд 79): React-компоненты слотов,
-  host-hooks/`ctx.get('sessions')` и частичный design-system шим работают.
+- **Полный тир C** — C-lite PoC сделан (раунд 79: React-компоненты слотов,
+  host-hooks/`ctx.get('sessions')` и частичный design-system шим; раунд 80:
+  conformance n=2 и сервисы моста `ctx.get('slots')`/`locale`/`ctx.inject`).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, host-маршрутов

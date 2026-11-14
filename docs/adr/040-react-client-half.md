@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и один реальный DSH-плагин в conformance; полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -158,3 +158,32 @@ connect) — это записанный компромисс; версия Reac
 cardinality/scope/chain/hoc), React-контекст/состояние шелла и композиция между
 плагинами; host-маршруты DSH-плагинов; версии React; публикация настоящего
 `@dshr/cordis-compat`-шима. Это отдельное решение владельца.
+
+## Расширение conformance и сервисов моста (15.11.2026, раунд 80)
+
+Второй реальный плагин и недостающие точки деградации:
+
+- **`ctx.get('slots')`** — референсные плагины получают сервис слотов через
+  `ctx.get('slots')`, а не `ctx.slots`; мост отдаёт тот же реестр
+  (`inject`/`register`/`remove`/`list`) плюс `entries(key)`.
+- **`ctx.get('locale')`** — минимальный сервис (`{active: "en"}`, subscribe),
+  чтобы не падать на `Object.assign`/чтении локали.
+- **`ctx.inject(deps, callback)`** — fiber-хелпер: callback вызывается только
+  когда все зависимости доступны. Опциональные интеграции
+  (`betterSidebar`/`sidebarRight`/`webTerminals`) в dshr отсутствуют, поэтому
+  не монтируются — штатная деградация, на которую рассчитаны DSH-плагины.
+- **Диагностика** — последняя ошибка кадра доступна как
+  `window.__DSHR_LAST_ERROR__` (`{message, stack}`) без раунд-трипа к шеллу.
+- **Conformance n=2.** К `@kt11/dsh-deepseek-balance@0.2.1` добавлен
+  `dsh-remote@1.1.2` (MIT; клиентская половина upstream без изменений, sha256 в
+  `package.json`): React-слоты в `conversation.session.header.*` и
+  `sidebar.workspaces.directoryFlow` монтируются без ошибок при отсутствии
+  опциональных сервисов.
+- **Найденные ограничения conformance-набора.** `@michengai/dsh-archive-manager`
+  использует `new Function`/eval → нужен `'unsafe-eval'` в CSP (сознательно не
+  включён); `@michengai/dsh-skills-manager` падает на инициализации бандла
+  (`Object.assign` над undefined) — требует триажа исходников плагина. Оба
+  записаны в TECH-DEBT; набор остаётся n=2.
+- **Проверка:** bridge harness 79 checks, smoke 63/63 (+3: второй плагин,
+  его регионы и отсутствие ошибок), cordis lib 26, server plugins_live 12,
+  workspace 361 passed + 3 ignored, web-e2e 16/16.

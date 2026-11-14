@@ -140,6 +140,47 @@
     },
   };
 
+  // The reference `slots` service (`ctx.get('slots')`) used by some halves: the
+  // same registry as `ctx.slots`, plus `entries(key)` for introspection.
+  const slotsService = {
+    inject: function (key, factory) {
+      return ctx.slots.inject(key, factory);
+    },
+    register: function (entry, component) {
+      return ctx.slots.register(entry, component);
+    },
+    remove: function (id) {
+      return ctx.slots.remove(id);
+    },
+    list: function () {
+      return ctx.slots.list();
+    },
+    entries: function (key) {
+      return sorted()
+        .filter(function (entry) {
+          return !key || entry.name === key;
+        })
+        .map(described);
+    },
+  };
+
+  // Minimal `locale` service: the dshr shell is English-only for plugin frames.
+  const localeService = {
+    getSnapshot: function () {
+      return { active: "en", locale: "en" };
+    },
+    subscribe: function (listener) {
+      if (typeof listener === "function") {
+        try {
+          listener({ active: "en", locale: "en" });
+        } catch (error) {
+          fail(error);
+        }
+      }
+      return function () {};
+    },
+  };
+
   // Hook props handed to React slot components (the documented dshr subset).
   // Built lazily from the same host-state store as `ctx.get('sessions')`.
   let cachedHostProps = null;
@@ -351,6 +392,12 @@
   function fail(error) {
     if (unloading) return;
     const message = error && error.message ? error.message : String(error);
+    // Keep the failure inspectable from the frame (debugging a real plugin's
+    // compatibility gap without a shell round-trip).
+    window.__DSHR_LAST_ERROR__ = {
+      message: message,
+      stack: error && error.stack ? String(error.stack) : "",
+    };
     post({ type: "error", message: message, stack: error && error.stack ? String(error.stack) : "" });
     root.textContent = "Plugin error: " + message;
     if (window.console) window.console.error("[dshr-client]", error);
@@ -711,7 +758,29 @@
     // host-state messages; anything else is unknown in the dshr bridge.
     get: function (name) {
       if (name === "sessions") return sessionsService;
+      if (name === "slots") return slotsService;
+      if (name === "locale") return localeService;
       return undefined;
+    },
+    // Reference Cordis fiber helper: run `callback(inner)` only when every
+    // requested service exists. Optional integrations (betterSidebar,
+    // sidebarRight, webTerminals, ...) are simply not mounted in dshr, which is
+    // exactly the degradation DSH plugins are written to expect.
+    inject: function (dependencies, callback) {
+      if (typeof callback !== "function") return function () {};
+      const list = Array.isArray(dependencies) ? dependencies : [dependencies];
+      const resolved = list.every(function (name) {
+        return ctx.get(name) !== undefined;
+      });
+      if (!resolved) return function () {};
+      try {
+        const result = callback(ctx);
+        if (typeof result === "function") return result;
+        return function () {};
+      } catch (error) {
+        fail(error);
+        return function () {};
+      }
     },
     get theme() {
       return theme;

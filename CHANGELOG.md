@@ -31,7 +31,7 @@
   `scripts/check-runtime-assets.sh` (wired into `scripts/check.sh` and CI). Each
   iframe keeps its own JS realm, so "one version per page" means one artifact/download,
   not a shared JS context. Full React compatibility is the open C-full decision in
-  ADR-040. Evidence: smoke 60/60, workspace tests 361 passed + 3 ignored (desktop 21,
+  ADR-040. Evidence: smoke 63/63, workspace tests 361 passed + 3 ignored (desktop 21,
   total 382), web-e2e 16/16. Also: WASM hot reload (fingerprint
   watcher, shared registry); Cordis hot reload (supervisor, file/config watcher,
   `/v1/plugins/reload`)
@@ -60,8 +60,35 @@
   verbatim, sha256 in `package.json`, host half stubbed) and renders its React
   card in `sidebar.footer.action`, injects its CSS and opens the popup (the data
   branch fails because dshr has no DSH host routes — recorded limitation).
-  Evidence: smoke 60/60 (new `hooks`/`ui-kit` fixtures plus the real plugin),
-  bridge harness 73 checks, cordis lib 26, server `plugins_live` 12, workspace
-  361 passed + 3 ignored (desktop 21, total 382), web-e2e 16/16.
+  Evidence: smoke 60/60 at the C-lite cut (new `hooks`/`ui-kit` fixtures plus
+  the real plugin), extended to 63/63 with the second conformance plugin in the
+  follow-up below; bridge harness 73 checks at the cut, 79 after the bridge
+  services below; cordis lib 26, server `plugins_live` 12, workspace 361 passed
+  + 3 ignored (desktop 21, total 382), web-e2e 16/16.
+- Plugins: C-lite conformance extended to n=2 and the bridge services reference
+  DSH plugins expect (`ctx.get('slots')`, `ctx.get('locale')`, `ctx.inject`,
+  diagnostics `window.__DSHR_LAST_ERROR__`). `ctx.get('slots')` is the same
+  registry as `ctx.slots` (`inject`/`register`/`remove`/`list`) plus
+  `entries(key)`; `ctx.get('locale')` is a minimal `{active: "en", locale: "en"}`
+  service with `subscribe`; `ctx.inject(deps, callback)` runs `callback(ctx)`
+  only when every dependency resolves (optional `betterSidebar`/`sidebarRight`/
+  `webTerminals` integrations stay unmounted — the graceful degradation DSH
+  plugins are written for); the last frame error is available inside the frame
+  as `window.__DSHR_LAST_ERROR__` (`{message, stack}`). Conformance n=2: the
+  vendored `dsh-remote@1.1.2` (MIT, client half verbatim, sha256 in
+  `package.json`, host half stubbed, `host_modules` added) registers React slots
+  in `conversation.session.header.actions`/`utilities` and
+  `sidebar.workspaces.directoryFlow` and activates without errors when the
+  optional services are absent (the existing `@kt11/dsh-deepseek-balance@0.2.1`
+  fixture stays). Rejected from the set for now (recorded in TECH-DEBT and
+  LIMITATIONS, not part of n=2): `@michengai/dsh-archive-manager` 1.3.6 needs
+  `'unsafe-eval'` in the CSP (deliberately not enabled) and
+  `@michengai/dsh-skills-manager` 1.4.8 throws during bundle init (`Object.assign`
+  over `undefined`) — needs source triage. Evidence: smoke 63/63 (+3: second real
+  plugin discovery, its error-free registry frame, its header-region mount),
+  bridge harness 79 checks (+6: slots alias/register/entries, locale,
+  `ctx.inject`, diagnostics); workspace 361 passed + 3 ignored (desktop 21,
+  total 382), cordis lib 26, server `plugins_live` 12, web-e2e 16/16; the shared
+  runtime artifact is unchanged (148,140 bytes).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`) and a partial design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and a wider conformance set (n=1) await the ADR-040 C-full decision (D not recommended).
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics) and a partial design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and a wider conformance set (n=2 now; target 8–12) await the ADR-040 C-full decision (D not recommended). The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

@@ -419,6 +419,51 @@ async function registryScenario() {
   );
   check("unknown services stay undefined", dshr.get("nope") === undefined, dshr.get("nope"));
 
+  // Reference service shims used by real plugins: slots alias, locale, inject.
+  const slotsAlias = dshr.get("slots");
+  check(
+    "ctx.get('slots') exposes the registry alias",
+    Boolean(slotsAlias) && typeof slotsAlias.inject === "function",
+    slotsAlias,
+  );
+  slotsAlias.register({ name: "panel", id: "alias-entry", title: "Alias" }, render);
+  check(
+    "ctx.get('slots').register publishes a slot",
+    dshr.slots.list().some((slot) => slot.id === "alias-entry"),
+    dshr.slots.list(),
+  );
+  check(
+    "ctx.get('slots').entries filters by slot name",
+    slotsAlias.entries("panel").some((entry) => entry.id === "alias-entry"),
+    slotsAlias.entries("panel"),
+  );
+  const locale = dshr.get("locale");
+  check(
+    "ctx.get('locale') returns the English snapshot",
+    Boolean(locale) && locale.getSnapshot().active === "en",
+    locale && locale.getSnapshot(),
+  );
+  let injected = 0;
+  let injectedInner = null;
+  dshr.inject(["sessions"], (inner) => {
+    injected += 1;
+    injectedInner = inner;
+  });
+  dshr.inject(["missing-service"], () => {
+    injected += 1;
+  });
+  check(
+    "ctx.inject gates on available services",
+    injected === 1 && injectedInner === dshr,
+    { injected: injected, inner: injectedInner === dshr },
+  );
+  dshr.__fail(new Error("diagnostic probe"));
+  check(
+    "__DSHR_LAST_ERROR__ records the failure for diagnostics",
+    page.window.__DSHR_LAST_ERROR__.message === "diagnostic probe",
+    page.window.__DSHR_LAST_ERROR__,
+  );
+
   // A shell reload bumps every frame version at once; the old document is torn
   // down while its module import is in flight and Chrome rejects that import.
   // The rejection must not be painted in the shell as a plugin error.

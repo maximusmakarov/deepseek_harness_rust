@@ -92,7 +92,7 @@
 | RAM в простое | 300–800 МБ | < 120 МБ (headless), < 250 МБ (desktop) | RSS после 5 мин |
 | Внешние рантаймы | Node 24, pnpm, Electron | нет в базовой поставке; JS-рантайм — отдельный пакет по требованию | `otool`/`ldd` + дерево процессов |
 | Плагины | TS/Cordis, in-process | WASM + Cordis-совместимость + sidecar + MCP | пример плагина каждого тира, аудит capability |
-| Совместимость плагинов DSH | 100 % (эталон) | conformance-набор из 8–12 реальных плагинов в nightly CI | отчёт матрицы «загрузился / инструменты / хуки» |
+| Совместимость плагинов DSH | 100 % (эталон) | conformance-набор из 8–12 реальных плагинов в nightly CI (сейчас n=2: `@kt11/dsh-deepseek-balance@0.2.1`, `dsh-remote@1.1.2`) | отчёт матрицы «загрузился / инструменты / хуки» |
 | Песочница | Node-провайдеры | нативные бэкенды, fail-closed | escape suite |
 | Поверхности | Web (Electron) | TUI + Web + headless | e2e по трём поверхностям |
 
@@ -103,7 +103,7 @@
 ## 4. Чего НЕ делаем
 
 - Не копируем UI, тексты, иконки и бренд DSH Desktop; дизайн свой.
-- Не обещаем React-компонентов клиентских UI-плагинов DSH как контракта шелла: мост слотов с eager registry-кадрами и iframe на регистрацию, полный словарь имён DSH разложен по 17 регионам шелла, а не React-совместимость; `ownerProps`/hooks-семантика — вне scope ([ADR-013](adr/013-cordis-compat.md), п. 5). При этом с раунда 77 половина может принести свой UI-стек classic-скриптом `dsh.client.runtime` (включая React), с раунда 78 — опционально взять React 18.3.1 и таблицу модулей от хоста через `dsh.client.host_modules` (один immutable-артефакт на страницу), а с раунда 79 (C-lite) — писать слоты как React-компоненты с host-hooks (`useTheme`/`useSession`/`useSessions`/`useHostState`/`wide`), `ctx.get('sessions')` и частичным design-system шимом `@deepseek-ai/dsh-client-ui-primitives` (один реальный DSH-плагин в conformance). Полный design-system, React-контекст/состояние шелла, SlotMap-семантика и host-маршруты DSH-плагинов — путь C-full в [ADR-040](adr/040-react-client-half.md).
+- Не обещаем React-компонентов клиентских UI-плагинов DSH как контракта шелла: мост слотов с eager registry-кадрами и iframe на регистрацию, полный словарь имён DSH разложен по 17 регионам шелла, а не React-совместимость; `ownerProps`/hooks-семантика — вне scope ([ADR-013](adr/013-cordis-compat.md), п. 5). При этом с раунда 77 половина может принести свой UI-стек classic-скриптом `dsh.client.runtime` (включая React), с раунда 78 — опционально взять React 18.3.1 и таблицу модулей от хоста через `dsh.client.host_modules` (один immutable-артефакт на страницу), а с раунда 79 (C-lite) — писать слоты как React-компоненты с host-hooks (`useTheme`/`useSession`/`useSessions`/`useHostState`/`wide`), `ctx.get('sessions')` и частичным design-system шимом `@deepseek-ai/dsh-client-ui-primitives`; раунд 80 добавил сервисы `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject`, диагностику `__DSHR_LAST_ERROR__` и довёл conformance до n=2 (`dsh-remote@1.1.2`). Полный design-system, React-контекст/состояние шелла, SlotMap-семантика и host-маршруты DSH-плагинов — путь C-full в [ADR-040](adr/040-react-client-half.md).
 - Не тащим Node как обязательную зависимость: JS-рантайм — runtime pack по требованию.
 - Не тащим Electron и Chromium; desktop — Tauri (системный webview) и только как опция.
 - Не обещаем побайтовый паритет поведения промптов и эвристик.
@@ -117,7 +117,7 @@
 |---|---|
 | Нет Electron | Tauri использует системный webview: различия рендеринга между ОС; UI-полировка дольше |
 | WASM-тир | Свой SDK и своя экосистема; UI-расширения в WASM не сделать |
-| Совместимость Cordis | Runtime pack (десятки МБ по требованию), дрейф Cordis/Node API, отслеживание CVE V8/Node, client-половина только через iframe-мост: свой React можно принести через `dsh.client.runtime`, React от хоста — `dsh.client.host_modules`, C-lite даёт React-компоненты слотов с host-hooks и частичным design-system шимом, но без полного design-system/React-контекста шелла/SlotMap-семантики/host-маршрутов (C-full ADR-040) |
+| Совместимость Cordis | Runtime pack (десятки МБ по требованию), дрейф Cordis/Node API, отслеживание CVE V8/Node, client-половина только через iframe-мост: свой React можно принести через `dsh.client.runtime`, React от хоста — `dsh.client.host_modules`, C-lite даёт React-компоненты слотов с host-hooks, сервисы `ctx.get('slots')`/`locale`/`ctx.inject`, диагностику `__DSHR_LAST_ERROR__`, conformance n=2 и частичный design-system шим, но без полного design-system/React-контекста шелла/SlotMap-семантики/host-маршрутов (C-full ADR-040) |
 | Один бинарь | Размер Rust-бинаря и время сборки выше, чем у «пустого» Node-рантайма |
 | TUI-first | Часть пользователей ждёт GUI; Web UI нужно догонять |
 | Нативная песочница | Разные гарантии по ОС; Windows сложнее и позже |

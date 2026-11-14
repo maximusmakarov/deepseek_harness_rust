@@ -1,0 +1,37 @@
+{
+  "name": "dsh-remote",
+  "version": "1.1.2",
+  "description": "Remote SSH development for DeepSeek Harness (conformance fixture)",
+  "type": "module",
+  "main": "./lib/stub.mjs",
+  "exports": {
+    ".": "./lib/stub.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/client.js",
+    "lib/stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "host_modules": [
+        "react",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/dsh-remote",
+    "upstreamVersion": "1.1.2",
+    "upstreamLicense": "MIT",
+    "clientSha256": "5016e5d3e8f7dbc485f25e29aa7a70d2d3493ca0a434b4d82f84d944f9f66456",
+    "changes": "lib/client.js and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}
