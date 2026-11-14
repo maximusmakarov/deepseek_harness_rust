@@ -90,9 +90,10 @@ release-бинарь воспроизводим.
   действия compose/notify. `b8bf8ef` `19c83f3`
 - 65: capability-ассеты для многофайловых бандлов (`/asset/{capability}/…`,
   TTL, confined, CSP по origin) и module-table шим; серверные тесты режима.
-- 66: headless smoke `scripts/plugin-smoke.py` (25 проверок: слоты, resize, тема,
-  действия, eager, многофайловый и module-table бандлы, hot reload открытой
-  панели); Replica-оценка клиентской половины 96.1/100 (must 12/12).
+- 66: headless smoke `scripts/plugin-smoke.py` (28 проверок: слоты, resize, тема,
+  действия, eager, inject-порядок, ошибки плагина, exports-карта, многофайловый и
+  module-table бандлы, hot reload открытой панели); Replica-оценка клиентской
+  половины 98.0/100 (must 12/12).
 
 ## Что осталось
 

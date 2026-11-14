@@ -15,7 +15,7 @@ Single-file bundle delivery,loading,should,yes,yes,"base64 inlined, no requests 
 Multi-file bundle delivery with relative imports,loading,should,yes,yes,capability-addressed asset route
 Content-driven panel height,layout,should,yes,yes,resize message clamps 120-640px
 Eager activation at startup,lifecycle,should,yes,yes,dsh.client.immediately keeps a hidden frame mounted
-Activation ordering by inject,lifecycle,should,yes,partial,eager halves honor inject order; lazy halves activate on demand
+Activation ordering by inject,lifecycle,should,yes,yes,eager mounts and panel open walk inject dependencies; cycles are guarded
 Bundles built for the reference module table,loading,should,yes,partial,__ModuleLoader__ shim runs factory/apply; React is unavailable
 Hot reload an open panel after a plugin reload,lifecycle,should,yes,yes,the shell bumps the frame version; the panel reloads its bundle
 External runtime imports (dsh.client.external),loading,could,yes,skip,no shared browser module table in the iframe bridge (ADR-013 §5)

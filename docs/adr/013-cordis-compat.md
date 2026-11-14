@@ -145,10 +145,10 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 - **Перезагрузка.** После reload супервизора шелл поднимает версию кадра, и
   открытая панель подхватывает новый бандл без переоткрытия.
 - **Проверка.** Node-харнесс моста в `cargo test`, серверные тесты capability-режима
-  и `scripts/plugin-smoke.py` — 25 проверок в headless Chrome (слоты, resize,
+  и `scripts/plugin-smoke.py` — 28 проверок в headless Chrome (слоты, resize,
   тема, действия, eager-кадр, многофайловый и module-table бандлы, hot reload).
-  Оценка Replica `replica-diff` по клиентской половине: **96.1/100, must 12/12**
+  Оценка Replica `replica-diff` по клиентской половине: **98.0/100, must 12/12**
   (`docs/replica/client-half-parity.md`).
 
-Осталось: полный граф `inject` для ленивых половин, React-совместимость и общий
-стол модулей (вне scope §5), conformance-набор реальных пакетов.
+Осталось: React-совместимость и общий стол модулей (вне scope §5), conformance-набор
+реальных пакетов, `dsh.client.external`.
