@@ -178,7 +178,7 @@ async fn asks_the_client_for_permission() {
             ],
         ],
     ));
-    let mut tools = ToolRegistry::new();
+    let tools = ToolRegistry::new();
     tools.register(NoopBash);
     let server = AcpServer::new(
         provider,
@@ -316,7 +316,7 @@ async fn reads_files_through_the_client() {
         ],
     ));
     let fs = Arc::new(dshr_acp::AcpFsClient::new());
-    let mut tools = ToolRegistry::new();
+    let tools = ToolRegistry::new();
     tools.register(dshr_acp::AcpReadTool::new(Arc::clone(&fs)));
     let server = AcpServer::new(
         provider,
@@ -451,7 +451,7 @@ async fn uses_client_terminal() {
         ],
     ));
     let terminal = Arc::new(dshr_acp::AcpTerminalClient::new());
-    let mut tools = ToolRegistry::new();
+    let tools = ToolRegistry::new();
     tools.register(dshr_acp::AcpBashTool::new(Arc::clone(&terminal)));
     let server = AcpServer::new(
         provider,

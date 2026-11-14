@@ -511,7 +511,7 @@ impl AcpServer {
             .get(session_id)
             .cloned()
             .unwrap_or(Value::Null);
-        let mut tools = (*self.tools).clone();
+        let tools = (*self.tools).clone();
         if let Some(servers) = mcp_servers.as_array() {
             for server in servers {
                 let adapters = connect_acp_mcp(server).await.map_err(PromptError::Failed)?;
