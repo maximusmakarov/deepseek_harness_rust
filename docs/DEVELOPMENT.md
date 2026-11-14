@@ -14,7 +14,7 @@ cargo llvm-cov --workspace --summary-only
 One command runs every gate exactly like CI:
 
 ```sh
-scripts/check.sh          # everything (fmt, clippy, tests, evals, perf, browser)
+scripts/check.sh          # everything (fmt, clippy, runtime assets, tests, evals, perf, browser)
 scripts/check.sh quick    # fmt, clippy, workspace tests
 ```
 
@@ -24,7 +24,8 @@ Gates that need their own invocation:
 cargo test -p dshr-cli --test evals -- --nocapture   # 10-task eval suite, budgets in target/evals/report.json
 cargo test -p dshr-perf --release -- --nocapture     # ARCHITECTURE §20 budgets (debug runs print SKIP)
 python3 scripts/web-e2e.py                           # chat -> approval -> tool -> journal in headless Chrome
-python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, plugin-shipped runtime (`dsh.client.runtime`), actions (48 checks)
+python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, plugin-shipped runtime (`dsh.client.runtime`), shared host runtime (`dsh.client.host_modules`), actions (53 checks)
+scripts/check-runtime-assets.sh                      # vendored shared runtime (React/ReactDOM UMD + bootstrap) matches crates/server/assets/runtime/checksums.txt
 ```
 
 ## Web UI
@@ -49,7 +50,7 @@ macOS CI runs its tests separately.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on macOS/Ubuntu/Windows: fmt, clippy, nextest, doc tests; separate `cargo-deny` and `coverage` jobs, plus `evals`, `perf` (release) and `web-e2e` (headless Chrome + client-half smoke) gates. The experimental Windows AppContainer check is `continue-on-error`: it reports into the job summary but does not block trunk while the feature is deferred (see `docs/TECH-DEBT.md`). Failed nextest/clippy output is annotated and uploaded on failure.
+`.github/workflows/ci.yml` runs on macOS/Ubuntu/Windows: fmt, clippy, nextest, doc tests; separate `cargo-deny` and `coverage` jobs, plus `evals`, `perf` (release) and `web-e2e` (headless Chrome + client-half smoke) gates. The Linux test job also runs `scripts/check-runtime-assets.sh` (checksum gate for the vendored shared runtime). The experimental Windows AppContainer check is `continue-on-error`: it reports into the job summary but does not block trunk while the feature is deferred (see `docs/TECH-DEBT.md`). Failed nextest/clippy output is annotated and uploaded on failure.
 
 `release.yml` builds tag releases (`v*`) for the three OSes.
 

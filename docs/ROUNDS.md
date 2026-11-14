@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–77)
+# Журнал раундов паритета (1–78)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 353 root-теста
-(+3 ignored) и 21 desktop-тест = **374**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 360 root-тестов
+(+3 ignored) и 21 desktop-тест = **381**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -198,30 +198,72 @@ release-бинарь воспроизводим.
     [ADR-040](adr/040-react-client-half.md) (Proposed) фиксирует тиры A → B → C
     (D не рекомендуется), решение по B/C — за владельцем.
 
+- 78: PoC тира B по [ADR-040](adr/040-react-client-half.md) — общая модульная
+  таблица хоста `dsh.client.host_modules`:
+  - половина объявляет массив id из allowlist (`react`, `react/jsx-runtime`,
+    `react/jsx-dev-runtime`, `react-dom`, `react-dom/client`); незнакомый id
+    отклоняется при discovery (`crates/cordis/src/client.rs`: `HOST_MODULES`,
+    `HOST_RUNTIME_VERSION`, `host_runtime_url`, `PageRuntime`);
+  - host-страница opt-in-кадра добавляет перед бандлом один classic-скрипт
+    `GET /v1/runtime/react-18.3.1.js` — версионированный immutable-артефакт
+    (React 18.3.1 UMD + ReactDOM UMD + `bootstrap.js`, ~143 КБ;
+    `Cache-Control: public, max-age=31536000, immutable`), поэтому браузер
+    скачивает React один раз на страницу, а не получает ~140 КБ внутри каждой
+    host-страницы; кадры без `host_modules` остаются полностью network-free;
+  - порядок исполнения: shared runtime → plugin-shipped `dsh.client.runtime`
+    (может переопределять записи) → бандл; контракт `require` не меняется —
+    рантайм публикует те же id в `window.__DSHR_MODULES__`;
+  - CSP opt-in-кадра: `script-src 'unsafe-inline' blob: <origin сервера>`,
+    `connect-src 'none'` и остальные директивы прежние; инъекция через
+    Host-header закрыта тем же `request_origin` с валидацией, что и для assets;
+  - исходники, MIT-лицензии и контрольные суммы — `crates/server/assets/runtime/`;
+    `scripts/check-runtime-assets.sh` проверяет checksums и включён в
+    `scripts/check.sh` и CI Linux test job;
+  - JS-реалм у каждого iframe свой (изоляция не ломается), поэтому «одна версия
+    на страницу» — это один артефакт и одна загрузка, а не общий JS-контекст.
+  - Проверки: cordis lib 25 (+4: parse/dedup `host_modules`, отклонение
+    незнакомого id, порядок shared → plugin runtime → bundle, отсутствие
+    shared-скрипта без opt-in), server `plugins_live` 12 (+3: маршрут и
+    заголовки/404, host-страница opt-in ссылается на рантайм и не встраивает
+    React + CSP с origin, враждебный Host не инжектируется), smoke — 53/53
+    (+5: discovery `host_modules`, immutable-артефакт, host-страница без
+    встроенного React, реальный React рендерится из общего рантайма,
+    `useState`-интерактивность); workspace 360 passed + 3 ignored (desktop 21,
+    итого 381), web-e2e 16/16. Smoke-фикстура `hosted` не содержит React в
+    бандле.
+  - Границы тира B: design-system `@deepseek-ai/dsh-client-ui-*`, React-контекст
+    и композиция шелла, SlotMap-семантика (`ownerProps`, framework-hooks,
+    cardinality/scope) по-прежнему отсутствуют; версия React закреплена за
+    сервером, у плагинов нет выбора версии; CSP opt-in-кадров открывает origin
+    для скриптов. Решение по тиру C — за владельцем, D не рекомендуется.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–77 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–78 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
-слотов клиентской половины и enabler `dsh.client.runtime` (плагин приносит
-свой UI-стек, включая React, внутрь слота).
+слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
+UI-стек, включая React, внутрь слота) и PoC тира B — общую модульную таблицу
+хоста `dsh.client.host_modules` (React 18.3.1 с сервера одним immutable-артефактом
+на страницу).
 
 Открыто и не заблокировано:
 
 - Общая серверная база отзывов plugin market (сейчас home-scoped файл).
-- Экспериментальный контракт `dsh.client.runtime` (classic script, без ESM и
-  отдельной подписи, дублирование runtime в каждом кадре) может поменяться до
-  тира B по [ADR-040](adr/040-react-client-half.md).
+- Экспериментальные контракты клиентской половины (`dsh.client.runtime` и
+  `dsh.client.host_modules`: classic script, без ESM и отдельной подписи, версия
+  React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов)
+  могут поменяться до тира C по [ADR-040](adr/040-react-client-half.md).
 
-Ожидает решения (ADR-040 Proposed, тиры B/C):
+Ожидает решения (ADR-040 Proposed, тир C):
 
-- **Полная React-совместимость** — enabler есть (раунд 77): половина приносит
-  собственный React/module table. Чего по-прежнему нет: общей модульной таблицы
-  шелла, design-system пакетов `@deepseek-ai/dsh-client-ui-*`, React-контекста
-  шелла, композиции между плагинами и SlotMap-семантики (`ownerProps`,
-  framework-hooks, cardinality/scope). Выбор тира B (host-таблица модулей) или
-  C (React-остров в Leptos) — за владельцем; D не рекомендуется.
+- **Полная React-совместимость** — тир B PoC сделан (раунд 78): React и таблица
+  модулей приходят от хоста. Чего по-прежнему нет: design-system пакетов
+  `@deepseek-ai/dsh-client-ui-*`, React-контекста шелла, композиции между
+  плагинами и SlotMap-семантики (`ownerProps`, framework-hooks,
+  cardinality/scope). Выбор тира C (React-остров в Leptos) — за владельцем;
+  D не рекомендуется.
 
 Заблокировано внешним условием:
 

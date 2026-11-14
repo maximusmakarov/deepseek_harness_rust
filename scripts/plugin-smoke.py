@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with ten throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with eleven throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -478,6 +478,63 @@ window.__ModuleLoader__.load({
 });
 """
 
+HOSTED_MANIFEST = {
+    "name": "@smoke/hosted",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {
+        "platform": "web",
+        "entry": "client.js",
+        "host_modules": ["react", "react-dom/client"],
+    }},
+}
+
+HOSTED_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "hosted", description: "hosted", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+# Tier B PoC: the half ships no React of its own — it opts into the host module
+# table (`dsh.client.host_modules`) and the frame loads the shared, immutable
+# runtime from the server origin.
+HOSTED_CLIENT = """
+window.__ModuleLoader__.load({
+  id: "@smoke/hosted",
+  factory(require) {
+    const React = require("react");
+    const ReactDOM = require("react-dom/client");
+    function Counter(props) {
+      const [clicks, setClicks] = React.useState(0);
+      const [theme, setTheme] = React.useState(props.theme || "dark");
+      React.useEffect(() => props.onTheme(next => setTheme(next)), []);
+      return React.createElement(
+        "div",
+        { id: "hosted-react" },
+        React.createElement("h3", null, "React from the host"),
+        React.createElement("button", { id: "hosted-counter", onClick: () => setClicks(clicks + 1) }, "clicks: " + clicks),
+        React.createElement("p", { id: "hosted-theme" }, "theme: " + theme),
+      );
+    }
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register(
+          { name: "panel", id: "hosted-panel", title: "Hosted panel", order: 70 },
+          (element, props) => {
+            ReactDOM.createRoot(element).render(
+              React.createElement(Counter, { theme: props.theme, onTheme: ctx.onTheme }),
+            );
+          },
+        );
+      },
+    };
+  },
+});
+"""
+
 REGIONS_MANIFEST = {
     "name": "@smoke/regions",
     "version": "1.0.0",
@@ -605,6 +662,7 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("demo8", DSH_MANIFEST, DEMO_PLUGIN, DSH_CLIENT),
         ("regions", REGIONS_MANIFEST, REGIONS_PLUGIN, REGIONS_CLIENT),
         ("framework", FRAMEWORK_MANIFEST, FRAMEWORK_PLUGIN, FRAMEWORK_CLIENT),
+        ("hosted", HOSTED_MANIFEST, HOSTED_PLUGIN, HOSTED_CLIENT),
     ]
     for name, manifest, plugin, client in entries:
         directory = workspace / name
@@ -967,7 +1025,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 10, names)
+        check("lists every configured client half", len(clients) == 11, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -996,6 +1054,37 @@ def run(args: argparse.Namespace) -> int:
             runtime_at >= 0 and bundle_at > runtime_at and "mini framework" in runtime_page,
             (runtime_at, bundle_at, len(runtime_page)),
         )
+        hosted_half = next((client for client in clients if client["name"] == "hosted"), None)
+        check(
+            "a half can opt into the shared host module table",
+            hosted_half is not None
+            and hosted_half.get("host_modules") == ["react", "react-dom/client"],
+            hosted_half,
+        )
+        runtime_route = urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/v1/runtime/react-18.3.1.js", timeout=10
+        )
+        runtime_js = runtime_route.read().decode()
+        check(
+            "shared host runtime is one immutable versioned artifact",
+            "immutable" in runtime_route.headers.get("Cache-Control", "")
+            and "window.__DSHR_MODULES__" in runtime_js
+            and '"react/jsx-runtime"' in runtime_js,
+            runtime_route.headers.get("Cache-Control"),
+        )
+        hosted_page = urllib.request.urlopen(
+            urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/plugins/hosted/host?token={TOKEN}",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+            ),
+            timeout=10,
+        ).read().decode()
+        check(
+            "host frames reference the shared runtime instead of embedding React",
+            "/v1/runtime/react-18.3.1.js" in hosted_page
+            and "@license React" not in hosted_page,
+            (len(hosted_page), "@license React" in hosted_page),
+        )
 
         # A deterministic transcript: create a session over REST and replay one
         # assistant turn, so per-message regions have rows to mount into.
@@ -1020,7 +1109,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 10)
+        wait_registry_ready(debug_port, 11)
 
         # Eager registry ----------------------------------------------------
         registry = shell.eval(
@@ -1032,7 +1121,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 10
+            len(registry) == 11
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1344,7 +1433,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 10)
+        wait_registry_ready(debug_port, 11)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1444,6 +1533,48 @@ def run(args: argparse.Namespace) -> int:
             "mini framework: " in framework_text,
             framework_text,
         )
+
+        # Tier B: React comes from the shared host runtime, the half ships none.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=hosted"},
+        )
+        wait_until(
+            lambda: shell.eval("document.getElementById('plugin-stage')?.className === 'plugin-stage open'"),
+            timeout=LOAD_TIMEOUT,
+            label="hosted panel opens",
+        )
+        hosted_text = poll_frame(
+            debug_port,
+            "String(document.getElementById('hosted-react')?.textContent || '')",
+            lambda value: "React from the host" in str(value),
+            plugin="hosted",
+            slot="panel",
+            label="hosted React panel",
+        )
+        check(
+            "React from the shared host runtime renders in a slot",
+            "React from the host" in str(hosted_text),
+            hosted_text,
+        )
+        clicked_text = poll_frame(
+            debug_port,
+            """(() => {
+                const button = document.getElementById('hosted-counter');
+                if (!button) return '';
+                button.click();
+                return String(document.getElementById('hosted-react')?.textContent || '');
+            })()""",
+            lambda value: "clicks: 1" in str(value),
+            plugin="hosted",
+            slot="panel",
+            label="hosted React interaction",
+        )
+        check(
+            "the host-provided React is interactive (useState)",
+            "clicks: 1" in str(clicked_text),
+            clicked_text,
+        )
         # Back to the regions panel for the action round-trips below.
         shell.call(
             "Page.navigate",
@@ -1454,7 +1585,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 10)
+        wait_registry_ready(debug_port, 11)
 
         # ctx.action round-trips from a panel frame -------------------------
         def panel_eval(expression: str, await_promise: bool = False):
@@ -1597,7 +1728,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 10)
+        wait_registry_ready(debug_port, 11)
 
         def surviving_frames() -> int:
             count = 0
@@ -1634,7 +1765,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 10)
+            wait_registry_ready(debug_port, 11)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

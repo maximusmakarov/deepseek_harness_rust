@@ -75,11 +75,11 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 - **Iframe на слот.** На каждую регистрацию (и на каждое вхождение повторяющегося региона: сообщение, карточка инструмента, строка сессии) создаётся отдельный iframe `mode=slot` с токеном фрейма, именем слота, id и `context`. Бандл в нём рендерит ровно эту регистрацию; `ctx.effect`/`inject` живут вместе с фреймом.
 - **Полный словарь.** Каталог слотов DSH `0.2.2-rc.2` (116 ключей `@deepseek-ai/dsh-client-ui-*`) плюс legacy `panel`/`message.action` разложен по 17 регионам шелла: `panel`, `sidebar.top`, `sidebar.footer`, `sidebar.session.action`, `settings.section`, `settings.icon`, `settings.action`, `message.action`, `tool.card`, `conversation.header`, `composer.actions`, `shell.leading`, `shell.bottom`, `shell.overlay`, `plugins.add`, `plugins.detail`, `approval.detail`; незнакомое имя — fallback в панель плагина.
 - **Протокол v1.2.** Токен фрейма и режим в каждом сообщении, `region` в `slots`/`resize`, `context` для повторяющихся регионов, адресный ответ на `ctx.action` тому фрейму, который спросил.
-- **Проверка.** Node-харнесс моста (покрытие всего каталога, slot mode, регионы), серверные тесты валидации `/host`, `scripts/plugin-smoke.py` — 48 проверок в headless Chrome (слоты по регионам, eager-registry, диалоги, сообщения, тема, действия, reload).
+- **Проверка.** Node-харнесс моста (покрытие всего каталога, slot mode, регионы), серверные тесты валидации `/host`, `scripts/plugin-smoke.py` — 53 проверки в headless Chrome (слоты по регионам, eager-registry, диалоги, сообщения, тема, действия, reload).
 
 Что по-прежнему **вне scope**: React-компоненты (`render` строит DOM сам), `ownerProps`/hooks/chain/hoc-семантика слотов DSH, произвольная инъекция в DOM шелла. Это сохраняет Leptos-архитектуру и попутно даёт изоляцию UI-плагина.
 
-С раунда 77 половина может принести **собственную модульную таблицу** одним classic-скриптом `dsh.client.runtime` (например, собранный React 18): мост резолвит `require(specifier)` из `window.__DSHR_MODULES__`, CSP остаётся network-free. Это enabler, а не полная React-совместимость — общая модульная таблица шелла, design-system и SlotMap-семантика остаются предметом [ADR-040](040-react-client-half.md).
+С раунда 77 половина может принести **собственную модульную таблицу** одним classic-скриптом `dsh.client.runtime` (например, собранный React 18): мост резолвит `require(specifier)` из `window.__DSHR_MODULES__`, CSP остаётся network-free. Раунд 78 добавил **PoC тира B**: `dsh.client.host_modules` — общий модульный рантайм хоста (React 18.3.1, один версионированный immutable-артефакт на страницу, browser-кэш), так что половине не нужно вшивать React в каждый кадр. Это всё ещё не полная React-совместимость: design-system, React-контекст шелла и SlotMap-семантика остаются предметом тира C по [ADR-040](040-react-client-half.md).
 
 ### 6. Дистрибуция и воспроизводимость (оба тира)
 
@@ -160,9 +160,10 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 Закрыто в раунде 77: предварительный enabler `dsh.client.runtime` — половина
 приносит свою модульную таблицу (включая собранный React), см. §5 и
 [ADR-040](040-react-client-half.md).
-Осталось: полная React-совместимость (общая модульная таблица, design-system,
-SlotMap-семантика — тиры B/C по [ADR-040](040-react-client-half.md), решение
-ожидается), conformance-набор реальных пакетов, `dsh.client.external`.
+Осталось: полная React-совместимость (design-system, React-контекст шелла,
+SlotMap-семантика — **тир C** по [ADR-040](040-react-client-half.md), решение
+ожидается; тиры A и B-PoC уже реализованы), conformance-набор реальных пакетов,
+`dsh.client.external`.
 
 ## Региональный монтаж слотов (14.11.2026, раунд 76)
 

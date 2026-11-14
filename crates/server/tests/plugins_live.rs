@@ -306,6 +306,8 @@ async fn lists_and_serves_client_halves() {
     assert!(page.contains("\"slot\":\"\""), "{page}");
     assert!(page.contains("\"id\":\"\""), "{page}");
     assert!(page.contains("\"context\":\"\""), "{page}");
+    // A half without `dsh.client.host_modules` keeps the network-free page.
+    assert!(!page.contains("/v1/runtime/"), "{page}");
 }
 
 /// Percent-encodes a JSON context payload for a query string. The test payloads
@@ -578,6 +580,163 @@ async fn rejects_a_runtime_that_closes_the_script_tag() {
             .contains("unescaped </script>"),
         "{body}"
     );
+}
+
+fn write_host_modules_client_half(dir: &Path) {
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"name":"@acme/hosted","dsh":{"client":{"platform":"web","entry":"client.js","host_modules":["react","react-dom/client"]}}}"#,
+    )
+    .expect("manifest");
+    std::fs::write(
+        dir.join("client.js"),
+        r#"
+window.__ModuleLoader__.load({
+  id: "@acme/hosted",
+  factory(require) {
+    const React = require("react");
+    const { createRoot } = require("react-dom/client");
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register({ name: "panel", id: "hosted-panel", title: "Hosted" }, (element) => {
+          createRoot(element).render(React.createElement("h3", null, "React from the host"));
+        });
+      },
+    };
+  },
+});
+"#,
+    )
+    .expect("client");
+}
+
+/// The shared runtime is one immutable, versioned artifact: the frame references
+/// it by URL instead of the plugin embedding ~140 KB in every host page.
+#[tokio::test]
+async fn serves_one_immutable_host_runtime() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let (status, headers, bytes) = raw(&app, "/v1/runtime/react-18.3.1.js", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "application/javascript; charset=utf-8"
+    );
+    let cache = headers[header::CACHE_CONTROL].to_str().expect("cache");
+    assert!(cache.contains("immutable"), "{cache}");
+    assert!(cache.contains("max-age=31536000"), "{cache}");
+    assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+    let body = String::from_utf8(bytes).expect("utf8");
+    assert!(
+        body.contains("@license React"),
+        "upstream license header kept"
+    );
+    assert!(
+        body.contains("window.__DSHR_MODULES__"),
+        "module table glue"
+    );
+    assert!(body.contains(r#""react/jsx-runtime""#), "{body:.200}");
+    assert!(body.len() > 100_000, "React + ReactDOM are concatenated");
+
+    // Only the exact versioned name is served; anything else is a 404.
+    for file in ["react-19.0.0.js", "react-18.3.1.js.map", "bootstrap.js"] {
+        let (status, _) = {
+            let uri = format!("/v1/runtime/{file}");
+            let request = Request::builder()
+                .method("GET")
+                .uri(uri)
+                .body(Body::empty())
+                .expect("request");
+            let response = app.clone().oneshot(request).await.expect("response");
+            (response.status(), ())
+        };
+        assert_eq!(status, StatusCode::NOT_FOUND, "{file}");
+    }
+}
+
+#[tokio::test]
+async fn host_page_opts_into_the_shared_runtime() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_host_modules_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let (status, body) = call(&app, "GET", "/v1/plugins/clients", Some(TOKEN), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["clients"][0]["host_modules"],
+        json!(["react", "react-dom/client"]),
+        "{body}"
+    );
+
+    let (status, headers, bytes) = raw(
+        &app,
+        "/v1/plugins/demo/host?token=test-token&theme=dark",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page = String::from_utf8(bytes).expect("utf8");
+    assert!(
+        page.contains(
+            r#"<script src="/v1/runtime/react-18.3.1.js" data-dshr-shared-runtime="1"></script>"#
+        ),
+        "{page}"
+    );
+    // The page references the artifact, it does not embed React: that is what
+    // removes the per-frame duplication.
+    assert!(
+        !page.contains("@license React"),
+        "React must not be inlined"
+    );
+    let csp = headers[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .expect("csp")
+        .to_owned();
+    assert!(
+        csp.contains("script-src 'unsafe-inline' blob: http://"),
+        "{csp}"
+    );
+    assert!(csp.contains("connect-src 'none'"), "{csp}");
+}
+
+#[tokio::test]
+async fn hostile_host_cannot_inject_the_shared_runtime_csp() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_host_modules_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/plugins/demo/host?token=test-token&theme=dark")
+        .header("host", "evil.test; script-src *")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let csp = response.headers()[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .expect("csp")
+        .to_owned();
+    assert!(csp.contains("http://127.0.0.1"), "{csp}");
+    assert!(!csp.contains("evil.test"), "{csp}");
+    assert!(!csp.contains("script-src *"), "{csp}");
 }
 
 #[tokio::test]

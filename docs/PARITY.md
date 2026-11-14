@@ -41,7 +41,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
-| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина; экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/UI-стек, включая React, module-table бандлы резолвят `require` из `window.__DSHR_MODULES__`); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
+| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина; экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/UI-стек, включая React; PoC тира B `dsh.client.host_modules` — половина опционально берёт React 18.3.1 и таблицу модулей от хоста одним immutable-артефактом `/v1/runtime/react-18.3.1.js`; module-table бандлы резолвят `require` из `window.__DSHR_MODULES__`; design-system, React-контекста шелла и SlotMap-семантики нет — тир C); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; серверный каталог с категориями/тегами/поиском и карточкой пакета (`/v1/plugins/catalog*`); установка через CLI/UI; внешней общей базы отзывов нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
@@ -69,13 +69,16 @@ P1: plugin market — каталог с категориями/поиском и
 P2: прогон brew/desktop CI на теге, React-компоненты клиентских плагинов
 (сейчас мост + региональные iframe-слоты, ADR-013 §5; регионы и словарь имён
 сделаны в раунде 76, enabler `dsh.client.runtime` — в раунде 77: плагин может
-принести свой React, но полной React-совместимости нет — тиры B/C
-[ADR-040](adr/040-react-client-half.md)), приватные terminal shim'ы.
+принести свой React, PoC тира B `dsh.client.host_modules` — в раунде 78: React
+18.3.1 и таблица модулей от хоста одним immutable-артефактом на страницу; полной
+React-совместимости нет — design-system, React-контекст шелла и SlotMap-семантика
+ждут решения по тиру C [ADR-040](adr/040-react-client-half.md)), приватные
+terminal shim'ы.
 
-## Проверка (14.11.2026)
+## Проверка (15.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 353 passed + 3 ignored; desktop 21 passed (итого 374).
+- `cargo test --workspace`: 360 passed + 3 ignored; desktop 21 passed (итого 381).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
@@ -93,8 +96,8 @@ P2: прогон brew/desktop CI на теге, React-компоненты кл�
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
   состояние; `/v1/plugins/installed` следует за супервизором.
-- Клиентская половина: `python3 scripts/plugin-smoke.py` — 48
-  проверок в headless Chrome: eager registry-кадры всех половин, монтаж слота в
+- Клиентская половина: `python3 scripts/plugin-smoke.py` — 53
+  проверки в headless Chrome: eager registry-кадры всех половин, монтаж слота в
   регион по таблице `slot key → регион` (17 регионов), fallback незнакомого имени
   в панель, `context` повторяющихся регионов, адресный `resize`, live-тема,
   `ctx.action` (`close`/`reload`/`compose`/`notify` и отказ для неизвестного),
@@ -103,10 +106,14 @@ P2: прогон brew/desktop CI на теге, React-компоненты кл�
   фреймов плагина; plugin-shipped runtime (`dsh.client.runtime`) обнаруживается
   в `/v1/plugins/clients`, host-страница исполняет его до бандла, а
   module-table бандл резолвит `require` из `window.__DSHR_MODULES__` и рендерит
-  свой mini-framework (React 18.3.1 PoC проверен вручную).
+  свой mini-framework; PoC тира B: `host_modules` виден в `/v1/plugins/clients`,
+  `/v1/runtime/react-18.3.1.js` отдаётся с immutable-кэшем, opt-in host-страница
+  ссылается на рантайм и не встраивает React, а smoke-фикстура `hosted` без React
+  в бандле рендерит реальный интерактивный React-компонент (`useState`) из общего
+  рантайма (React 18.3.1 PoC раунда 77 — отдельно, вручную).
 - Replica-оценка клиентской половины (`replica-diff`): 98.1/100, must 13/13 —
-  `docs/replica/client-half-parity.md` (добавленная could-строка про
-  plugin-shipped runtime — dshr-дополнение вне скоринга).
+  `docs/replica/client-half-parity.md` (две добавленные could-строки про
+  plugin-shipped runtime и shared host module table — dshr-дополнения вне скоринга).
 - Формализация: `./formal/run_tlc.sh` — 3 модели / 5 конфигов TLC без нарушений
   (`CordisSupervisor` safety+liveness, `ClientAssets`, `ApprovalGate` safety+liveness);
   модели и абстракции — `docs/formal/README.md`.

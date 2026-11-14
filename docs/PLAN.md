@@ -24,7 +24,7 @@
 - Обучение/инференс модели. `dshr` — оркестратор; модель приходит по API или из локального рантайма (llama.cpp/candle) как отдельный провайдер.
 - Побайтовый порт кода DSH Desktop, его промптов, текстов интерфейса и бренда.
 - Electron/Chromium и обязательный GUI: desktop-оболочка — опциональная Tauri-надстройка над `dshr serve`.
-- Полная совместимость клиентских UI-плагинов DSH (React-компоненты как контракт шелла) — вне scope; host-плагины Cordis получают отдельный рантайм, UI — через региональный мост iframe ([ADR-013](adr/013-cordis-compat.md)). Enabler `dsh.client.runtime` (раунд 77) позволяет половине принести свой UI-стек, включая React; путь к полной React-совместимости — [ADR-040](adr/040-react-client-half.md) (Proposed, тиры B/C).
+- Полная совместимость клиентских UI-плагинов DSH (React-компоненты как контракт шелла) — вне scope; host-плагины Cordis получают отдельный рантайм, UI — через региональный мост iframe ([ADR-013](adr/013-cordis-compat.md)). Enabler `dsh.client.runtime` (раунд 77) позволяет половине принести свой UI-стек, включая React, а PoC тира B `dsh.client.host_modules` (раунд 78) — опционально взять React 18.3.1 и таблицу модулей от хоста одним immutable-артефактом; полная React-совместимость (design-system, React-контекст, SlotMap) — [ADR-040](adr/040-react-client-half.md) (Proposed, тир C).
 - Паритет с DSH 1:1 по каждой экспериментальной функции (voice, translation, liveshare, CUA) — только по явному запросу.
 
 ---
@@ -79,7 +79,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 Легенда: **T1** — MVP (4–6 мес), **T2** — v1 (7–11 мес, включая M5b), **T3** — паритет + улучшения (13–21 мес). `—` — не планируется. Колонка DSH: ✓ — подтверждено документацией 0.2.2-rc.2, «частично» — поддержка ограничена или не подтверждена.
 
-Колонки T1/T2 — исходный план; **T3 — фактическое состояние на 14.11.2026**: ✅ закрыто и проверено,
+Колонки T1/T2 — исходный план; **T3 — фактическое состояние на 15.11.2026**: ✅ закрыто и проверено,
 ⚠️ закрыто частично (ограничение указано в строке), ⏸ сознательно отложено/заблокировано внешним условием.
 
 | Возможность | DSH | T1 | T2 | T3 (факт) |
@@ -104,7 +104,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 | Субагенты (spawn/fork, дерево, сообщения) | ✓ | ✓ | ✓ | ✅ |
 | Фоновые задачи (jobs) | ✓ | ✓ | ✓ | ✅ durable |
 | Skills (`SKILL.md`) | ✓ | ✓ | ✓ | ✅ |
-| Плагины: WASM + Cordis-совместимость + sidecar | Cordis/TS | — | ✓ (host-половина) | ⚠️ WASM + Cordis-sidecar + host-половина ✅; клиентская половина — eager registry-кадр + iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель (раунд 76); с раунда 77 — экспериментальный `dsh.client.runtime` (половина приносит свою модульную таблицу/React); полная React-совместимость и `ownerProps`/hooks/семантика слотов — ADR-040 (тиры B/C), вне scope §5 |
+| Плагины: WASM + Cordis-совместимость + sidecar | Cordis/TS | — | ✓ (host-половина) | ⚠️ WASM + Cordis-sidecar + host-половина ✅; клиентская половина — eager registry-кадр + iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель (раунд 76); с раунда 77 — экспериментальный `dsh.client.runtime` (половина приносит свою модульную таблицу/React), с раунда 78 — PoC тира B `dsh.client.host_modules` (React 18.3.1 и таблица модулей от хоста); полная React-совместимость (design-system, React-контекст, `ownerProps`/hooks/семантика слотов) — тир C ADR-040 |
 | Профили/бандлы/патчи конфигурации | ✓ | базово | ✓ | ✅ |
 | TUI | ✓ | ✓ | ✓ | ✅ |
 | Headless / one-shot | ✓ | ✓ | ✓ | ✅ |
@@ -235,7 +235,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 Решение — [ADR-013](adr/013-cordis-compat.md). Отдельная фаза, чтобы WASM-тир и песочница не ждали JS-рантайма.
 
-**Статус:** частично. Сделано: Cordis-рантайм как sidecar-процесс (системный Node, настоящий `cordis` при наличии пакета), hot reload (watcher + endpoint), capability-гранты (`ctx.fs`, `ctx.exec`/`ctx.net` выключены), клиентская половина — eager registry + iframe на слот (17 регионов, полный словарь имён DSH) и экспериментальный `dsh.client.runtime` (половина приносит свою модульную таблицу/UI-стек, включая React; [ADR-040](adr/040-react-client-half.md) — Proposed, тиры B/C). Не сделано: runtime pack (`dshr runtime install cordis`), полный шим `@dshr/cordis-compat@1`, собственный npm-резолвер/CAS, conformance-набор из реальных плагинов.
+**Статус:** частично. Сделано: Cordis-рантайм как sidecar-процесс (системный Node, настоящий `cordis` при наличии пакета), hot reload (watcher + endpoint), capability-гранты (`ctx.fs`, `ctx.exec`/`ctx.net` выключены), клиентская половина — eager registry + iframe на слот (17 регионов, полный словарь имён DSH), экспериментальный `dsh.client.runtime` (половина приносит свою модульную таблицу/UI-стек, включая React) и PoC тира B `dsh.client.host_modules` (React 18.3.1 и таблица модулей от хоста); полная React-совместимость — тир C [ADR-040](adr/040-react-client-half.md) (Proposed). Не сделано: runtime pack (`dshr runtime install cordis`), полный шим `@dshr/cordis-compat@1`, собственный npm-резолвер/CAS, conformance-набор из реальных плагинов, design-system/React-контекст/SlotMap-семантика.
 
 **Содержание**
 - Runtime pack: вендоренный Node-совместимый движок, хеш и подпись, `dshr runtime install|list|remove`, офлайн-режим; режимы `cordis-sidecar` (по умолчанию) и `cordis-embedded` (опция).

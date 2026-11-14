@@ -345,11 +345,53 @@ network-free, отдельной подписи у runtime нет (часть п
 фрейм грузит runtime заново — это цена изоляции. Проверено на React 18.3.1:
 рендер, `useState`-интерактивность и `ctx.onTheme` работают (раунд 77).
 
-Чего runtime **не** даёт: общей модульной таблицы шелла, design-system пакетов
-`@deepseek-ai/dsh-client-ui-*`, React-контекста шелла, композиции между плагинами
-и SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope). Путь к
-полной React-совместимости (тиры B/C) описан в
-[ADR-040](adr/040-react-client-half.md).
+### Общая модульная таблица хоста (`dsh.client.host_modules`)
+
+Вместо того чтобы вшивать React в каждый бандл, половина может попросить
+**общий рантайм хоста** (тир B, [ADR-040](adr/040-react-client-half.md)):
+
+```json
+{ "dsh": { "client": {
+  "platform": "web",
+  "entry": "client.js",
+  "host_modules": ["react", "react-dom/client"]
+} } }
+```
+
+Доступные id: `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react-dom`,
+`react-dom/client` (React 18.3.1, версия закреплена
+`dshr_cordis::client::HOST_RUNTIME_VERSION`). Незнакомый id отклоняется при
+discovery.
+
+Как это работает:
+
+- host-страница такого кадра добавляет до бандла один classic-скрипт
+  `<script src="/v1/runtime/react-18.3.1.js" data-dshr-shared-runtime="1"></script>`;
+  это **единственный** артефакт на страницу — браузер скачивает его один раз и
+  кэширует (`Cache-Control: public, max-age=31536000, immutable`), а не получает
+  ~140 КБ React внутри каждой host-страницы;
+- рантайм публикует те же id в `window.__DSHR_MODULES__`, что и plugin-shipped
+  runtime, поэтому `require("react")` / `require("react-dom/client")` работают в
+  module-table бандлах без изменений; plugin-shipped `dsh.client.runtime` (если
+  объявлен) выполняется после и может переопределить записи;
+- JS-реалм у каждого iframe свой (изоляция), поэтому рантайм исполняется в каждом
+  кадре; «одна версия на страницу» — это один версионированный артефакт и одна
+  загрузка по сети, а не один общий JS-контекст;
+- CSP такого кадра остаётся жёстким: `connect-src 'none'`, `default-src 'none'`,
+  из сети разрешён только скрипт с origin сервера (`script-src ... <origin>`).
+  Кадры без `host_modules` по-прежнему полностью network-free.
+
+Ограничения тира B: это React-рантайм и модульная таблица, но **не** design-system
+`@deepseek-ai/dsh-client-ui-*`, не React-контекст шелла, не композиция между
+плагинами и не SlotMap-семантика (`ownerProps`/framework-hooks) — для них нужен
+тир C. PoC проверен в smoke: фикстура `hosted` не содержит React в бандле и
+рендерит интерактивный React-компонент из общего рантайма.
+
+Чего не хватает и после тиров A и B: design-system пакетов
+`@deepseek-ai/dsh-client-ui-*`, React-контекста и состояния шелла, композиции между
+плагинами и SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope).
+Тир B даёт только React-рантайм и модульную таблицу (version pinned сервером);
+полная React-совместимость — **тир C** по [ADR-040](adr/040-react-client-half.md).
 
 Маршруты:
 
@@ -363,6 +405,9 @@ network-free, отдельной подписи у runtime нет (часть п
   перед бандлом;
 - `GET /v1/plugins/{name}/asset/{capability}/{path}` — файлы пакета по capability
   (без bearer-токена; путь канонизируется и не выходит за пакет; ≤ 8 МиБ);
+- `GET /v1/runtime/react-18.3.1.js` — общий модульный рантайм (React 18.3.1 +
+  `bootstrap.js`, ~143 КБ); публичный, `immutable`-кэш; исходники и контрольные
+  суммы — `crates/server/assets/runtime/` (`scripts/check-runtime-assets.sh`);
 - `GET /v1/plugins/{name}/client.js?token=…` — бандл отдельным файлом для отладки;
 - deep link `/?token=…&plugin=demo` открывает панель; страница подключается
   автоматически, когда токен есть в URL или localStorage.
@@ -423,5 +468,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами, host-действиями и экспериментальным `dsh.client.runtime` (плагин приносит свой UI-стек, включая React); общей таблицы модулей шелла, design-system и `ownerProps`/hooks-семантики слотов нет — это тиры B/C из [ADR-040](adr/040-react-client-half.md).
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами, host-действиями, экспериментальным `dsh.client.runtime` (плагин приносит свой UI-стек) и общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера, тир B PoC); design-system, общей React-контекстной модели шелла и `ownerProps`/hooks-семантики слотов нет — это тир C из [ADR-040](adr/040-react-client-half.md).
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

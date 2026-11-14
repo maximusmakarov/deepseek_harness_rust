@@ -23,7 +23,7 @@ use dshr_agent::{
     Agent, AgentConfig, AgentObserver, ApprovalPolicy, ApprovalRequest, Approver, PermissionMode,
     ToolCallInfo,
 };
-use dshr_cordis::client::{FrameMode, FrameSpec};
+use dshr_cordis::client::{FrameMode, FrameSpec, PageRuntime};
 use dshr_core::DshrError;
 use dshr_llm::{LlmProvider, Usage};
 use dshr_session_jsonl::SessionStore;
@@ -375,6 +375,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/clients", get(plugin_clients))
         .route("/v1/plugins/{name}/client.js", get(plugin_client_bundle))
         .route("/v1/plugins/{name}/host", get(plugin_client_host))
+        .route("/v1/runtime/{file}", get(shared_runtime))
         .route(
             "/v1/plugins/{name}/asset/{capability}/{*path}",
             get(plugin_client_asset),
@@ -1276,6 +1277,52 @@ fn frame_spec(query: &ClientHostQuery) -> Result<FrameSpec, (StatusCode, Json<Va
     })
 }
 
+/// Versioned module-table artifact shared by every opt-in client frame of a page
+/// (tier B PoC). Public like a static asset: it contains no secrets, and a
+/// sandboxed opaque-origin frame could not authenticate anyway.
+async fn shared_runtime(Path(file): Path<String>) -> Result<Response, StatusCode> {
+    let expected = format!("react-{}.js", dshr_cordis::client::HOST_RUNTIME_VERSION);
+    if file != expected {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (
+                header::HeaderName::from_static("cross-origin-resource-policy"),
+                "cross-origin",
+            ),
+        ],
+        shared_runtime_body(),
+    )
+        .into_response())
+}
+
+/// The concatenated host runtime (React UMD + ReactDOM UMD + our module-table
+/// glue). Built once; the route serves the same bytes forever per version.
+fn shared_runtime_body() -> &'static [u8] {
+    static BODY: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    BODY.get_or_init(|| {
+        let mut body = Vec::with_capacity(160 * 1024);
+        body.extend_from_slice(include_bytes!(
+            "../assets/runtime/react-18.3.1.production.min.js"
+        ));
+        body.push(b'\n');
+        body.extend_from_slice(include_bytes!(
+            "../assets/runtime/react-dom-18.3.1.production.min.js"
+        ));
+        body.push(b'\n');
+        body.extend_from_slice(include_bytes!("../assets/runtime/bootstrap.js"));
+        body
+    })
+}
+
 /// Serves the sandboxed host page that runs one client half.
 ///
 /// Single-file bundles are inlined base64 into a network-free page. Bundles
@@ -1308,6 +1355,15 @@ async fn plugin_client_host(
     // runs before the bundle and may publish `window.__DSHR_MODULES__`. The host
     // page injects it as a classic script, so a `</script>` in it would escape the
     // element and execute outside the sandboxed frame contract.
+    // One versioned artifact per page: a half that declares
+    // `dsh.client.host_modules` gets the shared module table instead of shipping
+    // its own copy. The URL is same-origin, so the frame CSP below opens exactly
+    // the server origin for scripts and nothing else.
+    let shared_runtime = if half.host_modules.is_empty() {
+        None
+    } else {
+        Some(dshr_cordis::client::host_runtime_url())
+    };
     let runtime = match half.runtime_path.as_ref() {
         Some(path) => {
             let metadata = tokio::fs::metadata(path).await.map_err(|_| {
@@ -1349,8 +1405,16 @@ async fn plugin_client_host(
                 )
             })?;
             (
-                dshr_cordis::client::host_page(&half, &bundle, &spec, runtime.as_deref()),
-                CLIENT_HOST_CSP.to_owned(),
+                dshr_cordis::client::host_page(
+                    &half,
+                    &bundle,
+                    &spec,
+                    PageRuntime {
+                        shared: shared_runtime.as_deref(),
+                        plugin: runtime.as_deref(),
+                    },
+                ),
+                client_host_csp(&request_origin(&headers), shared_runtime.is_some()),
             )
         }
         dshr_cordis::client::BundleMode::Assets => {
@@ -1361,7 +1425,15 @@ async fn plugin_client_host(
             );
             let origin = request_origin(&headers);
             (
-                dshr_cordis::client::host_page_assets(&half, &base, &spec, runtime.as_deref()),
+                dshr_cordis::client::host_page_assets(
+                    &half,
+                    &base,
+                    &spec,
+                    PageRuntime {
+                        shared: shared_runtime.as_deref(),
+                        plugin: runtime.as_deref(),
+                    },
+                ),
                 asset_host_csp(&origin),
             )
         }
@@ -1384,6 +1456,20 @@ async fn plugin_client_host(
 /// The inline host page runs with an opaque origin and must stay network-free:
 /// the bundle arrives base64-inlined and executes from a blob URL.
 const CLIENT_HOST_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+/// CSP for an inline host page that opts into the shared host module table. The
+/// only new permission is loading classic scripts from this server origin (the
+/// versioned `/v1/runtime/react-<ver>.js` artifact); connect/img/style stay as
+/// locked down as the network-free page, so no token or plugin data can leave.
+fn client_host_csp(origin: &str, shared_runtime: bool) -> String {
+    if !shared_runtime {
+        return CLIENT_HOST_CSP.to_owned();
+    }
+    format!(
+        "default-src 'none'; script-src 'unsafe-inline' blob: {origin}; style-src 'unsafe-inline'; \
+         img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+    )
+}
 
 /// Case-insensitive search for a closing script tag in plugin-provided JS. The
 /// runtime is injected as a raw classic script, so it must not be able to close

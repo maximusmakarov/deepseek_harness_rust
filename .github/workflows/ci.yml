@@ -25,6 +25,9 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
+      - name: vendored runtime assets
+        if: runner.os == 'Linux'
+        run: scripts/check-runtime-assets.sh
       - name: clippy
         shell: bash
         run: |

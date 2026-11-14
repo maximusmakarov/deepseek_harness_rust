@@ -14,6 +14,7 @@ step() {
 }
 
 step cargo fmt --all -- --check
+step scripts/check-runtime-assets.sh
 step cargo clippy --workspace --all-targets -- -D warnings
 step cargo test --workspace
 

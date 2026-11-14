@@ -16,9 +16,23 @@
   (`__ModuleLoader__.load({id, factory})`) resolve `require(specifier)` from it.
   Validation: package-confined path, ≤ 8 MiB, `</script>` rejected (400), CSP stays
   network-free, no separate signature. This is the enabler for plugins that bring
-  their own UI stack, React included (React 18.3.1 PoC verified manually); full
-  React compatibility is the open B/C decision in ADR-040. Evidence: smoke 48/48,
-  workspace tests 353 passed + 3 ignored. Also: WASM hot reload (fingerprint
+  their own UI stack, React included (React 18.3.1 PoC verified manually).
+- Plugins: tier B PoC of ADR-040 — shared host module table `dsh.client.host_modules`.
+  A half lists ids from a fixed allowlist (`react`, `react/jsx-runtime`,
+  `react/jsx-dev-runtime`, `react-dom`, `react-dom/client`); unknown ids are rejected
+  at discovery. An opted-in host page loads one versioned immutable artifact,
+  `GET /v1/runtime/react-18.3.1.js` (React + ReactDOM UMD + `bootstrap.js`, ~143 KB,
+  `Cache-Control: public, max-age=31536000, immutable`), so the browser downloads
+  React once per page instead of embedding ~140 KB into every host page. Order is
+  shared runtime → plugin-shipped `dsh.client.runtime` (may override entries) → bundle;
+  the only new CSP permission is `script-src <server origin>` for opt-in frames
+  (`connect-src` stays `'none'`, frames without `host_modules` stay network-free).
+  Vendored assets `crates/server/assets/runtime/` are checksum-gated by
+  `scripts/check-runtime-assets.sh` (wired into `scripts/check.sh` and CI). Each
+  iframe keeps its own JS realm, so "one version per page" means one artifact/download,
+  not a shared JS context. Full React compatibility is the open tier C decision in
+  ADR-040. Evidence: smoke 53/53, workspace tests 360 passed + 3 ignored (desktop 21,
+  total 381), web-e2e 16/16. Also: WASM hot reload (fingerprint
   watcher, shared registry); Cordis hot reload (supervisor, file/config watcher,
   `/v1/plugins/reload`)
   and the client half: every `dsh.client` half gets an eager hidden registry
@@ -28,4 +42,4 @@
   unknown names falling back to the plugin panel; bridge protocol v1.2 (frame
   token, region, slot mode, occurrence context).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; React components of client halves are not supported as a host contract (iframe bridge, ADR-013 §5) — a plugin can ship its own React via the experimental `dsh.client.runtime`, and full React compatibility awaits the ADR-040 decision (tiers B/C, D not recommended).
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; React components of client halves are not supported as a host contract (iframe bridge, ADR-013 §5) — a plugin can ship its own React via the experimental `dsh.client.runtime`, and a half can opt into the host-served React runtime (`dsh.client.host_modules`, tier B PoC, one immutable artifact per page); design-system, host React context and SlotMap semantics await the ADR-040 tier C decision (D not recommended).
