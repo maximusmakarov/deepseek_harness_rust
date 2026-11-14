@@ -68,7 +68,7 @@ Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.
 для macOS/Linux; job `bottles-ghcr` публикует их в GHCR как OCI-индекс
 (`ghcr.io/<owner>/<repo>/dshr:<ver>`), а `dist/dshr-ghcr.rb` содержит
 `root_url https://ghcr.io/v2/<owner>/<repo>`. Требуются `packages: write`
-и `GITHUB_TOKEN`; локально проверен dry-run OCI-layout (без push).
+и `GITHUB_TOKEN`; локально проверены dry-run OCI-layout и push в mock-регистр (`scripts/test-publish-bottle-ghcr.py`).
 
 Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
 для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на

@@ -90,14 +90,14 @@ def manifests(version: str, tag: str, bottle: bytes, receipt: str):
     return raw_manifest, json.dumps(index, separators=(",", ":")).encode()
 
 
-def auth_token(owner: str, repo: str, actor: str, token: str) -> str:
+def auth_token(registry: str, owner: str, repo: str, actor: str, token: str) -> str:
     query = urllib.parse.urlencode(
         {
             "service": "ghcr.io",
             "scope": f"repository:{owner}/{repo}/dshr:pull,push",
         }
     )
-    request = urllib.request.Request(f"https://ghcr.io/token?{query}")
+    request = urllib.request.Request(f"{registry}/token?{query}")
     basic = base64.b64encode(f"{actor}:{token}".encode()).decode()
     request.add_header("Authorization", f"Basic {basic}")
     with urllib.request.urlopen(request, timeout=30) as response:
@@ -118,14 +118,14 @@ def request(method, url, token, data=None, content_type=None):
         raise
 
 
-def ensure_blob(base, token, data, digest):
+def ensure_blob(registry, base, token, data, digest):
     status, _, _ = request("HEAD", f"{base}/blobs/{digest}", token)
     if status == 200:
         return
     status, headers, _ = request("POST", f"{base}/blobs/uploads/", token)
     location = headers["Location"]
     if location.startswith("/"):
-        location = "https://ghcr.io" + location
+        location = registry + location
     separator = "&" if "?" in location else "?"
     request(
         "PUT",
@@ -136,14 +136,14 @@ def ensure_blob(base, token, data, digest):
     )
 
 
-def push(owner, repo, version, tag, bottle_path, actor, token):
+def push(registry, owner, repo, version, tag, bottle_path, actor, token):
     bottle = open(bottle_path, "rb").read()
     receipt = receipt_from_bottle(bottle_path, version)
     raw_manifest, raw_index = manifests(version, tag, bottle, receipt)
-    base = f"https://ghcr.io/v2/{owner}/{repo}/dshr"
-    bearer = auth_token(owner, repo, actor, token)
-    ensure_blob(base, bearer, EMPTY, sha256(EMPTY))
-    ensure_blob(base, bearer, bottle, sha256(bottle))
+    base = f"{registry}/v2/{owner}/{repo}/dshr"
+    bearer = auth_token(registry, owner, repo, actor, token)
+    ensure_blob(registry, base, bearer, EMPTY, sha256(EMPTY))
+    ensure_blob(registry, base, bearer, bottle, sha256(bottle))
     manifest_digest = sha256(raw_manifest)
     status, _, _ = request(
         "PUT",
@@ -171,6 +171,7 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--bottle", required=True)
+    parser.add_argument("--registry", default="https://ghcr.io")
     parser.add_argument("--owner", required=True)
     parser.add_argument("--repo", required=True)
     parser.add_argument("--actor", default=os.environ.get("GITHUB_ACTOR", ""))
@@ -194,7 +195,16 @@ def main():
         parser.error("pass --push or --dry-run")
     if not args.actor or not args.token:
         raise SystemExit("GITHUB_ACTOR and GITHUB_TOKEN are required for --push")
-    push(args.owner, args.repo, args.version, args.tag, args.bottle, args.actor, args.token)
+    push(
+        args.registry.rstrip("/"),
+        args.owner,
+        args.repo,
+        args.version,
+        args.tag,
+        args.bottle,
+        args.actor,
+        args.token,
+    )
 
 
 if __name__ == "__main__":
