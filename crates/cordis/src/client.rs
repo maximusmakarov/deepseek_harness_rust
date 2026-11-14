@@ -320,6 +320,7 @@ pub fn host_page(half: &ClientHalf, bundle: &[u8], theme: &str) -> String {
 </style>
 </head>
 <body>
+<script>window.__DSHR_PLUGIN__ = {name};</script>
 <script>
 {BRIDGE_JS}
 </script>
@@ -328,13 +329,37 @@ const plugin = {name};
 const encoded = "{bundle}";
 const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
 const url = URL.createObjectURL(new Blob([bytes], {{ type: "text/javascript" }}));
-import(url).then(function (mod) {{
-  const activate = (mod && (mod.default || mod.activate)) || null;
-  if (typeof activate === "function") return activate(window.dshr);
-  if (window.dshr.slots.list().length === 0) {{
-    window.dshr.log("plugin bundle registered no slots");
+
+// `require` stand-in for bundles built against the reference module table:
+// React and other host modules are not available (ADR-013 §5), so a request
+// for them fails loudly instead of returning undefined.
+function requireShim(specifier) {{
+  throw new Error("module '" + specifier + "' is not available in the dshr client bridge");
+}}
+
+function activateModule(module) {{
+  // Reference-shaped module table entry: factory() returns the plugin object.
+  const loaded = window.dshr.__loaded || [];
+  for (const definition of loaded) {{
+    const exported = definition.factory(requireShim);
+    if (exported && typeof exported.apply === "function") return exported.apply(window.dshr);
   }}
+  const exported = module && (module.default || module);
+  if (typeof exported === "function") return exported(window.dshr);
+  if (exported && typeof exported.apply === "function") return exported.apply(window.dshr);
+  if (exported && typeof exported.activate === "function") return exported.activate(window.dshr);
+  return undefined;
+}}
+
+import(url).then(function (module) {{
+  return Promise.resolve(activateModule(module)).then(function () {{
+    document.documentElement.dataset.dshrReady = "1";
+    if (window.dshr.slots.list().length === 0) {{
+      window.dshr.log("plugin bundle registered no slots");
+    }}
+  }});
 }}).catch(function (error) {{
+  document.documentElement.dataset.dshrReady = "error";
   window.dshr.__fail(error);
 }}).finally(function () {{
   URL.revokeObjectURL(url);
