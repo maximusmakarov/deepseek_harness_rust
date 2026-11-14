@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with seventeen throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with nineteen throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -786,6 +786,8 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("dsh-remote", "dsh-remote"),
         ("ruoyang-balance", "ruoyang-balance"),
         ("dsh-genui", "dsh-genui"),
+        ("dsh-session-superagent", "dsh-session-superagent"),
+        ("dsh-mnemon", "dsh-mnemon"),
     ]:
         source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / fixture_name
         target = workspace / fixture_name
@@ -1134,7 +1136,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 17, names)
+        check("lists every configured client half", len(clients) == 19, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -1225,6 +1227,15 @@ def run(args: argparse.Namespace) -> int:
             and "@deepseek-ai/dsh-client-ui-primitives" in genui_half.get("host_modules", []),
             (ruoyang_half, genui_half),
         )
+        conformance_halves = {
+            name: next((client for client in clients if client["name"] == name), None)
+            for name in ("dsh-session-superagent", "dsh-mnemon")
+        }
+        check(
+            "conformance reaches six real DSH client halves",
+            all(client is not None for client in conformance_halves.values()),
+            conformance_halves,
+        )
 
         # A deterministic transcript: create a session over REST and replay one
         # assistant turn, so per-message regions have rows to mount into.
@@ -1249,7 +1260,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 17)
+        wait_registry_ready(debug_port, 19)
         # Registry frames load in inject order; wait until the multi-region half
         # has published all of its startup registrations before snapshotting the
         # mounted slot frames (otherwise the snapshot races the last frame).
@@ -1275,7 +1286,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 17
+            len(registry) == 19
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1671,6 +1682,37 @@ def run(args: argparse.Namespace) -> int:
             genui_state,
         )
 
+        # Conformance n=6: a session superagent composer dock and a large
+        # multi-region plugin (mnemon) that reconciles its own shadow registrations
+        # through ctx.slots.subscribe/getVersion/entriesOfSlot.
+        superagent_slot = poll_frame(
+            debug_port,
+            "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null})",
+            lambda value: json.loads(str(value))["ready"] == "1",
+            plugin="dsh-session-superagent",
+            slot="conversation.composer.dock",
+            label="superagent composer dock",
+        )
+        check(
+            "a real plugin mounts its composer dock without errors",
+            json.loads(str(superagent_slot))["error"] is None,
+            superagent_slot,
+        )
+        mnemon_registry = poll_frame(
+            debug_port,
+            "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null, slots: window.dshr.slots.list().length})",
+            lambda value: json.loads(str(value))["ready"] == "1",
+            plugin="dsh-mnemon",
+            mode="registry",
+            label="mnemon registry",
+        )
+        mnemon_state = json.loads(str(mnemon_registry))
+        check(
+            "a six-plugin conformance half activates and publishes slots",
+            mnemon_state["error"] is None and mnemon_state["slots"] > 0,
+            mnemon_state,
+        )
+
         shell.call(
             "Page.navigate",
             {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=ui-kit"},
@@ -1775,7 +1817,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 17)
+        wait_registry_ready(debug_port, 19)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1927,7 +1969,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 17)
+        wait_registry_ready(debug_port, 19)
         # React/multi-plugin loading can delay the stage's first tab selection;
         # wait for the active panel frame before driving actions through it.
         wait_until(
@@ -2081,7 +2123,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 17)
+        wait_registry_ready(debug_port, 19)
 
         def surviving_frames() -> int:
             count = 0
@@ -2118,7 +2160,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 17)
+            wait_registry_ready(debug_port, 19)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

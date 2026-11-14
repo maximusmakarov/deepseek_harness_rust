@@ -41,7 +41,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
-| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина; экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/UI-стек, включая React; PoC тира B `dsh.client.host_modules` — половина опционально берёт React 18.3.1 и таблицу модулей от хоста одним immutable-артефактом `/v1/runtime/react-18.3.1.js`; module-table бандлы резолвят `require` из `window.__DSHR_MODULES__`; C-lite (раунд 79): при host React `ctx.slots.register(entry, Component)` — React-компонент (один React-root на кадр, перерисовка на host-state, error boundary), props с `useTheme()`/`useSession()`/`useSessions()`/`useHostState()`/`wide`, `ctx.get('sessions')` (подмножество референсного сервиса), частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives`; раунд 80: сервисы моста `ctx.get('slots')` (реестр + `entries(key)`), `ctx.get('locale')` и `ctx.inject(deps, callback)` для опциональных интеграций, диагностика `window.__DSHR_LAST_ERROR__`, conformance n=2 (`@kt11/dsh-deepseek-balance@0.2.1` + `dsh-remote@1.1.2`); раунд 81: React-контракт моста — принимаются типы `React.memo`/`forwardRef`, keyed-регистрации без `id` получают уникальный id `<slot>:<key>`, `ctx.get('slots').entries(key)` отдаёт `component`/`options`, `ctx.locale.register(ns, dicts)` + `t()` в props, `ctx.interval`/`ctx.timeout` снимаются вместе с фреймом, primitives шим расширен `JsonBlock`/`MarkdownText` (всего 7 компонентов), conformance n=4 (к прежним двум добавлены `@ruoyang/dsh-plugin-deepseek-balance@1.0.2`, `dsh-genui@0.3.3`), а eval-based бандлы (`@michengai/dsh-archive-manager`) требуют `'unsafe-eval'` в CSP (сознательно не включён), `@michengai/dsh-skills-manager` падает на инициализации — оба вне набора; полного design-system, React-контекста шелла и SlotMap-семантики нет — тир C-full); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
+| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина; экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/UI-стек, включая React; PoC тира B `dsh.client.host_modules` — половина опционально берёт React 18.3.1 и таблицу модулей от хоста одним immutable-артефактом `/v1/runtime/react-18.3.1.js`; module-table бандлы резолвят `require` из `window.__DSHR_MODULES__`; C-lite (раунд 79): при host React `ctx.slots.register(entry, Component)` — React-компонент (один React-root на кадр, перерисовка на host-state, error boundary), props с `useTheme()`/`useSession()`/`useSessions()`/`useHostState()`/`wide`, `ctx.get('sessions')` (подмножество референсного сервиса), частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives`; раунд 80: сервисы моста `ctx.get('slots')` (реестр + `entries(key)`), `ctx.get('locale')` и `ctx.inject(deps, callback)` для опциональных интеграций, диагностика `window.__DSHR_LAST_ERROR__`, conformance n=2 (`@kt11/dsh-deepseek-balance@0.2.1` + `dsh-remote@1.1.2`); раунд 81: React-контракт моста — принимаются типы `React.memo`/`forwardRef`, keyed-регистрации без `id` получают уникальный id `<slot>:<key>`, `ctx.get('slots').entries(key)` отдаёт `component`/`options`, `ctx.locale.register(ns, dicts)` + `t()` в props, `ctx.interval`/`ctx.timeout` снимаются вместе с фреймом, primitives шим расширен `JsonBlock`/`MarkdownText` (всего 7 компонентов), conformance n=4 (к прежним двум добавлены `@ruoyang/dsh-plugin-deepseek-balance@1.0.2`, `dsh-genui@0.3.3`); раунд 82: conformance n=6 — `dsh-session-superagent@0.10.12` коммитит composer dock (`conversation.composer.dock`), а крупный multi-region `dsh-mnemon@0.5.46` активируется, публикует слоты и сверяет свои shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot` (референсная поверхность слотов раунда 81 выдержала реальный плагин), а eval-based бандлы (`@michengai/dsh-archive-manager`) требуют `'unsafe-eval'` в CSP (сознательно не включён), `@michengai/dsh-skills-manager` падает на инициализации — оба вне набора; полного design-system, React-контекста шелла и SlotMap-семантики нет — тир C-full); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; серверный каталог с категориями/тегами/поиском и карточкой пакета (`/v1/plugins/catalog*`); установка через CLI/UI; внешней общей базы отзывов нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
@@ -77,7 +77,9 @@ DSH-плагин в conformance; раунд 80: сервисы `ctx.get('slots')
 (`dsh-remote@1.1.2`); раунд 81: типы `React.memo`/`forwardRef`, keyed-ids,
 `ctx.locale.register` + `t()`, `ctx.interval`/`ctx.timeout`, primitives шим из
 7 компонентов и conformance n=4 (к прежним двум добавлены
-`@ruoyang/dsh-plugin-deepseek-balance@1.0.2`, `dsh-genui@0.3.3`); полной
+`@ruoyang/dsh-plugin-deepseek-balance@1.0.2`, `dsh-genui@0.3.3`), раунд 82 —
+conformance n=6 (`dsh-session-superagent@0.10.12` — composer dock,
+`dsh-mnemon@0.5.46` — multi-region и референсная поверхность слотов); полной
 React-совместимости нет — полный
 design-system, React-контекст шелла и SlotMap-семантика ждут решения по
 тиру C-full [ADR-040](adr/040-react-client-half.md)), приватные terminal
@@ -104,7 +106,7 @@ shim'ы.
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
   состояние; `/v1/plugins/installed` следует за супервизором.
-- Клиентская половина: `python3 scripts/plugin-smoke.py` — 66
+- Клиентская половина: `python3 scripts/plugin-smoke.py` — 69
   проверок в headless Chrome: eager registry-кадры всех половин, монтаж слота в
   регион по таблице `slot key → регион` (17 регионов), fallback незнакомого имени
   в панель, `context` повторяющихся регионов, адресный `resize`, live-тема,
@@ -133,13 +135,19 @@ shim'ы.
   `shell.overlay` (`t()` из `ctx.locale.register`, `ctx.interval`), а
   `dsh-genui@0.3.3` — тумблер GenUI в `conversation.input.left` с keyed-слотом
   `conversation.chat.node` (принимаются типы `React.memo`/`forwardRef`; общий
-  рантайм-артефакт — 149 442 байта с шимом из 7 примитивов).
+  рантайм-артефакт — 149 442 байта с шимом из 7 примитивов); раунд 82 (C-lite
+  n=6): `dsh-session-superagent@0.10.12` монтирует composer dock в регион
+  `composer.actions`, а `dsh-mnemon@0.5.46` (крупный multi-region) активируется,
+  публикует слоты и сверяет собственные shadow-регистрации через
+  `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot`; рантайм-артефакт не
+  менялся — 149 442 байта.
 - Replica-оценка клиентской половины (`replica-diff`): 98.1/100, must 13/13 —
   `docs/replica/client-half-parity.md` (три добавленные could-строки про
   plugin-shipped runtime, shared host module table и C-lite React-компоненты —
   dshr-дополнения вне скоринга; раунд 80 расширил строку C-lite сервисами моста
   и conformance n=2, раунд 81 — доработками React-контракта и conformance n=4,
-  новых скоринговых строк не добавлено; арифметика та же:
+  раунд 82 — conformance n=6, новых скоринговых строк не добавлено; арифметика
+  та же:
   must 13 × 3 = 39, should 6 × 2 = 12, should partial 1 × 2 × ½ = 1,
   could 1 × 1 = 1 → 39 + 12 + 1 + 1 = 53 из 54 = 98.15 → 98.1).
 - Формализация: `./formal/run_tlc.sh` — 3 модели / 5 конфигов TLC без нарушений
@@ -149,7 +157,7 @@ shim'ы.
   привязкой к инвариантам TLA+ и статусами; baseline покрытия —
   `cargo llvm-cov --workspace --summary-only`: 72.9% строк (66.9% функций).
 
-## Итог 81 раунда
+## Итог 82 раунда
 
 Закрыты: desktop (трей, профили/композиция бандлов, порт/LAN, папка/drag-and-drop,
 терминал с шимами, обновления stable/beta + установка, recovery-окно с профилями
@@ -157,7 +165,8 @@ shim'ы.
 enable/disable, Web-менеджер, featured-каталог, оценки, Cordis audit/fs-гранты,
 клиентская половина: региональный монтаж слотов, `dsh.client.runtime`, тир B
 `dsh.client.host_modules` и C-lite — React-компоненты слотов, сервисы моста,
-React-контракт и conformance n=4), host (`ask_user` в TUI/Web/ACP, `apply_patch`,
+React-контракт, conformance n=4 и раунд 82 — n=6 (`dsh-session-superagent`,
+`dsh-mnemon`)), host (`ask_user` в TUI/Web/ACP, `apply_patch`,
 LLM-заголовки везде, elicitation stdio/HTTP/GET-SSE, DSH import, persistent bash,
 TUI diff), дистрибутивы (детерминированные архивы, reproducible-бинарь, bottles,
 DMG, Linux/Windows desktop-джобы, notarization-тулинг).

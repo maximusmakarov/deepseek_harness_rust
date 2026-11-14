@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–81)
+# Журнал раундов паритета (1–82)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 361 root-тест
@@ -363,11 +363,41 @@ release-бинарь воспроизводим.
     (сознательно не включён), `@michengai/dsh-skills-manager` падает на
     инициализации бандла — оба вне набора и ждут триажа.
 
+- 82: C-lite conformance до **n=6** — ещё два реальных MIT-плагина без изменений
+  клиентской половины ([ADR-040](adr/040-react-client-half.md),
+  [PLUGINS.md](PLUGINS.md)):
+  - `dsh-session-superagent@0.10.12` коммитит composer dock
+    (`conversation.composer.dock`) и активируется без ошибок; sha256
+    `d58f0fa2…`, фикстура
+    `crates/cordis/tests/fixtures/dsh-session-superagent/`, host-половина —
+    заглушка;
+  - `dsh-mnemon@0.5.46` (sha256 `d967402b…`, фикстура
+    `crates/cordis/tests/fixtures/dsh-mnemon/`) — крупный multi-region плагин
+    (шапка чата, composer, панель, настройки, `plugins.*`): активируется,
+    публикует слоты и сверяет собственные shadow-регистрации через
+    `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot` — референсная поверхность
+    слотов, добавленная в раунде 81, выдержала реальный плагин (правок моста не
+    потребовалось).
+  - Conformance-набор: 6 реальных MIT-плагинов (4 + 2), все fixture с sha256 в
+    `package.json`; `@michengai/dsh-archive-manager` (`'unsafe-eval'`) и
+    `@michengai/dsh-skills-manager` (падение на инициализации бандла) остаются
+    вне набора.
+  - Проверки: smoke — 69/69 (+3: discovery двух новых плагинов, монтаж composer
+    dock `dsh-session-superagent`, активация `dsh-mnemon` с публикацией слотов),
+    bridge harness 87, cordis lib 26, server `plugins_live` 12, workspace 361
+    passed + 3 ignored (desktop 21, итого 382), web-e2e 16/16; общий
+    рантайм-артефакт не менялся — 149 442 байта.
+  - Границы: набор n=6 (цель M5b 5.19 — 8–12 плагинов); C-full по-прежнему
+    открыт — полный design-system `@deepseek-ai/dsh-client-ui-*`, SlotMap-семантика
+    (`ownerProps`/framework-hooks/cardinality/scope), React-контекст/состояние
+    шелла и композиция между плагинами, host-маршруты DSH-плагинов, выбор версии
+    React.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–80 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–82 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -378,7 +408,10 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
 (`ctx.get('slots')`/`locale`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`);
 раунд 81 довёл conformance до n=4 и закрыл пробелы React-контракта
 (типы `React.memo`/`forwardRef`, keyed-ids, `locale.register`/`t()`,
-`ctx.interval`/`ctx.timeout`) и расширил primitives шим до семи компонентов.
+`ctx.interval`/`ctx.timeout`) и расширил primitives шим до семи компонентов;
+раунд 82 довёл conformance до n=6 (`dsh-session-superagent@0.10.12`,
+`dsh-mnemon@0.5.46`) и подтвердил референсную поверхность слотов
+(`subscribe`/`getVersion`/`entriesOfSlot`) реальным плагином.
 
 Открыто и не заблокировано:
 
@@ -390,7 +423,7 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
 - C-lite-ограничения: design-system шим частичный (7 компонентов: `Button`,
   `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`), `wide`
   в host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальный
-  плагин в smoke показывает ветку ошибки данных), conformance-набор — n=4
+  плагин в smoke показывает ветку ошибки данных), conformance-набор — n=6
   (цель 8–12), SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст
   шелла по-прежнему отсутствуют, мостовые сервисы — подмножество референсных
   (нет проекций `sessions`, `sessionStats`), eval-based бандлы требуют
@@ -403,7 +436,9 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
   host-hooks/`ctx.get('sessions')` и частичный design-system шим; раунд 80:
   conformance n=2 и сервисы моста `ctx.get('slots')`/`locale`/`ctx.inject`;
   раунд 81: React-контракт — типы `memo`/`forwardRef`, keyed-ids, локали
-  `register`/`t()`, таймеры — и conformance n=4).
+  `register`/`t()`, таймеры — и conformance n=4; раунд 82: conformance n=6
+  (`dsh-session-superagent@0.10.12` — composer dock, `dsh-mnemon@0.5.46` —
+  multi-region и референсная поверхность слотов).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, host-маршрутов

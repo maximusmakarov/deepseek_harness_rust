@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -215,3 +215,23 @@ cardinality/scope/chain/hoc), React-контекст/состояние шелл
 - **Проверка:** bridge harness 87 checks (+8: React-режим с memo/props/t и reference slots surface — subscribe/getVersion/entriesOfSlot, locale.bind),
   smoke 66/66 (+3), cordis 26, server plugins_live 12, workspace 361 passed +
   3 ignored, web-e2e 16/16.
+
+## Conformance n=6 (15.11.2026, раунд 82)
+
+Ещё два реальных MIT-плагина, без изменений клиентской половины:
+
+- `dsh-session-superagent@0.10.12` — коммитит composer dock
+  (`conversation.composer.dock`), активируется без ошибок;
+- `dsh-mnemon@0.5.46` — крупный multi-region плагин (шапка чата, composer,
+  панель, настройки, plugins.*); активируется, публикует слоты и сверяет свои
+  shadow-регистрации через `ctx.slots.subscribe/getVersion/entriesOfSlot` —
+  референсная поверхность слотов, добавленная в раунде 81, выдержала реальный
+  плагин.
+
+Conformance-набор: 6 MIT-плагинов (4 + 2), все fixture с sha256 в
+`package.json`; `@michengai/dsh-archive-manager` (нужен `unsafe-eval`) и
+`@michengai/dsh-skills-manager` (падение на инициализации бандла) остаются вне
+набора и записаны в TECH-DEBT.
+
+Проверка: smoke 69/69 (+3), bridge harness 87, cordis 26, server plugins_live 12,
+workspace 361 passed + 3 ignored, web-e2e 16/16.
