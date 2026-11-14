@@ -403,6 +403,24 @@ fn read_slots(data: &wasm_bindgen::JsValue) -> Vec<ClientSlot> {
     out
 }
 
+/// Activation order for a half: its `inject` dependencies first, cycle-safe.
+fn activation_order(name: &str, clients: &[ClientHalfInfo]) -> Vec<String> {
+    fn visit(name: &str, clients: &[ClientHalfInfo], order: &mut Vec<String>) {
+        if order.iter().any(|seen| seen == name) {
+            return;
+        }
+        if let Some(half) = clients.iter().find(|half| half.name == name) {
+            for dependency in &half.inject {
+                visit(dependency, clients, order);
+            }
+        }
+        order.push(name.to_owned());
+    }
+    let mut order = Vec::new();
+    visit(name, clients, &mut order);
+    order
+}
+
 /// Refresh the live plugin views after a control action (reload/toggle/install).
 fn refresh_plugin_views(
     token: String,
@@ -625,7 +643,9 @@ fn App() -> impl IntoView {
     };
 
     let open_panel = move |half: ClientHalfInfo| {
-        mount_frame(&half.name);
+        for name in activation_order(&half.name, &clients.get_untracked()) {
+            mount_frame(&name);
+        }
         panel_error.set(String::new());
         let known = slots_by_plugin
             .get_untracked()
@@ -760,6 +780,7 @@ fn App() -> impl IntoView {
                         for half in pending {
                             mount_frame(&half.name);
                         }
+                        clients.set(list.clients.clone());
                         if let Some(name) = pending_panel.get_untracked()
                             && let Some(half) =
                                 list.clients.iter().find(|half| half.name == name).cloned()
@@ -767,7 +788,6 @@ fn App() -> impl IntoView {
                             pending_panel.set(None);
                             open_panel(half);
                         }
-                        clients.set(list.clients);
                     }
                     if let Ok(list) =
                         get_json::<PluginStatusResponse>("/v1/plugins/status", &value).await
