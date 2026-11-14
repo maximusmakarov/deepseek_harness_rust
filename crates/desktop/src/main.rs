@@ -60,6 +60,7 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![recovery_action])
         .setup(move |app| {
             let home = home_dir();
             let first_run = ensure_home(&home);
@@ -72,21 +73,14 @@ fn main() {
                     return Err(error.into());
                 }
             };
-            let (port, token, child) = loop {
+            let (port, token, child) =
                 match start_server(&home, &profile, folder.as_deref(), provider.as_ref()) {
-                    Ok(started) => break started,
-                    Err(error) => match recovery_action(&error) {
-                        RecoveryAction::Retry => continue,
-                        RecoveryAction::SafeMode => {
-                            let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
-                        }
-                        RecoveryAction::Diagnostics => {
-                            let _ = export_diagnostics();
-                        }
-                        RecoveryAction::Quit => return Err(error),
-                    },
-                }
-            };
+                    Ok(started) => started,
+                    Err(error) => {
+                        show_recovery_window(app.handle(), &error)?;
+                        return Ok(());
+                    }
+                };
             save_last_good(&home, &profile);
             if first_run {
                 notify("dshr", "First run: home initialized");
@@ -1373,28 +1367,63 @@ fn prompt_provider_setup() -> Result<ProviderSettings, String> {
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RecoveryAction {
-    Retry,
-    SafeMode,
-    Diagnostics,
-    Quit,
+#[tauri::command]
+fn recovery_action(app: tauri::AppHandle, action: String) {
+    let home = home_dir();
+    match action.as_str() {
+        "retry" => app.restart(),
+        "safe" => {
+            let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
+            app.restart()
+        }
+        "diagnostics" => {
+            match export_diagnostics() {
+                Ok(path) => notify("diagnostics exported", &path.display().to_string()),
+                Err(error) => notify("diagnostics failed", &error.to_string()),
+            }
+        }
+        "quit" => app.exit(0),
+        _ => {}
+    }
 }
 
-fn recovery_action(error: &dyn std::fmt::Display) -> RecoveryAction {
-    let message = format!(
-        "{error}\n\nConfigure the provider (DEEPSEEK_API_KEY / config.yaml) or check `dshr doctor`."
+fn show_recovery_window(
+    app: &tauri::AppHandle,
+    error: &dyn std::fmt::Display,
+) -> tauri::Result<()> {
+    let error = escape_html(&error.to_string());
+    let html = format!(
+        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button>"
     );
-    match prompt_choice(
-        "dshr could not start",
-        &message,
-        &["Retry", "Safe mode", "Diagnostics"],
-    ) {
-        Ok(Some(0)) => RecoveryAction::Retry,
-        Ok(Some(1)) => RecoveryAction::SafeMode,
-        Ok(Some(2)) => RecoveryAction::Diagnostics,
-        _ => RecoveryAction::Quit,
+    let url: tauri::Url = data_url(&html)
+        .parse::<tauri::Url>()
+        .map_err(tauri::Error::InvalidUrl)?;
+    WebviewWindowBuilder::new(app, "recovery", WebviewUrl::External(url))
+        .title("dshr recovery")
+        .inner_size(620.0, 420.0)
+        .build()?;
+    Ok(())
+}
+
+fn data_url(html: &str) -> String {
+    let mut out = String::from("data:text/html;charset=utf-8,");
+    for byte in html.bytes() {
+        match byte {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
     }
+    out
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn prompt_choice(title: &str, prompt: &str, options: &[&str]) -> Result<Option<usize>, String> {
