@@ -53,8 +53,8 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Бинарные архивы 5 таргетов, SHA256SUMS, Ed25519, provenance | есть | ✅ |
 | Homebrew: бинарная формула | binary + бутылки; `bottles-ghcr` публикует OCI в GHCR; реальный push и анонимный pull манифеста подтверждены в Actions | ✅ |
 | Reproducible builds | архивы детерминированы; бинарь воспроизводим при том же toolchain с remap/SOURCE_DATE_EPOCH (проверено локально); cross-Linux может отличаться | ✅ |
-| Desktop в release CI | macOS `.app` zip; Linux/Windows desktop-архивы добавлены в workflow (прогон на теге не выполнялся) | ⚠️ |
-| Windows/Linux desktop packages | Linux tar.gz и Windows zip собираются release-джобами; installer'ов нет, джобы не прогонялись | ⚠️ |
+| Desktop в release CI | macOS `.app`; Linux/Windows desktop-сборки и упаковка проверены в Actions (tar+deb, zip) | ✅ |
+| Windows/Linux desktop packages | Linux tar.gz + `.deb`, Windows zip; сборка/упаковка проверены на реальных раннерах; NSIS-инсталлятора нет | ⚠️ |
 
 ## Приоритеты паритета
 
@@ -62,8 +62,7 @@ P0 закрыто: трей/close-to-tray, профили, фиксирован�
 диагностика, `apply_patch`, `ask_user` (включая ACP), каналы и установка обновлений,
 recovery-окно с профилями/плагинами, first-run home. Осталось: прогон notarization
 с секретами Apple.
-P1: композиция профилей из бандлов, полный plugin market/catalog, GUI-менеджер плагинов,
-верификация Windows sandbox на реальном Windows.
+P1: полный plugin market/catalog и GUI-менеджер плагинов.
 P2: прогон brew/desktop CI на теге, React-слоты клиентских плагинов
 (сейчас мост, ADR-013 §5), приватные terminal shim'ы.
 
@@ -77,6 +76,8 @@ P2: прогон brew/desktop CI на теге, React-слоты клиентс�
   DMG собран (UDZO); установочный/архивный dry-run проверен ранее.
 - Headless Chrome: light-тема, версия, Plugins; `/v1/tools`, `/v1/plugins/catalog`,
   `/v1/plugins/ratings` отвечают.
+- Linux/Windows desktop: [run 43591784883](https://github.com/maximusmakarov/deepseek_harness_rust/actions/runs/43591784883)
+  — обе сборки и упаковка успешны; `.deb` проверен `dpkg-deb --info`.
 - Cordis hot reload проверен на живом `serve`: правка entry перезагружает плагин
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
@@ -107,7 +108,7 @@ desktop-джобы, notarization-тулинг).
 - **Windows sandbox:** нужен реальный Windows-хост; локально проверяется только
   компиляция, ignored-тест вынесен в Windows CI.
 - **Notarization:** нужны Apple Developer ID, сертификат и app-specific password.
-- **Desktop CI/brew:** джобы выполняются только на теге; локально прогнан dry-run
-  упаковки/установки.
+- **Desktop CI/brew:** release-джобы выполняются только на теге; Linux/Windows
+  desktop-сборка и упаковка отдельно проверены в Actions, локально — dry-run.
 
 Каждый срез: код + тест/сборка + обновление этой матрицы.

@@ -75,6 +75,12 @@ Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.
 для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на
 GitHub Releases, не GHCR; pour проверяется при следующем теге.
 
+## Desktop CI
+
+Linux/Windows desktop-сборка и упаковка проверены в Actions (tar+deb, zip);
+Windows-ресурс использует `crates/desktop/icons/icon.ico`, `window-vibrancy`
+подключён только для macOS.
+
 ## Notarization (macOS)
 
 Секреты `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`, `APPLE_CERTIFICATE`,
