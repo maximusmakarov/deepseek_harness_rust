@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v5.5 · 13.11.2026 · **M0–M7 закрыты; Leptos + Tauri; WIT; Cordis-прототип**
+**Статус:** план v5.5 · 14.11.2026 · **M0–M7 закрыты; Leptos + Tauri; WIT; Cordis — sidecar, hot reload, клиентская половина с региональным монтажом слотов**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-329 тестов; живой tool-loop DeepSeek проверен. M7 продолжается: бандл/трей Tauri, полный Cordis, i18n. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+346 тестов (+3 ignored), desktop — 21; живой tool-loop DeepSeek проверен. M7 продолжается: Windows sandbox, notarization, conformance-набор Cordis. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -38,7 +38,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 - **Один статический бинарь** вместо Electron + Node + pnpm; нет обязательного GUI.
 - **TUI и headless — равноправные поверхности**, Web/Desktop — опция.
 - **WASM-плагины** с capability-моделью для недоверенного и переносимого кода.
-- **Совместимость с npm/Cordis-плагинами DSH запланирована** ([ADR-013](docs/adr/013-cordis-compat.md)): настоящий `cordis` в JS-рантайме, его `fs`/`net`/`exec` — через capability-шину. В текущем срезе есть WASM-плагины и MCP-sidecar, Cordis-рантайма ещё нет.
+- **Совместимость с npm/Cordis-плагинами DSH** ([ADR-013](docs/adr/013-cordis-compat.md)): настоящий `cordis` в sidecar-рантайме, его `fs`/`net`/`exec` — через capability-шину, hot reload; клиентская половина — eager registry-кадр + отдельный iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) разложен по 17 регионам шелла, незнакомое имя — fallback в панель. React-компоненты не поддерживаются.
 - **Нативная песочница** и event-sourced журнал — часть ядра, а не обёртки.
 
 ```text
@@ -88,7 +88,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/OFFICE.md](docs/OFFICE.md) | docx/xlsx/pptx чтение и создание | Для документов |
 | [docs/BROWSER.md](docs/BROWSER.md) | Chrome/CUA: навигация, скриншоты, действия | Для браузера |
 | [docs/SEARCH.md](docs/SEARCH.md) | Гейт, benchmark, FTS5, reindex | Для поиска |
-| [docs/PLUGINS.md](docs/PLUGINS.md) | WASM ABI, манифесты, sidecar | Для расширений |
+| [docs/PLUGINS.md](docs/PLUGINS.md) | WASM ABI, манифесты, sidecar, клиентская половина (слоты/регионы, мост) | Для расширений |
 | [docs/TELEMETRY.md](docs/TELEMETRY.md) | OTLP/HTTP, env, спаны | Для наблюдаемости |
 | [docs/ACP.md](docs/ACP.md) | ACP v1: сессии, prompt, cancel, permissions | Для редакторов |
 | [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) | Матрица возможностей и пробелов | Для оценки паритета |
@@ -246,7 +246,7 @@ docs/adr              001–039
 **Осталось:**
 1. Windows sandbox (persistent helper), сеть Windows.
 2. Tauri: трей, автообновление, notarization (бандл `.app` уже собирается).
-3. Полный Cordis: HMR, кэш грантов/аудит, клиентская UI-половина.
+3. Полный Cordis: runtime pack и шим `@dshr/cordis-compat@1`, кэш грантов, conformance-набор реальных плагинов (HMR, аудит и клиентская половина с региональным монтажом слотов уже есть).
 4. ghcr-бутылки Homebrew (сборка уже детерминирована и воспроизводима).
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

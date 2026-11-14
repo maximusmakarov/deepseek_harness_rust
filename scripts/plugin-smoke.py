@@ -1,18 +1,31 @@
 #!/usr/bin/env python3
-"""End-to-end smoke test for the Cordis client-half bridge.
+"""End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with two throwaway plugins (a lazy multi-slot half
-and an eager `immediately` half), drives the Web UI in headless Chrome over the
-DevTools protocol and checks the parts unit tests cannot see:
+Starts a real `dshr serve` with nine throwaway plugins (a multi-region half, a
+lazy panel half, an eager `immediately` half, asset/module-table/exports
+delivery variants, a throwing bundle, ...), drives the Web UI in headless
+Chrome over the DevTools protocol and checks the parts unit tests cannot see:
 
-  * client-half discovery and slot tabs (``panel`` and ``settings.section``)
-  * slot switching and the ``resize`` message
-  * live theme propagation into the sandboxed frame
-  * ``ctx.action`` round-trips (unsupported action, ``close``)
-  * an eager half stays mounted after the panel closes
+  * client-half discovery (inline / assets / `immediately` / `inject`)
+  * eager registry frames: one hidden `mode=registry` iframe per half at
+    startup, in `inject` order
+  * regional mounting: each registered slot gets its own `iframe.slot-frame`
+    inside the `.slot-region[data-region=...]` its DSH slot name maps to, with
+    the rendered text visible inside the frame
+  * the unknown-name fallback into the panel stage, panel tabs and switching
+  * dialogs: settings.* frames mount with the dialog and unmount with it,
+    plugins.add / plugins.detail frames mount with the Plugins dialog
+  * per-message `message.action` frames for a replayed session
+  * live theme propagation into every frame (`documentElement.dataset.theme`
+    plus `ctx.onTheme`)
+  * `ctx.action` round-trips (compose / notify / unsupported / reload / close)
+  * a throwing bundle and a throwing render surfaced in the shell
+  * asset (multi-file), module-table and `exports["./client"]` bundles
 
-Only the Python standard library is used. Chrome and node are required; the
-script skips with exit code 0 when either is missing.
+The session transcript is a deterministic `--cassette` replay, so per-message
+regions render without a provider. Only the Python standard library is used.
+Chrome and node are required; the script skips with exit code 0 when either is
+missing.
 
 Usage:
     python3 scripts/plugin-smoke.py [--binary target/debug/dshr] [--keep]
@@ -31,11 +44,16 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN = "smoke-token"
+# A cold CI runner compiles the wasm bundle and paints the first frame well
+# after 20 s; the local deadline must not decide whether CI is green.
+LOAD_TIMEOUT = 90.0
+FRAME_TIMEOUT = 45.0
 
 
 # --------------------------------------------------------------------------
@@ -134,6 +152,33 @@ class DevTools:
             pass
 
 
+_RAW_EVAL = DevTools.eval
+
+
+def _resilient_eval(self, expression, await_promise=False, attempts: int = 40):
+    """Evaluate, retrying while a navigation swaps the execution context.
+
+    `Page.navigate`, a plugin `reload` action and a bumped frame version all
+    destroy the current JS context, so an evaluation that races with them fails
+    with Chrome -32000 "Inspected target navigated or closed". Every call site
+    gets the retry, because any evaluation can race with a navigation.
+    """
+    last_error = None
+    for _ in range(attempts):
+        try:
+            return _RAW_EVAL(self, expression, await_promise)
+        except Exception as error:  # noqa: BLE001 - retried below
+            message = str(error)
+            if "navigated or closed" not in message and "Cannot find context" not in message:
+                raise
+            last_error = error
+            time.sleep(0.25)
+    raise TimeoutError(f"evaluate after navigation failed: {last_error}")
+
+
+DevTools.eval = _resilient_eval
+
+
 def chrome_binary() -> str | None:
     candidates = [
         os.environ.get("CHROME"),
@@ -149,6 +194,19 @@ def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def wait_until(predicate, timeout: float = 60.0, interval: float = 0.2, label: str = "condition"):
+    deadline = time.time() + timeout
+    last_error = None
+    while time.time() < deadline:
+        try:
+            if predicate():
+                return
+        except Exception as error:  # noqa: BLE001 - polled predicates may race with DOM updates
+            last_error = error
+        time.sleep(interval)
+    raise TimeoutError(f"timed out waiting for {label} ({last_error})")
 
 
 # --------------------------------------------------------------------------
@@ -172,52 +230,34 @@ export default {
 
 DEMO_CLIENT = """
 export default function activate(ctx) {
-  const panel = (el) => {
-    el.innerHTML = `
-      <h3>Smoke panel v1</h3>
-      <p id="slot-label">slot: panel · theme: ${ctx.theme}</p>
-      <p id="action-status">action: idle</p>
-      <button id="close-btn">close</button>
-      <button id="nope-btn">nope</button>
-      <div style="height:260px">tall content</div>`;
-    el.querySelector("#close-btn").onclick = () => ctx.action("close");
-    el.querySelector("#nope-btn").onclick = () => {
-      ctx.action("nope").then((result) => {
-        el.querySelector("#action-status").textContent =
-          "action: " + (result.ok ? "ok" : result.error);
-      });
-    };
-  };
-  const settings = (el) => {
-    el.innerHTML = "<h3>Smoke settings</h3><p id=\\"slot-label\\">slot: settings</p>";
-  };
-  ctx.slots.register({ name: "panel", id: "smoke-panel", title: "Smoke panel", order: 10 }, panel);
-  ctx.slots.register({ name: "settings.section", id: "smoke-settings", title: "Smoke settings", order: 20 }, settings);
-  ctx.onTheme((theme) => { document.body.dataset.pluginTheme = theme; });
-  ctx.effect(() => {
-    const timer = setInterval(() => { document.body.dataset.tick = String(Date.now()); }, 500);
-    return () => clearInterval(timer);
+  ctx.slots.register({ name: "panel", id: "smoke-panel", title: "Smoke panel", order: 10 }, (el) => {
+    el.innerHTML = "<h3>Smoke panel</h3>";
   });
+  ctx.onTheme((theme) => { document.body.dataset.pluginTheme = theme; });
 }
 """
 
-# A half that uses the DSH slot names for the subset the bridge promises
-# (ADR-013 §5): a panel plus a message action and a settings action.
-DSH_MANIFEST = {
-    "name": "@smoke/dsh-slots",
+EAGER_MANIFEST = {
+    "name": "@smoke/eager",
     "version": "1.0.0",
     "main": "plugin.mjs",
-    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+    "dsh": {"client": {"platform": "web", "entry": "client.js", "immediately": True}},
 }
 
-DSH_CLIENT = """
+EAGER_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "eager", description: "eager", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+EAGER_CLIENT = """
 export default function activate(ctx) {
-  const render = (label) => (el) => {
-    el.innerHTML = "<p id=\\"slot-label\\">slot: " + label + "</p>";
-  };
-  ctx.slots.register({ name: "panel", id: "dsh-panel", title: "DSH panel", order: 30 }, render("panel"));
-  ctx.slots.register({ name: "message.action", id: "dsh-message", title: "Message action", order: 31 }, render("message.action"));
-  ctx.slots.register({ name: "settings.action", id: "dsh-settings-action", title: "Settings action", order: 32 }, render("settings.action"));
+  document.documentElement.dataset.eager = "1";
+  ctx.slots.register({ name: "panel", id: "eager-panel", title: "Eager panel" }, (el) => {
+    el.innerHTML = "<h3>Eager panel</h3>";
+  });
 }
 """
 
@@ -280,29 +320,6 @@ window.__ModuleLoader__.load({
 });
 """
 
-ORDERED_MANIFEST = {
-    "name": "@smoke/ordered",
-    "version": "1.0.0",
-    "main": "plugin.mjs",
-    "dsh": {"client": {"platform": "web", "entry": "client.js", "inject": ["demo6"]}},
-}
-
-ORDERED_PLUGIN = """
-export default {
-  apply(ctx) {
-    ctx.tool({ name: "ordered", description: "ordered", inputSchema: { type: "object" }, handler: () => "ok" });
-  },
-};
-"""
-
-ORDERED_CLIENT = """
-export default function activate(ctx) {
-  ctx.slots.register({ name: "panel", id: "ordered-panel", title: "Ordered" }, (el) => {
-    el.innerHTML = "<h3>Ordered panel</h3>";
-  });
-}
-"""
-
 ERROR_MANIFEST = {
     "name": "@smoke/error",
     "version": "1.0.0",
@@ -318,8 +335,23 @@ export default {
 };
 """
 
+# A bundle that fails in both frame roles the shell has to survive:
+#   * registry frame: it throws after publishing a panel registration, so the
+#     shell still knows the slot and the error surfaces in the status bar;
+#   * slot frame: it registers a render that throws, so the error surfaces in
+#     the panel-stage head.
 ERROR_CLIENT = """
-export default function activate() {
+const mode = new URLSearchParams(location.search).get("mode");
+export default function activate(ctx) {
+  if (mode === "slot") {
+    ctx.slots.register({ name: "panel", id: "error-panel", title: "Error panel" }, () => {
+      throw new Error("render blew up");
+    });
+    return;
+  }
+  ctx.slots.register({ name: "panel", id: "error-panel", title: "Error panel" }, (el) => {
+    el.textContent = "never rendered";
+  });
   throw new Error("boom from plugin");
 }
 """
@@ -348,36 +380,169 @@ export default function activate(ctx) {
 }
 """
 
-EAGER_MANIFEST = {
-    "name": "@smoke/eager",
+ORDERED_MANIFEST = {
+    "name": "@smoke/ordered",
     "version": "1.0.0",
     "main": "plugin.mjs",
-    "dsh": {"client": {"platform": "web", "entry": "client.js", "immediately": True}},
+    "dsh": {"client": {"platform": "web", "entry": "client.js", "inject": ["demo6"]}},
 }
 
-EAGER_PLUGIN = """
+ORDERED_PLUGIN = """
 export default {
   apply(ctx) {
-    ctx.tool({ name: "eager", description: "eager", inputSchema: { type: "object" }, handler: () => "ok" });
+    ctx.tool({ name: "ordered", description: "ordered", inputSchema: { type: "object" }, handler: () => "ok" });
   },
 };
 """
 
-EAGER_CLIENT = """
+ORDERED_CLIENT = """
 export default function activate(ctx) {
-  document.documentElement.dataset.eager = "1";
-  ctx.slots.register({ name: "panel", id: "eager-panel", title: "Eager panel" }, (el) => {
-    el.innerHTML = "<h3>Eager panel</h3>";
+  ctx.slots.register({ name: "panel", id: "ordered-panel", title: "Ordered" }, (el) => {
+    el.innerHTML = "<h3>Ordered panel</h3>";
   });
 }
 """
+
+# The DSH subset half from the previous architecture: its slot names resolve to
+# message.action / settings.action regions (not to stage tabs any more).
+DSH_MANIFEST = {
+    "name": "@smoke/dsh-slots",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+}
+
+DSH_CLIENT = """
+const render = (name) => (element) => {
+  element.innerHTML = "<p class='slot-label'>dsh slot: " + name + "</p>";
+};
+export default function activate(ctx) {
+  ctx.slots.register({ name: "panel", id: "dsh-panel", title: "DSH panel", order: 30 }, render("panel"));
+  ctx.slots.register({ name: "message.action", id: "dsh-message", title: "Message action", order: 31 }, render("message.action"));
+  ctx.slots.register({ name: "settings.action", id: "dsh-settings-action", title: "Settings action", order: 32 }, render("settings.action"));
+}
+"""
+
+# One registration per shell region (plus an unknown name that must fall back
+# to the panel stage). Every render prints the region it was mounted into so the
+# smoke test can verify placement from inside the sandboxed frame.
+REGIONS_MANIFEST = {
+    "name": "@smoke/regions",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+}
+
+REGIONS_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "regions", description: "regions", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+REGIONS_CLIENT = """
+const VERSION = "regions-v1";
+const NAMES = [
+  "panel",
+  "settings.section",
+  "settings.section.icon",
+  "settings.action",
+  "message.action",
+  "sidebar.footer.action",
+  "sidebar.workspaces",
+  "sidebar.session.row.trailing",
+  "shell.overlay",
+  "shell.leading",
+  "shell.bottom",
+  "conversation.session.header.actions",
+  "conversation.input.right",
+  "plugins.add.actions",
+  "plugins.detail.actions",
+  "tool.call.toolview",
+  "conversation.approval.detail",
+  "custom.unknown",
+];
+export default function activate(ctx) {
+  const render = (name) => (element, props) => {
+    const region = ctx.slotRegion(name);
+    const context = (props && props.context) || {};
+    const role = context.role || "-";
+    const index = context.index == null ? "-" : context.index;
+    element.innerHTML =
+      '<p class="slot-label">' + VERSION + ' region:' + region + ' slot:' + name + '</p>' +
+      '<p class="slot-context">context:' + role + '/' + index + '</p>';
+  };
+  NAMES.forEach((name, index) => {
+    const id = "regions-" + name.replace(/[^A-Za-z0-9]+/g, "-");
+    ctx.slots.register({ name: name, id: id, title: "Regions " + name, order: index + 10 }, render(name));
+  });
+  ctx.onTheme((theme) => { document.body.dataset.pluginTheme = theme; });
+}
+"""
+
+# Slot name -> region the bridge must route it to (protocol v1.2 mapping for the
+# slot names the `regions` fixture registers).
+REGION_MAPPING = {
+    "panel": "panel",
+    "settings.section": "settings.section",
+    "settings.section.icon": "settings.icon",
+    "settings.action": "settings.action",
+    "message.action": "message.action",
+    "sidebar.footer.action": "sidebar.footer",
+    "sidebar.workspaces": "sidebar.top",
+    "sidebar.session.row.trailing": "sidebar.session.action",
+    "shell.overlay": "shell.overlay",
+    "shell.leading": "shell.leading",
+    "shell.bottom": "shell.bottom",
+    "conversation.session.header.actions": "conversation.header",
+    "conversation.input.right": "composer.actions",
+    "plugins.add.actions": "plugins.add",
+    "plugins.detail.actions": "plugins.detail",
+    "tool.call.toolview": "tool.card",
+    "conversation.approval.detail": "approval.detail",
+    "custom.unknown": "panel",
+}
+
+ALL_REGIONS = sorted({
+    "panel", "settings.section", "settings.icon", "settings.action", "message.action",
+    "sidebar.top", "sidebar.footer", "sidebar.session.action", "shell.leading",
+    "shell.bottom", "shell.overlay", "conversation.header", "composer.actions",
+    "plugins.add", "plugins.detail", "tool.card", "approval.detail",
+})
+
+# Regions mounted at plain-page startup for the `regions` fixture: (slot, region).
+STARTUP_REGIONS = [
+    ("shell.leading", "shell.leading"),
+    ("sidebar.workspaces", "sidebar.top"),
+    ("sidebar.footer.action", "sidebar.footer"),
+    ("conversation.session.header.actions", "conversation.header"),
+    ("conversation.input.right", "composer.actions"),
+    ("shell.bottom", "shell.bottom"),
+    ("shell.overlay", "shell.overlay"),
+]
+
+CASSETTE = {
+    "model": "deepseek-flash",
+    "calls": [
+        [
+            {"type": "start", "model": "deepseek-flash"},
+            {"type": "text_delta", "text": "replayed answer for the smoke test"},
+            {"type": "done", "stop_reason": "end_turn"},
+        ],
+    ],
+}
+
+
+def slot_id(slot: str) -> str:
+    return "regions-" + "".join(ch if ch.isalnum() else "-" for ch in slot).strip("-").lower()
 
 
 def write_fixtures(home: Path, workspace: Path) -> None:
     (home / "profiles" / "default").mkdir(parents=True, exist_ok=True)
     (home / "config.yaml").write_text("version: 1\n", encoding="utf-8")
     profile = ["version: 1", "plugins:", "  cordis:"]
-    for name, manifest, plugin, client in [
+    entries = [
         ("demo", DEMO_MANIFEST, DEMO_PLUGIN, DEMO_CLIENT),
         ("demo2", EAGER_MANIFEST, EAGER_PLUGIN, EAGER_CLIENT),
         ("demo3", ASSETS_MANIFEST, ASSETS_PLUGIN, ASSETS_CLIENT),
@@ -386,7 +551,9 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("demo6", EXPORTS_MANIFEST, EXPORTS_PLUGIN, EXPORTS_CLIENT),
         ("demo7", ORDERED_MANIFEST, ORDERED_PLUGIN, ORDERED_CLIENT),
         ("demo8", DSH_MANIFEST, DEMO_PLUGIN, DSH_CLIENT),
-    ]:
+        ("regions", REGIONS_MANIFEST, REGIONS_PLUGIN, REGIONS_CLIENT),
+    ]
+    for name, manifest, plugin, client in entries:
         directory = workspace / name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -412,7 +579,9 @@ def write_fixtures(home: Path, workspace: Path) -> None:
 # --------------------------------------------------------------------------
 
 
-def start_server(binary: Path, home: Path, workspace: Path, port: int) -> subprocess.Popen:
+def start_server(
+    binary: Path, home: Path, workspace: Path, port: int, cassette: Path
+) -> subprocess.Popen:
     environment = dict(os.environ, DEEPSEEK_API_KEY="dummy")
     process = subprocess.Popen(
         [
@@ -426,6 +595,10 @@ def start_server(binary: Path, home: Path, workspace: Path, port: int) -> subpro
             str(port),
             "--token",
             TOKEN,
+            "--cassette",
+            str(cassette),
+            "--model",
+            "deepseek-flash",
         ],
         cwd=workspace,
         env=environment,
@@ -481,78 +654,180 @@ def page_target(port: int) -> str:
     return page["webSocketDebuggerUrl"]
 
 
-def frame_targets(port: int, plugin: str) -> list[str]:
+# --------------------------------------------------------------------------
+# Frame helpers: every plugin frame is a separate DevTools target whose URL
+# carries the protocol tunnel parameters (plugin path, mode, slot, id).
+# --------------------------------------------------------------------------
+
+
+def iframe_targets(port: int) -> list[dict]:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list") as response:
         targets = json.load(response)
-    return [
-        target["webSocketDebuggerUrl"]
-        for target in targets
-        if target["type"] == "iframe" and f"/plugins/{plugin}/" in target["url"]
-    ]
+    return [target for target in targets if target["type"] == "iframe"]
 
 
-def frame_target(port: int, plugin: str) -> str | None:
-    targets = frame_targets(port, plugin)
-    return targets[0] if targets else None
+def frame_plugin(url: str) -> str:
+    parts = urllib.parse.urlparse(url).path.split("/")
+    # /v1/plugins/<name>/host
+    return urllib.parse.unquote(parts[3]) if len(parts) > 4 else ""
 
 
-def wait_for_frame_text(port: int, plugin: str, needle: str, timeout: float = 20.0) -> bool:
-    """Polls the plugin frame text, reconnecting when the frame reloads."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        for target in frame_targets(port, plugin):
-            frame = DevTools(target)
-            try:
-                frame.call("Runtime.enable")
-                text = str(frame.eval("document.getElementById('dshr-slot-root')?.textContent"))
-            except Exception:  # noqa: BLE001 - the target may vanish mid-reload
-                text = ""
-            finally:
-                frame.close()
-            if needle in text:
-                return True
-        time.sleep(0.25)
-    return False
+def frame_params(url: str) -> dict[str, str]:
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+    return {key: values[0] for key, values in query.items() if values}
 
 
-_RAW_EVAL = DevTools.eval
+def frame_target(
+    port: int,
+    plugin: str | None = None,
+    mode: str | None = None,
+    slot: str | None = None,
+    slot_id: str | None = None,
+) -> dict | None:
+    for target in iframe_targets(port):
+        params = frame_params(target["url"])
+        if plugin is not None and frame_plugin(target["url"]) != plugin:
+            continue
+        if mode is not None and params.get("mode") != mode:
+            continue
+        if slot is not None and params.get("slot") != slot:
+            continue
+        if slot_id is not None and params.get("id") != slot_id:
+            continue
+        return target
+    return None
 
 
-def _resilient_eval(self, expression, await_promise=False, attempts: int = 40):
-    """Evaluate, retrying while a navigation swaps the execution context.
+def poll_frame(
+    port: int,
+    expression: str,
+    predicate,
+    *,
+    plugin: str,
+    mode: str = "slot",
+    slot: str | None = None,
+    slot_id: str | None = None,
+    timeout: float = FRAME_TIMEOUT,
+    interval: float = 0.2,
+    label: str = "frame",
+):
+    """Poll a frame expression, reconnecting when the target is recreated.
 
-    `Page.navigate`, `Page.reload` and a plugin frame reload all destroy the
-    current JS context, so an evaluation that races with them fails with
-    Chrome -32000 "Inspected target navigated or closed". Every call site gets
-    the retry, because any evaluation can race with a navigation.
+    `reload` and a bumped frame version recreate the DevTools target, so a
+    cached websocket cannot be reused; the connection is rebuilt whenever the
+    target URL changes.
     """
-    last_error = None
-    for _ in range(attempts):
-        try:
-            return _RAW_EVAL(self, expression, await_promise)
-        except Exception as error:  # noqa: BLE001 - retried below
-            message = str(error)
-            if "navigated or closed" not in message and "Cannot find context" not in message:
-                raise
-            last_error = error
-            time.sleep(0.25)
-    raise TimeoutError(f"evaluate after navigation failed: {last_error}")
-
-
-DevTools.eval = _resilient_eval
-
-
-def wait_until(predicate, timeout: float = 60.0, interval: float = 0.2, label: str = "condition"):
     deadline = time.time() + timeout
+    target_url = None
+    frame = None
     last_error = None
-    while time.time() < deadline:
-        try:
-            if predicate():
-                return
-        except Exception as error:  # noqa: BLE001 - polled predicates may race with DOM updates
-            last_error = error
-        time.sleep(interval)
+    try:
+        while time.time() < deadline:
+            target = frame_target(port, plugin, mode, slot, slot_id)
+            if target is not None and target["webSocketDebuggerUrl"] != target_url:
+                if frame is not None:
+                    frame.close()
+                target_url = target["webSocketDebuggerUrl"]
+                try:
+                    frame = DevTools(target_url)
+                    frame.call("Runtime.enable")
+                except Exception as error:  # noqa: BLE001 - the target may vanish mid-reload
+                    last_error = error
+                    frame = None
+                    target_url = None
+                    time.sleep(interval)
+                    continue
+            if frame is not None:
+                try:
+                    value = frame.eval(expression)
+                except Exception as error:  # noqa: BLE001 - target navigated; reconnect
+                    last_error = error
+                    frame.close()
+                    frame = None
+                    target_url = None
+                    time.sleep(interval)
+                    continue
+                if predicate(value):
+                    return value
+            time.sleep(interval)
+    finally:
+        if frame is not None:
+            frame.close()
     raise TimeoutError(f"timed out waiting for {label} ({last_error})")
+
+
+FRAME_TEXT_EXPRESSION = "String(document.getElementById('dshr-slot-root')?.textContent || '')"
+
+
+def wait_frame_text(
+    port: int,
+    needle: str,
+    plugin: str,
+    slot: str | None = None,
+    slot_id: str | None = None,
+    timeout: float = FRAME_TIMEOUT,
+) -> str:
+    return str(
+        poll_frame(
+            port,
+            FRAME_TEXT_EXPRESSION,
+            lambda value: needle in str(value),
+            plugin=plugin,
+            slot=slot,
+            slot_id=slot_id,
+            timeout=timeout,
+            label=f"{plugin}/{slot or slot_id} text {needle!r}",
+        )
+    )
+
+
+def collect_frame_texts(
+    port: int,
+    plugin: str,
+    slot: str,
+    expected: int,
+    timeout: float = FRAME_TIMEOUT,
+) -> list[str]:
+    """Reads the text of every frame of one registration (per-occurrence slots).
+
+    Several frames share the same plugin/slot pair (one per message), so each
+    DevTools target is read separately and the collection retries while the
+    frames are still loading.
+    """
+    deadline = time.time() + timeout
+    texts: list[str] = []
+    while time.time() < deadline:
+        targets = [
+            target
+            for target in iframe_targets(port)
+            if frame_plugin(target["url"]) == plugin
+            and frame_params(target["url"]).get("slot") == slot
+        ]
+        texts = []
+        for target in targets:
+            frame = None
+            try:
+                frame = DevTools(target["webSocketDebuggerUrl"])
+                frame.call("Runtime.enable")
+                texts.append(str(frame.eval(FRAME_TEXT_EXPRESSION)))
+            except Exception:  # noqa: BLE001 - the target may vanish mid-load
+                pass
+            finally:
+                if frame is not None:
+                    frame.close()
+        if len(texts) >= expected and all(texts):
+            return texts
+        time.sleep(0.25)
+    return texts
+
+
+def wait_registry_ready(port: int, count: int, timeout: float = LOAD_TIMEOUT) -> None:
+    wait_until(
+        lambda: len([target for target in iframe_targets(port)
+                     if frame_params(target["url"]).get("mode") == "registry"]) >= count,
+        timeout=timeout,
+        label="eager registry frames",
+    )
 
 
 # --------------------------------------------------------------------------
@@ -581,8 +856,12 @@ def run(args: argparse.Namespace) -> int:
     plugins = workspace / "workspace"
     plugins.mkdir()
     write_fixtures(home, plugins)
+    cassette = home / "cassette.json"
+    cassette.write_text(json.dumps(CASSETTE), encoding="utf-8")
+
     server = None
     chrome_process = None
+    shell = None
     failures: list[str] = []
     checks: list[str] = []
 
@@ -597,254 +876,669 @@ def run(args: argparse.Namespace) -> int:
             print(f"  FAIL {label}{(': ' + str(detail)) if detail else ''}")
             failures.append(label)
 
+    def api(port: int, method: str, path: str, body: dict | None = None) -> dict:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}",
+            method=method,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return json.load(response)
+
+    def click(selector: str, label: str) -> bool:
+        return bool(
+            shell.eval(
+                """(() => {
+                    const button = [...document.querySelectorAll(%s)]
+                        .find(b => b.textContent.trim() === %s);
+                    if (!button) return false;
+                    button.click();
+                    return true;
+                })()""" % (json.dumps(selector), json.dumps(label))
+            )
+        )
+
     print(f"chrome: {chrome}")
     for tool in ("node", "google-chrome"):
         print(f"{tool}: {shutil.which(tool) or 'not found'}")
     try:
         port = free_port()
         print(f"starting dshr on 127.0.0.1:{port}")
-        server = start_server(binary, home, plugins, port)
+        server = start_server(binary, home, plugins, port, cassette)
+
+        # Discovery ---------------------------------------------------------
+        clients = api(port, "GET", "/v1/plugins/clients")["clients"]
+        names = [client["name"] for client in clients]
+        check("lists every configured client half", len(clients) == 9, names)
+        modes = {client["name"]: client["bundle"] for client in clients}
+        check("single-file halves are inlined", modes.get("demo") == "inline", modes)
+        check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
+        check(
+            "eager half is marked immediately and demo7 injects demo6",
+            any(client["name"] == "demo2" and client["immediately"] for client in clients)
+            and any(client["name"] == "demo7" and client["inject"] == ["demo6"] for client in clients),
+        )
+
+        # A deterministic transcript: create a session over REST and replay one
+        # assistant turn, so per-message regions have rows to mount into.
+        session = api(port, "POST", "/v1/sessions", {})["session"]["id"]
+        api(port, "POST", f"/v1/sessions/{session}/turns", {"prompt": "smoke prompt"})
+        wait_until(
+            lambda: len(api(port, "GET", f"/v1/sessions/{session}").get("messages", [])) >= 2,
+            timeout=30,
+            label="replayed transcript",
+        )
+
         debug_port = free_port()
         chrome_process = start_chrome(chrome, debug_port, workspace / "chrome-profile")
         shell = DevTools(page_target(debug_port))
         shell.call("Runtime.enable")
         shell.call("Page.enable")
 
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{port}/v1/plugins/clients",
-            headers={"Authorization": f"Bearer {TOKEN}"},
+        # Remount the page from the start for the checks below.
+        shell.call("Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}"})
+        wait_until(
+            lambda: bool(shell.eval("document.getElementById('status') !== null")),
+            timeout=LOAD_TIMEOUT,
+            label="web ui loaded",
         )
-        with urllib.request.urlopen(request, timeout=10) as response:
-            clients = json.load(response)["clients"]
-        check("lists every client half", len(clients) == 8, str(clients))
-        modes = {client["name"]: client["bundle"] for client in clients}
-        check("single-file halves are inlined", modes.get("demo") == "inline", modes)
-        check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
+        wait_registry_ready(debug_port, 9)
+
+        # Eager registry ----------------------------------------------------
+        registry = shell.eval(
+            """JSON.stringify([...document.querySelectorAll('#plugin-registry iframe.registry-frame')]
+                .map(f => ({plugin: f.dataset.plugin, hidden: f.hidden,
+                            display: getComputedStyle(f).display,
+                            parentHidden: f.parentElement.hidden, src: f.src})))"""
+        )
+        registry = json.loads(str(registry))
         check(
-            "eager half is marked immediately",
-            any(client["name"] == "demo2" and client["immediately"] for client in clients),
-        )
-
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo"},
-        )
-        wait_until(
-            lambda: shell.eval("document.getElementById('plugin-stage')?.className === 'plugin-stage open'"),
-            label="panel stage opens",
-        )
-
-        demo_ws = frame_target(debug_port, "demo")
-        check("lazy panel frame is mounted", demo_ws is not None)
-        demo = DevTools(demo_ws)
-        demo.call("Runtime.enable")
-
-        wait_until(
-            lambda: "slot: panel" in str(demo.eval("document.getElementById('dshr-slot-root').textContent")),
-            label="panel slot renders",
-        )
-        check("panel slot renders", True)
-        check(
-            "both slots are offered as tabs",
-            "settings.section"
-            in str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''")),
-        )
-        height = shell.eval("document.getElementById('plugin-frame-demo').style.height")
-        check("resize message sets the frame height", bool(height) and height != "auto", str(height))
-
-        eager_ws = frame_target(debug_port, "demo2")
-        check("eager half is mounted at startup", eager_ws is not None)
-        if eager_ws:
-            eager = DevTools(eager_ws)
-            eager.call("Runtime.enable")
-            check("eager half ran its bundle", eager.eval("document.documentElement.dataset.eager") == "1")
-            eager.close()
-
-        shell.eval("[...document.querySelectorAll('.plugin-tabs button')][1].click()")
-        wait_until(
-            lambda: "slot: settings" in str(demo.eval("document.getElementById('dshr-slot-root').textContent")),
-            label="settings slot renders",
-        )
-        check("slot switching activates the other slot", True)
-
-        shell.eval("[...document.querySelectorAll('.plugin-tabs button')][0].click()")
-        wait_until(
-            lambda: "slot: panel" in str(demo.eval("document.getElementById('dshr-slot-root').textContent")),
-            label="panel slot re-activates",
-        )
-        shell.eval("[...document.querySelectorAll('header button')].find(b => b.textContent === 'Theme').click()")
-        wait_until(
-            lambda: demo.eval("document.body.dataset.pluginTheme") in ("light", "dark"),
-            label="theme reaches the frame",
-        )
-        theme = demo.eval("document.body.dataset.pluginTheme")
-        shell_theme = shell.eval("document.documentElement.dataset.theme")
-        check("theme propagates live into the frame", theme == shell_theme, f"{theme} vs {shell_theme}")
-
-        demo.eval("document.getElementById('nope-btn').click()")
-        wait_until(
-            lambda: "unsupported action" in str(demo.eval("document.getElementById('action-status').textContent")),
-            label="action round-trip",
-        )
-        check("ctx.action reports an unsupported action", True)
-
-        demo.eval("document.getElementById('close-btn').click()")
-        wait_until(
-            lambda: shell.eval("document.getElementById('plugin-stage').className") == "plugin-stage",
-            label="panel closes from the frame",
-        )
-        frame_ids = [item for item in str(shell.eval("[...document.querySelectorAll('iframe')].map(f => f.id).join(',')")).split(",") if item]
-        check("close unmounts the lazy frame", "plugin-frame-demo" not in frame_ids, str(frame_ids))
-        check("eager frame stays mounted", "plugin-frame-demo2" in frame_ids, str(frame_ids))
-        demo.close()
-
-        # A bundle with relative imports loads its module graph through the
-        # capability asset route and renders a chunked component.
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo3"},
-        )
-        assets_ws = None
-        deadline = time.time() + 20
-        while time.time() < deadline and assets_ws is None:
-            assets_ws = frame_target(debug_port, "demo3")
-            time.sleep(0.2)
-        check("asset-mode frame is mounted", assets_ws is not None)
-        if assets_ws:
-            assets = DevTools(assets_ws)
-            assets.call("Runtime.enable")
-            wait_until(
-                lambda: "panel from a chunk" in str(assets.eval("document.getElementById('dshr-slot-root').textContent")),
-                label="multi-file chunk renders",
-            )
-            check("multi-file bundle renders a chunk", True)
-            assets.close()
-
-        # A bundle built for the reference module table runs through the
-        # __ModuleLoader__ shim and registers a slot from its apply().
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo4"},
-        )
-        legacy_ws = None
-        deadline = time.time() + 20
-        while time.time() < deadline and legacy_ws is None:
-            legacy_ws = frame_target(debug_port, "demo4")
-            time.sleep(0.2)
-        check("module-table frame is mounted", legacy_ws is not None)
-        if legacy_ws:
-            legacy = DevTools(legacy_ws)
-            legacy.call("Runtime.enable")
-            wait_until(
-                lambda: "module table bundle" in str(legacy.eval("document.getElementById('dshr-slot-root').textContent")),
-                label="module-table bundle renders",
-            )
-            check("module-table bundle activates through apply(ctx)", True)
-            legacy.close()
-
-        # A bundle that throws surfaces its error in the shell, not a blank panel.
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo5"},
-        )
-        wait_until(
-            lambda: "boom from plugin" in str(shell.eval("document.querySelector('.plugin-stage-head .tool')?.textContent")),
-            label="plugin error surfaces",
-        )
-        check("a failing bundle reports its error to the shell", True)
-
-        # exports["./client"] resolution renders too.
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo6"},
-        )
-        wait_until(
-            lambda: frame_target(debug_port, "demo6") is not None,
-            label="exports frame mounts",
+            "one hidden registry frame per client half at startup",
+            len(registry) == 9
+            and {item["plugin"] for item in registry} == set(names)
+            and all("mode=registry" in item["src"] for item in registry),
+            [item["plugin"] for item in registry],
         )
         check(
-            "exports-map bundle renders",
-            wait_for_frame_text(debug_port, "demo6", "Exports map panel"),
+            "registry frames are hidden",
+            all(item["hidden"] and item["parentHidden"] and item["display"] == "none" for item in registry),
+            [(item["plugin"], item["display"]) for item in registry],
         )
-
-        # inject ordering: opening demo7 mounts its dependency (demo6) first.
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo7"},
-        )
-        wait_until(
-            lambda: frame_target(debug_port, "demo7") is not None,
-            label="ordered frame mounts",
-        )
-        order = str(shell.eval("[...document.querySelectorAll('iframe')].map(f => f.id).join(',')"))
+        order = [item["plugin"] for item in registry]
         check(
-            "inject dependency is mounted before the panel that needs it",
-            order.index("plugin-frame-demo6") < order.index("plugin-frame-demo7"),
+            "registry mount order follows inject/immediately",
+            order[:1] == ["demo2"] and order.index("demo6") < order.index("demo7"),
             order,
         )
-
-        # Host actions: a plugin can compose into the prompt and notify.
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo"},
+        eager_state = json.loads(
+            str(
+                poll_frame(
+                    debug_port,
+                    """JSON.stringify({
+                        mode: window.__DSHR_FRAME__ && window.__DSHR_FRAME__.mode,
+                        plugin: window.__DSHR_FRAME__ && window.__DSHR_FRAME__.plugin,
+                        eager: document.documentElement.dataset.eager,
+                    })""",
+                    lambda value: bool(value),
+                    plugin="demo2",
+                    mode="registry",
+                    label="eager registry frame",
+                )
+            )
         )
-        wait_until(
-            lambda: frame_target(debug_port, "demo") is not None,
-            label="demo frame after navigation",
-        )
-        actions_ws = frame_target(debug_port, "demo")
-        actions = DevTools(actions_ws)
-        actions.call("Runtime.enable")
-        wait_until(
-            lambda: "Smoke panel v1" in str(actions.eval("document.getElementById('dshr-slot-root').textContent")),
-            label="demo panel renders again",
-        )
-        result = actions.eval(
-            "window.dshr.action('compose', {text: 'hello from plugin'})",
-            await_promise=True,
-        )
-        check("compose action resolves", result.get("ok") is True, result)
-        prompt_value = str(shell.eval("document.querySelector('textarea')?.value || ''"))
-        check("compose reaches the prompt", "hello from plugin" in prompt_value, prompt_value)
-        result = actions.eval(
-            "window.dshr.action('notify', {message: 'plugin says hi'})",
-            await_promise=True,
-        )
-        check("notify action resolves", result.get("ok") is True, result)
         check(
-            "notify reaches the status bar",
-            "plugin says hi" in str(shell.eval("document.getElementById('status').textContent")),
+            "eager half's bundle runs inside its registry frame",
+            eager_state == {"mode": "registry", "plugin": "demo2", "eager": "1"},
+            eager_state,
         )
 
-        # Editing the client bundle and asking for a reload must refresh the
-        # open panel instead of requiring a reopen.
-        (plugins / "demo" / "client.js").write_text(
-            DEMO_CLIENT.replace("Smoke panel v1", "Smoke panel v2"), encoding="utf-8"
+        # Slot -> region mapping the bridge publishes ------------------------
+        regions_registry = json.loads(
+            str(
+                poll_frame(
+                    debug_port,
+                    "JSON.stringify(window.dshr.slots.list())",
+                    lambda value: bool(value) and len(json.loads(str(value))) >= 18,
+                    plugin="regions",
+                    mode="registry",
+                    label="regions registry slots",
+                )
+            )
         )
-        result = actions.eval("window.dshr.action('reload')", await_promise=True)
-        check("reload action resolves", result.get("ok") is True, result)
+        published = {entry["name"]: entry["region"] for entry in regions_registry}
         check(
-            "an open panel picks up a new client bundle",
-            wait_for_frame_text(debug_port, "demo", "Smoke panel v2"),
+            "bridge routes every fixture slot to its region",
+            published == REGION_MAPPING,
+            {
+                key: [published.get(key), REGION_MAPPING[key]]
+                for key in REGION_MAPPING
+                if published.get(key) != REGION_MAPPING[key]
+            } or published,
         )
-        # DSH subset slot names (ADR-013 §5): a half that registers panel plus
-        # message.action and settings.action must have all of them surfaced.
-        shell.call(
-            "Page.navigate",
-            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo8"},
-        )
-        wait_until(
-            lambda: "message.action" in str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''")),
-            label="DSH slot names render",
-        )
-        dsh_tabs = str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''"))
         check(
-            "DSH subset slot names are offered (panel/message.action/settings.action)",
-            all(name in dsh_tabs for name in ("panel", "message.action", "settings.action")),
-            dsh_tabs,
+            "every shell region id is covered",
+            set(published.values()) == set(ALL_REGIONS),
+            sorted(set(published.values())),
+        )
+        vocabulary = json.loads(
+            str(
+                poll_frame(
+                    debug_port,
+                    """JSON.stringify({
+                        keys: Object.keys(window.dshr.SLOT_REGIONS).length,
+                        unknown: window.dshr.slotRegion("custom.unknown"),
+                    })""",
+                    lambda value: bool(value),
+                    plugin="regions",
+                    mode="registry",
+                    label="slot vocabulary",
+                )
+            )
+        )
+        check(
+            "bridge exposes the full DSH slot vocabulary and a panel fallback",
+            vocabulary == {"keys": 118, "unknown": "panel"},
+            vocabulary,
         )
 
-        actions.close()
+        # Regional mounting on the plain shell ------------------------------
+        static_anchors = shell.eval(
+            "JSON.stringify([...document.querySelectorAll('.slot-region')].map(r => r.dataset.region))"
+        )
+        static_anchors = set(json.loads(str(static_anchors)))
+        check(
+            "static shell region anchors exist",
+            set(region for _, region in STARTUP_REGIONS) <= static_anchors,
+            sorted(static_anchors),
+        )
+        mounted = json.loads(
+            str(
+                shell.eval(
+                    """JSON.stringify([...document.querySelectorAll('iframe.slot-frame')].map(f => ({
+                        plugin: f.dataset.plugin, slot: f.dataset.slot, slotId: f.dataset.slotId,
+                        region: f.dataset.region, height: f.style.height,
+                        inRegion: !!f.closest('.slot-region[data-region="' + f.dataset.region + '"]'),
+                        occurrence: f.closest('.slot-region') ? f.closest('.slot-region').dataset.occurrence : '',
+                    })))"""
+                )
+            )
+        )
+        for slot, region in STARTUP_REGIONS:
+            entry = next(
+                (item for item in mounted if item["plugin"] == "regions" and item["slot"] == slot), None
+            )
+            text = ""
+            if entry is not None:
+                text = wait_frame_text(debug_port, "region:" + region, "regions", slot)
+            check(
+                f"{slot} frame mounts in .slot-region[data-region={region}]",
+                entry is not None
+                and entry["region"] == region
+                and entry["slotId"] == slot_id(slot)
+                and entry["inRegion"]
+                and bool(entry["height"])
+                and "region:%s slot:%s" % (region, slot) in text,
+                entry or "not mounted",
+            )
+
+        # Per-session-row region (the fixture registers it for repeated rows).
+        session_row_state = shell.eval(
+            """JSON.stringify([...document.querySelectorAll('.session-row')].map(row => ({
+                region: row.querySelector('.slot-region')?.dataset.region || '',
+                occurrence: row.querySelector('.slot-region')?.dataset.occurrence || '',
+                slot: row.querySelector('iframe.slot-frame')?.dataset.slot || '',
+            })))"""
+        )
+        session_rows = json.loads(str(session_row_state))
+        session_row = next(
+            (row for row in session_rows if row["occurrence"] == session), None
+        )
+        session_text = ""
+        if session_row is not None:
+            session_text = wait_frame_text(
+                debug_port, "region:sidebar.session.action", "regions", "sidebar.session.row.trailing"
+            )
+        check(
+            "sidebar.session.action frame mounts once per session row",
+            session_row is not None
+            and session_row["region"] == "sidebar.session.action"
+            and session_row["slot"] == "sidebar.session.row.trailing"
+            and "region:sidebar.session.action slot:sidebar.session.row.trailing" in session_text,
+            session_row or session_rows,
+        )
+
+        # Messages: open the replayed session so per-message rows exist. The
+        # row itself is already covered by the sidebar.session.action check.
+        wait_until(
+            lambda: bool(shell.eval("[...document.querySelectorAll('.session')].length")),
+            timeout=30,
+            label="session row listed",
+        )
+        shell.eval("[...document.querySelectorAll('.session')][0].click()")
+        wait_until(
+            lambda: (shell.eval("[...document.querySelectorAll('.message')].length") or 0) >= 2,
+            timeout=30,
+            label="session messages",
+        )
+        message_frames = json.loads(
+            str(
+                shell.eval(
+                    """JSON.stringify([...document.querySelectorAll('.message .slot-region[data-region="message.action"]')]
+                        .map(r => ({occurrence: r.dataset.occurrence,
+                                    frames: r.querySelectorAll('iframe.slot-frame[data-plugin="regions"]').length})))"""
+                )
+            )
+        )
+        check(
+            "message.action frames mount once per message",
+            len(message_frames) >= 2 and all(item["frames"] == 1 for item in message_frames),
+            message_frames,
+        )
+        # Every message gets its own frame; collect both and read the props
+        # context out of the rendered text.
+        message_texts = collect_frame_texts(debug_port, "regions", "message.action", 2)
+        check(
+            "message action frames render per-occurrence context",
+            all("region:message.action slot:message.action" in text for text in message_texts)
+            and any("context:user/0" in text for text in message_texts)
+            and any("context:assistant/1" in text for text in message_texts),
+            message_texts,
+        )
+
+        # Theme propagation into every mounted frame -----------------------
+        previous_theme = str(shell.eval("document.documentElement.dataset.theme"))
+        shell.eval(
+            "[...document.querySelectorAll('header button')].find(b => b.textContent.trim() === 'Theme').click()"
+        )
+        wait_until(
+            lambda: str(shell.eval("document.documentElement.dataset.theme")) != previous_theme,
+            timeout=10,
+            label="theme toggled",
+        )
+        shell_theme = str(shell.eval("document.documentElement.dataset.theme"))
+        inspected = []
+        for plugin, mode, slot in [
+            ("regions", "slot", "sidebar.workspaces"),
+            ("regions", "slot", "message.action"),
+            ("regions", "slot", "shell.leading"),
+            ("regions", "registry", None),
+            ("demo2", "registry", None),
+        ]:
+            inspected.append(
+                str(
+                    poll_frame(
+                        debug_port,
+                        "JSON.stringify({theme: document.documentElement.dataset.theme, "
+                        "pluginTheme: document.body.dataset.pluginTheme || ''})",
+                        lambda value: json.loads(str(value))["theme"] == shell_theme,
+                        plugin=plugin,
+                        mode=mode,
+                        slot=slot,
+                        label=f"{plugin}/{slot} theme",
+                    )
+                )
+            )
+        check(
+            "theme toggle reaches every inspected frame",
+            all(json.loads(value)["theme"] == shell_theme for value in inspected),
+            (shell_theme, inspected),
+        )
+        plugin_themes = [
+            json.loads(value)["pluginTheme"]
+            for value in inspected
+            if json.loads(value)["pluginTheme"]
+        ]
+        check(
+            "ctx.onTheme listeners receive the new theme",
+            bool(plugin_themes) and all(theme == shell_theme for theme in plugin_themes),
+            (shell_theme, plugin_themes),
+        )
+
+        # Settings dialog: region frames exist only while it is open. ------
+        click("header button", "Settings")
+        wait_until(
+            lambda: bool(shell.eval("document.querySelector('dialog h3') !== null")),
+            timeout=FRAME_TIMEOUT,
+            label="settings dialog",
+        )
+        settings_state = shell.eval(
+            """JSON.stringify([...document.querySelectorAll('dialog .slot-region')]
+                .map(r => ({region: r.dataset.region, slots: [...r.querySelectorAll('iframe.slot-frame')]
+                    .map(f => f.dataset.slot)})))"""
+        )
+        settings_regions = json.loads(str(settings_state))
+        settings_by_region = {item["region"]: item["slots"] for item in settings_regions}
+        check(
+            "Settings mounts the settings.section frame",
+            "settings.section" in settings_by_region.get("settings.section", []),
+            settings_regions,
+        )
+        check(
+            "Settings mounts the settings.icon and settings.action frames",
+            "settings.section.icon" in settings_by_region.get("settings.icon", [])
+            and "settings.action" in settings_by_region.get("settings.action", []),
+            settings_regions,
+        )
+        for slot, needle in [
+            ("settings.section", "region:settings.section"),
+            ("settings.section.icon", "region:settings.icon"),
+            ("settings.action", "region:settings.action"),
+        ]:
+            wait_frame_text(debug_port, needle, "regions", slot)
+        click("dialog button", "Close")
+        wait_until(
+            lambda: not shell.eval("!!document.querySelector('dialog h3')"),
+            timeout=FRAME_TIMEOUT,
+            label="settings dialog closed",
+        )
+        check(
+            "closing Settings unmounts its region frames",
+            not shell.eval(
+                """[...document.querySelectorAll('iframe.slot-frame')]
+                    .some(f => ['settings.section', 'settings.section.icon', 'settings.action']
+                        .includes(f.dataset.slot))"""
+            ),
+        )
+
+        # Plugins dialog ----------------------------------------------------
+        click("header button", "Plugins")
+        wait_until(
+            lambda: "Plugins"
+            in str(shell.eval("document.querySelector('dialog h3')?.textContent || ''")),
+            timeout=FRAME_TIMEOUT,
+            label="plugins dialog",
+        )
+        wait_frame_text(debug_port, "region:plugins.add", "regions", "plugins.add.actions")
+        check("Plugins mounts the plugins.add frame", True)
+        wait_frame_text(debug_port, "region:plugins.detail", "regions", "plugins.detail.actions")
+        check("Plugins mounts the plugins.detail frame", True)
+        click("dialog button", "Close")
+        wait_until(
+            lambda: not shell.eval("!!document.querySelector('dialog h3')"),
+            timeout=FRAME_TIMEOUT,
+            label="plugins dialog closed",
+        )
+
+        # Panel stage: tabs, fallback, switching, resize --------------------
+        shell.call("Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=regions"})
+        wait_until(
+            lambda: shell.eval("document.getElementById('plugin-stage')?.className === 'plugin-stage open'"),
+            timeout=LOAD_TIMEOUT,
+            label="panel stage opens",
+        )
+        wait_registry_ready(debug_port, 9)
+        check("deep link ?plugin= opens the panel stage", True)
+        panel_frame = poll_frame(
+            debug_port,
+            """JSON.stringify({
+                slot: window.__DSHR_FRAME__ && window.__DSHR_FRAME__.slot,
+                text: String(document.getElementById('dshr-slot-root')?.textContent || ''),
+            })""",
+            lambda value: "region:panel slot:panel" in str(value),
+            plugin="regions",
+            slot="panel",
+            label="panel frame",
+        )
+        panel_state = json.loads(str(panel_frame))
+        panel_element = json.loads(
+            str(
+                shell.eval(
+                    """(() => {
+                        const frame = document.querySelector('#plugin-stage .slot-region[data-region="panel"] iframe.slot-frame');
+                        if (!frame) return 'null';
+                        return JSON.stringify({slot: frame.dataset.slot, slotId: frame.dataset.slotId,
+                            region: frame.dataset.region, plugin: frame.dataset.plugin,
+                            height: frame.style.height});
+                    })()"""
+                )
+            )
+        )
+        panel_element = panel_element or {}
+        check(
+            "panel region mounts the first panel slot frame",
+            panel_state["slot"] == "panel"
+            and panel_element.get("slot") == "panel"
+            and panel_element.get("slotId") == "regions-panel"
+            and panel_element.get("region") == "panel"
+            and panel_element.get("plugin") == "regions",
+            panel_element,
+        )
+        tabs = json.loads(
+            str(
+                shell.eval(
+                    "JSON.stringify([...document.querySelectorAll('.plugin-tabs button')].map(b => b.textContent.trim()))"
+                )
+            )
+        )
+        check(
+            "unknown slot name falls back into the panel stage tabs",
+            "panel · Regions panel" in tabs
+            and "custom.unknown · Regions custom.unknown" in tabs,
+            tabs,
+        )
+        shell.eval(
+            """[...document.querySelectorAll('.plugin-tabs button')]
+                .find(b => b.textContent.includes('custom.unknown')).click()"""
+        )
+        fallback_text = wait_frame_text(debug_port, "region:panel slot:custom.unknown", "regions", "custom.unknown")
+        check(
+            "switching tabs swaps the mounted panel frame",
+            "region:panel slot:custom.unknown" in fallback_text
+            and shell.eval(
+                """document.querySelector('#plugin-stage .slot-region[data-region="panel"] iframe.slot-frame')
+                    ?.dataset.slotId === 'regions-custom-unknown'"""
+            ),
+            fallback_text,
+        )
+        height = shell.eval(
+            """(() => {
+                const frame = document.querySelector('#plugin-stage .slot-region[data-region="panel"] iframe.slot-frame');
+                return frame ? frame.style.height : '';
+            })()"""
+        )
+        height_px = float(str(height).replace("px", "") or 0)
+        footer_height = shell.eval(
+            """(() => {
+                const frame = document.querySelector('iframe.slot-frame[data-slot="sidebar.footer.action"]');
+                return frame ? frame.style.height : '';
+            })()"""
+        )
+        check(
+            "resize messages set the per-frame height (clamped 24..640)",
+            24 <= height_px <= 640 and bool(footer_height) and footer_height != "auto",
+            (height, footer_height),
+        )
+
+        # ctx.action round-trips from a panel frame -------------------------
+        def panel_eval(expression: str, await_promise: bool = False):
+            # The active tab can change (the registry re-publishes on reload), so
+            # resolve the frame the shell currently shows instead of caching one.
+            active = str(
+                shell.eval(
+                    """document.querySelector('#plugin-stage iframe.slot-frame')?.dataset.slot || ''"""
+                )
+            )
+            target = frame_target(debug_port, "regions", "slot", active) if active else None
+            if target is None:
+                raise RuntimeError(f"panel frame disappeared (active slot: {active!r})")
+            frame = DevTools(target["webSocketDebuggerUrl"])
+            try:
+                frame.call("Runtime.enable")
+                return frame.eval(expression, await_promise)
+            finally:
+                frame.close()
+
+        result = panel_eval("window.dshr.action('compose', {text: 'hello from regions'})", True)
+        prompt = str(shell.eval("document.querySelector('textarea')?.value || ''"))
+        check(
+            "compose action resolves and reaches the prompt",
+            result.get("ok") is True and "hello from regions" in prompt,
+            (result, prompt),
+        )
+        result = panel_eval("window.dshr.action('notify', {message: 'plugin says hi'})", True)
+        status = str(shell.eval("document.getElementById('status')?.textContent || ''"))
+        check(
+            "notify action resolves and reaches the status bar",
+            result.get("ok") is True and "plugin says hi" in status,
+            (result, status),
+        )
+        result = panel_eval("window.dshr.action('nope')", True)
+        check(
+            "unknown action is rejected with an error reply",
+            result.get("ok") is False and "unsupported action" in str(result.get("error")),
+            result,
+        )
+
+        # reload: edit the bundle, ask for a reload, every frame of the plugin
+        # must fetch the new bundle. The frame navigates before the promise can
+        # be observed, so the round-trip is asserted through its side effects.
+        (plugins / "regions" / "client.js").write_text(
+            REGIONS_CLIENT.replace("regions-v1", "regions-v2"), encoding="utf-8"
+        )
+
+        def reload_bundle() -> tuple[str, str]:
+            """Fires `reload` and waits until the frames show the new bundle.
+
+            Regression guard: a reload navigates every frame of the plugin at
+            once. The bridge suppresses the teardown rejection of the old
+            document's in-flight import (v1.2), but a frame navigation can still
+            race the DevTools target, so one extra reload is allowed here.
+            """
+            last_error: Exception | None = None
+            for attempt in range(1, 4):
+                targets = [
+                    target
+                    for target in iframe_targets(debug_port)
+                    if frame_plugin(target["url"]) == "regions"
+                    and frame_params(target["url"]).get("mode") == "slot"
+                ]
+                if not targets:
+                    raise RuntimeError("no regions slot frame to reload from")
+                frame = DevTools(targets[0]["webSocketDebuggerUrl"])
+                try:
+                    frame.call("Runtime.enable")
+                    frame.eval("window.dshr.action('reload'); true")
+                finally:
+                    frame.close()
+                try:
+                    wait_until(
+                        lambda: shell.eval(
+                            """(document.querySelector('iframe.slot-frame[data-plugin="regions"][data-slot="sidebar.footer.action"]')?.src || '').includes('v=%d')"""
+                            % attempt
+                        ),
+                        timeout=FRAME_TIMEOUT,
+                        label=f"reload attempt {attempt} bumps the frame version",
+                    )
+                    footer_text = wait_frame_text(
+                        debug_port, "regions-v2", "regions", "sidebar.footer.action", timeout=20
+                    )
+                    # The stage panel frame is remounted while the registry
+                    # re-publishes the slots, so wait for it before reading.
+                    active = ""
+                    remount_deadline = time.time() + FRAME_TIMEOUT
+                    while time.time() < remount_deadline and not active:
+                        active = str(
+                            shell.eval(
+                                """document.querySelector('#plugin-stage iframe.slot-frame')?.dataset.slot || ''"""
+                            )
+                        )
+                        time.sleep(0.25)
+                    if not active:
+                        raise TimeoutError("stage panel frame did not remount")
+                    panel_text = wait_frame_text(
+                        debug_port, "regions-v2", "regions", active, timeout=20
+                    )
+                    return panel_text, footer_text
+                except TimeoutError as error:  # noqa: PERF203 - one retry on a browser flake
+                    last_error = error
+                    print(f"  retry: frame reload attempt {attempt} was not visible in time")
+            raise TimeoutError(f"reload did not refresh the frames: {last_error}")
+
+        panel_text, footer_text = reload_bundle()
+        check(
+            "reload refreshes every frame of the plugin",
+            "regions-v2" in panel_text
+            and "region:sidebar.footer slot:sidebar.footer.action" in footer_text,
+            (panel_text, footer_text),
+        )
+
+        panel_eval("window.dshr.action('close'); true")
+        wait_until(
+            lambda: shell.eval("document.getElementById('plugin-stage').className") == "plugin-stage",
+            timeout=FRAME_TIMEOUT,
+            label="panel closes from a frame",
+        )
+        check(
+            "close action closes the stage and unmounts the panel frame",
+            not shell.eval(
+                """!!document.querySelector('#plugin-stage .slot-region[data-region="panel"] iframe')"""
+            ),
+        )
+
+        # Failure paths -----------------------------------------------------
+        shell.call("Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo5"})
+        wait_until(
+            lambda: "boom from plugin" in str(shell.eval("document.getElementById('status')?.textContent || ''")),
+            timeout=LOAD_TIMEOUT,
+            label="throwing bundle surfaces in the status bar",
+        )
+        check("a throwing bundle reports its message to the status bar", True)
+        wait_until(
+            lambda: "render blew up"
+            in str(shell.eval("document.querySelector('.plugin-stage-head .tool')?.textContent || ''")),
+            timeout=FRAME_TIMEOUT,
+            label="throwing render surfaces in the stage head",
+        )
+        check("a throwing slot render surfaces in the panel-stage head", True)
+        wait_registry_ready(debug_port, 9)
+
+        def surviving_frames() -> int:
+            count = 0
+            for slot, region in STARTUP_REGIONS:
+                target = frame_target(debug_port, "regions", "slot", slot)
+                if target is None:
+                    continue
+                frame = None
+                try:
+                    frame = DevTools(target["webSocketDebuggerUrl"])
+                    frame.call("Runtime.enable")
+                    if "region:" + region in str(frame.eval(FRAME_TEXT_EXPRESSION)):
+                        count += 1
+                except Exception:  # noqa: BLE001 - an unrelated frame must not matter here
+                    pass
+                finally:
+                    if frame is not None:
+                        frame.close()
+            return count
+
+        wait_until(
+            lambda: surviving_frames() == len(STARTUP_REGIONS),
+            timeout=FRAME_TIMEOUT,
+            label="surviving region frames",
+        )
+        check("one failing plugin does not break the other frames", True)
+
+        # Delivery variants still render their panels -----------------------
+        for plugin, panel_id, needle, label in [
+            ("demo3", "assets-panel", "panel from a chunk", "multi-file (assets) bundle renders its panel"),
+            ("demo4", "legacy-panel", "module table bundle", "module-table bundle renders its panel"),
+            ("demo6", "exports-panel", "Exports map panel", 'exports["./client"] bundle renders its panel'),
+        ]:
+            shell.call(
+                "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
+            )
+            wait_registry_ready(debug_port, 9)
+            wait_until(
+                lambda: shell.eval(
+                    "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"
+                ),
+                timeout=LOAD_TIMEOUT,
+                label=f"{plugin} stage",
+            )
+            text = wait_frame_text(debug_port, needle, plugin, "panel", panel_id)
+            check(label, needle in text, text)
+
         shell.close()
     except Exception as error:  # noqa: BLE001 - report the failure instead of a bare traceback
         failures.append(f"exception: {error}")
@@ -852,6 +1546,19 @@ def run(args: argparse.Namespace) -> int:
         import traceback
 
         traceback.print_exc()
+        try:
+            state = None if shell is None else shell.eval(
+                """JSON.stringify({
+                    href: location.href,
+                    ready: document.readyState,
+                    status: document.querySelector('#status')?.textContent || '',
+                    stage: document.querySelector('#plugin-stage')?.className || '',
+                    body: document.body ? document.body.innerText.slice(0, 400) : '',
+                })"""
+            )
+            print(f"  state={state}")
+        except Exception:  # noqa: BLE001 - best effort diagnostics
+            print("  diagnostics unavailable (page or DevTools target is gone)")
     finally:
         if chrome_process:
             chrome_process.terminate()

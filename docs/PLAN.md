@@ -24,7 +24,7 @@
 - Обучение/инференс модели. `dshr` — оркестратор; модель приходит по API или из локального рантайма (llama.cpp/candle) как отдельный провайдер.
 - Побайтовый порт кода DSH Desktop, его промптов, текстов интерфейса и бренда.
 - Electron/Chromium и обязательный GUI: desktop-оболочка — опциональная Tauri-надстройка над `dshr serve`.
-- Полная совместимость клиентских UI-плагинов DSH (React-слоты) — вне scope; host-плагины Cordis получают отдельный рантайм, UI — через мост ([ADR-013](adr/013-cordis-compat.md)).
+- Полная совместимость клиентских UI-плагинов DSH (React-компоненты) — вне scope; host-плагины Cordis получают отдельный рантайм, UI — через региональный мост iframe ([ADR-013](adr/013-cordis-compat.md)).
 - Паритет с DSH 1:1 по каждой экспериментальной функции (voice, translation, liveshare, CUA) — только по явному запросу.
 
 ---
@@ -104,7 +104,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 | Субагенты (spawn/fork, дерево, сообщения) | ✓ | ✓ | ✓ | ✅ |
 | Фоновые задачи (jobs) | ✓ | ✓ | ✓ | ✅ durable |
 | Skills (`SKILL.md`) | ✓ | ✓ | ✓ | ✅ |
-| Плагины: WASM + Cordis-совместимость + sidecar | Cordis/TS | — | ✓ (host-половина) | ⚠️ WASM + Cordis-sidecar + host-половина ✅; клиентская половина — iframe-мост с подмножеством слотов (`panel`, `settings.section`, `message.action`, `settings.action`); полный набор React-слотов — вне scope по ADR-013 §5 |
+| Плагины: WASM + Cordis-совместимость + sidecar | Cordis/TS | — | ✓ (host-половина) | ⚠️ WASM + Cordis-sidecar + host-половина ✅; клиентская половина — eager registry-кадр + iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель (раунд 76); React-компоненты и `ownerProps`/hooks/семантика слотов — вне scope по ADR-013 §5 |
 | Профили/бандлы/патчи конфигурации | ✓ | базово | ✓ | ✅ |
 | TUI | ✓ | ✓ | ✓ | ✅ |
 | Headless / one-shot | ✓ | ✓ | ✓ | ✅ |
@@ -234,6 +234,8 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 ### M5b — Совместимость npm/Cordis (12–18 дней)
 
 Решение — [ADR-013](adr/013-cordis-compat.md). Отдельная фаза, чтобы WASM-тир и песочница не ждали JS-рантайма.
+
+**Статус:** частично. Сделано: Cordis-рантайм как sidecar-процесс (системный Node, настоящий `cordis` при наличии пакета), hot reload (watcher + endpoint), capability-гранты (`ctx.fs`, `ctx.exec`/`ctx.net` выключены), клиентская половина — eager registry + iframe на слот (17 регионов, полный словарь имён DSH). Не сделано: runtime pack (`dshr runtime install cordis`), полный шим `@dshr/cordis-compat@1`, собственный npm-резолвер/CAS, conformance-набор из реальных плагинов.
 
 **Содержание**
 - Runtime pack: вендоренный Node-совместимый движок, хеш и подпись, `dshr runtime install|list|remove`, офлайн-режим; режимы `cordis-sidecar` (по умолчанию) и `cordis-embedded` (опция).

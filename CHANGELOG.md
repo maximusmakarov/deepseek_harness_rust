@@ -11,7 +11,11 @@
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
 - Plugins: WASM hot reload (fingerprint watcher, shared registry); Cordis hot reload (supervisor, file/config watcher, `/v1/plugins/reload`)
-  and the client half (`dsh.client` served into a sandboxed iframe with a
-  `postMessage` bridge and a Web UI panel).
+  and the client half: every `dsh.client` half gets an eager hidden registry
+  frame, and every slot registration renders in its own sandboxed iframe mounted
+  into the shell region its DSH slot key maps to — the full 116-key DSH 0.2.2-rc.2
+  slot vocabulary plus legacy `panel`/`message.action` mapped to 17 regions, with
+  unknown names falling back to the plugin panel; bridge protocol v1.2 (frame
+  token, region, slot mode, occurrence context).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred.
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; React components of client halves are not supported (iframe bridge, ADR-013 §5).

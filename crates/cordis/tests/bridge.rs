@@ -2,7 +2,8 @@
 //!
 //! The harness stubs the iframe DOM and asserts the protocol and lifecycle
 //! contract: reference-shaped slot registration, `inject` groups, `effect`
-//! disposal, theme subscription, activate/deactivate and `ctx.action`.
+//! disposal, theme subscription, activate/deactivate, `ctx.action`, the v1.2
+//! frame config + region map (catalog passed as argv[3]) and slot mode.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -17,6 +18,7 @@ fn bridge_protocol_and_lifecycle() {
     let output = Command::new("node")
         .arg(root.join("tests/bridge_harness.mjs"))
         .arg(root.join("src/bridge.js"))
+        .arg(root.join("tests/slot-catalog.json"))
         .output()
         .expect("run node");
     let stdout = String::from_utf8_lossy(&output.stdout);

@@ -12,7 +12,7 @@
 | Сессии | JSONL, resume, fork/rewind/title/search, LLM-заголовки, FTS5, импорт DSH v4 | ✅ |
 | Промпт/AGENTS/skills/compaction | deterministic, discovery, compaction | ✅ |
 | Инструменты | read/write/edit/apply_patch/glob/grep/bash/todo/ask_user/present | ✅ |
-| MCP | stdio/HTTP tools/resources/prompts/sampling (GET-SSE), stdio elicitation | ✅ |
+| MCP | stdio/HTTP tools/resources/prompts/sampling (GET-SSE), elicitation в stdio и HTTP | ✅ |
 | Web | `web_fetch` SSRF, Brave search | ✅ |
 | Jobs | background, output, kill | ✅ |
 | Субагенты/workflows/teams | spawn, DAG, durable board | ✅ |
@@ -21,13 +21,13 @@
 | Office | docx/xlsx/pptx read/create | ✅ |
 | CUA/browser | Chrome navigate/screenshot/click/type/eval | ✅ |
 | WASM-плагины | wasmi core + wasmtime component/WIT, fuel, 64 MiB, sha256, Ed25519 | ✅ |
-| npm/Cordis-плагины | sidecar + `plugin npm add/remove/update`; настоящий `cordis` при наличии пакета; без HMR/клиентской половины | ⚠️ частично |
+| npm/Cordis-плагины | sidecar (системный Node) + `plugin npm add/remove/update`; настоящий `cordis` при наличии пакета; hot reload (watcher + `/v1/plugins/reload`), capability-гранты `fs`; клиентская половина: eager registry-кадр на половину + iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) → 17 регионов, протокол v1.2; React-компоненты не поддерживаются | ⚠️ частично |
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
-| Windows sandbox | Отложено; default fail-closed, opt-in не работает | ⏸ deferred |
+| Windows sandbox | Отложено; fail-closed по умолчанию, AppContainer — opt-in (`DSHR_WINDOWS_SANDBOX`), CI-шаг `continue-on-error` | ⏸ deferred |
 | Desktop | Tauri v2-оболочка (loopback `dshr serve`) + PWA | ✅ |
-| Дистрибутивы | архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула | ⚠️ без ghcr-бутылок и reproducible builds |
-| i18n | TUI ru/en; CLI `--lang`/`DSHR_LANG` (основные help/выводы) | ⚠️ частично |
-| MCP OAuth | client-credentials | ⚠️ без refresh/elicitation |
+| Дистрибутивы | архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула, bottles в GHCR, reproducible-бинарь; notarization нет | ⚠️ частично |
+| i18n | TUI/CLI ru/en: справка (`plugin npm`, `sessions import`), рантайм-сообщения `sessions`/`plugin`/`doctor`, префикс ошибок; `--json` не зависит от языка | ✅ |
+| MCP OAuth | client-credentials + refresh токена | ✅ |
 
 Обозначения: ✅ есть, ⚠️ частично, ❌ нет.

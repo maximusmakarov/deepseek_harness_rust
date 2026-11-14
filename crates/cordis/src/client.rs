@@ -27,6 +27,33 @@ pub enum BundleMode {
     Assets,
 }
 
+/// Which job a client frame performs in the shell.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FrameMode {
+    /// One hidden frame per client half: publish registrations, render on command.
+    #[default]
+    Registry,
+    /// One frame per slot registration: render exactly the requested registration.
+    Slot,
+}
+
+/// Per-frame bridge configuration embedded into the generated host page.
+///
+/// The shell builds one for every frame it creates. `frame` is the opaque token
+/// echoed by every bridge message, while the slot fields are only used by slot
+/// mode; `context` stays a JSON string until the bridge parses it into the
+/// render props.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+pub struct FrameSpec {
+    pub frame: String,
+    pub mode: FrameMode,
+    pub slot: String,
+    pub id: String,
+    pub context: String,
+    pub theme: String,
+}
+
 /// A plugin's browser half, resolved to a concrete bundle file.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ClientHalf {
@@ -392,13 +419,15 @@ mod tests {
 /// fetch the bundle with the shell's token and `'self'` does not match. The
 /// bundle is base64-encoded into the page and imported from a blob URL, which
 /// keeps the frame network-free — the CSP below allows no requests at all.
+///
+/// `spec` becomes `window.__DSHR_FRAME__`, the bridge's v1.2 frame config.
 #[must_use]
-pub fn host_page(half: &ClientHalf, bundle: &[u8], theme: &str) -> String {
+pub fn host_page(half: &ClientHalf, bundle: &[u8], spec: &FrameSpec) -> String {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bundle);
     page(
         half,
-        theme,
+        spec,
         &format!(
             "URL.createObjectURL(new Blob([Uint8Array.from(atob(\"{encoded}\"), (char) => char.charCodeAt(0))], {{ type: \"text/javascript\" }}))"
         ),
@@ -412,25 +441,57 @@ pub fn host_page(half: &ClientHalf, bundle: &[u8], theme: &str) -> String {
 /// relative imports and dynamic chunks resolve against that URL; the CSP for
 /// this page allows scripts from that origin only, and no other network.
 #[must_use]
-pub fn host_page_assets(half: &ClientHalf, asset_base: &str, theme: &str) -> String {
+pub fn host_page_assets(half: &ClientHalf, asset_base: &str, spec: &FrameSpec) -> String {
     let base = js_string(asset_base);
     let entry = js_string(&half.entry);
     page(
         half,
-        theme,
+        spec,
         &format!("({base} + \"/\" + encodeURI({entry}).replace(/^\\.\\//, \"\"))"),
         false,
     )
 }
 
-fn page(half: &ClientHalf, theme: &str, url_expression: &str, revoke: bool) -> String {
+/// The frame config object as embedded into the page. Field order matters only
+/// for readability; the bridge reads it by key.
+#[derive(serde::Serialize)]
+struct FrameConfig<'a> {
+    plugin: &'a str,
+    frame: &'a str,
+    mode: FrameMode,
+    slot: &'a str,
+    id: &'a str,
+    context: &'a str,
+    theme: &'a str,
+}
+
+fn page(half: &ClientHalf, spec: &FrameSpec, url_expression: &str, revoke: bool) -> String {
     let name = js_string(&half.name);
-    let theme = js_string(if theme == "light" { "light" } else { "dark" });
+    let theme_value = if spec.theme == "light" {
+        "light"
+    } else {
+        "dark"
+    };
+    let theme = js_string(theme_value);
     let revoke = if revoke {
         "URL.revokeObjectURL(url);"
     } else {
         ""
     };
+    // The bridge config is a JSON object (not a JS literal) and `context` stays
+    // a JSON string inside it; `<` is escaped so no value can close the tag.
+    let frame_config = escape_script(
+        &serde_json::to_string(&FrameConfig {
+            plugin: &half.name,
+            frame: &spec.frame,
+            mode: spec.mode,
+            slot: &spec.slot,
+            id: &spec.id,
+            context: &spec.context,
+            theme: theme_value,
+        })
+        .unwrap_or_default(),
+    );
     format!(
         r#"<!doctype html>
 <html lang="en" data-theme={theme}>
@@ -449,6 +510,7 @@ fn page(half: &ClientHalf, theme: &str, url_expression: &str, revoke: bool) -> S
 </head>
 <body>
 <script>window.__DSHR_PLUGIN__ = {name};</script>
+<script>window.__DSHR_FRAME__ = {frame_config};</script>
 <script>
 {BRIDGE_JS}
 </script>
@@ -486,6 +548,11 @@ import(url).then(function (module) {{
   document.documentElement.dataset.dshrReady = "error";
   window.dshr.__fail(error);
 }}).finally(function () {{
+  // The bridge announces `ready` (and resolves its slot frame) only once the
+  // bundle activation settles, so the shell never races the registrations.
+  if (window.dshr && typeof window.dshr.__frameActivated === "function") {{
+    window.dshr.__frameActivated();
+  }}
   {revoke}
 }});
 </script>
@@ -495,12 +562,14 @@ import(url).then(function (module) {{
     )
 }
 
+fn escape_script(text: &str) -> String {
+    // Escape `<` so no injected value can close the surrounding script element.
+    text.replace('<', "\\u003c")
+}
+
 fn js_string(text: &str) -> String {
-    // JSON strings are valid JS string literals; escape `<` so a name can never
-    // close the surrounding script element.
-    serde_json::to_string(text)
-        .unwrap_or_else(|_| "\"\"".to_owned())
-        .replace('<', "\\u003c")
+    // JSON strings are valid JS string literals.
+    escape_script(&serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_owned()))
 }
 
 #[cfg(test)]
@@ -521,9 +590,21 @@ mod host_page_tests {
         }
     }
 
+    fn registry(theme: &str) -> FrameSpec {
+        FrameSpec {
+            frame: "registry:demo".into(),
+            theme: theme.into(),
+            ..FrameSpec::default()
+        }
+    }
+
     #[test]
     fn host_page_inlines_the_bridge_and_escapes_values() {
-        let page = host_page(&half("de\"mo<script>"), b"export default 1;", "light");
+        let page = host_page(
+            &half("de\"mo<script>"),
+            b"export default 1;",
+            &registry("light"),
+        );
         assert!(page.contains("dshr-client")); // bridge protocol namespace
         assert!(page.contains("data-theme=\"light\""), "{page}");
         assert!(page.contains("de\\\"mo\\u003cscript>"), "{page}");
@@ -536,15 +617,114 @@ mod host_page_tests {
     }
 
     #[test]
+    fn host_page_embeds_the_registry_config() {
+        let page = host_page(&half("demo"), b"export default 1;", &registry("dark"));
+        assert!(page.contains("window.__DSHR_FRAME__ = "), "{page}");
+        assert!(page.contains("\"plugin\":\"demo\""), "{page}");
+        assert!(page.contains("\"frame\":\"registry:demo\""), "{page}");
+        assert!(page.contains("\"mode\":\"registry\""), "{page}");
+        assert!(page.contains("\"theme\":\"dark\""), "{page}");
+        assert!(page.contains("data-theme=\"dark\""), "{page}");
+        // The slot-only fields stay empty for a registry frame.
+        assert!(page.contains("\"slot\":\"\""), "{page}");
+        assert!(page.contains("\"id\":\"\""), "{page}");
+        assert!(page.contains("\"context\":\"\""), "{page}");
+        assert!(page.contains("__frameActivated"), "{page}");
+        // A default spec is a registry frame in dark mode: the pre-v1.2 API had
+        // only a theme, so the old call sites map onto these defaults.
+        let default_page = host_page(&half("demo"), b"", &FrameSpec::default());
+        assert!(
+            default_page.contains("\"mode\":\"registry\""),
+            "{default_page}"
+        );
+        assert!(
+            default_page.contains("data-theme=\"dark\""),
+            "{default_page}"
+        );
+    }
+
+    #[test]
+    fn host_page_embeds_the_slot_config() {
+        let spec = FrameSpec {
+            frame: "slot:demo:demo-panel:0".into(),
+            mode: FrameMode::Slot,
+            slot: "panel".into(),
+            id: "demo-panel".into(),
+            context: r#"{"index":0}"#.into(),
+            theme: "dark".into(),
+        };
+        let page = host_page(&half("demo"), b"export default 1;", &spec);
+        assert!(page.contains("\"mode\":\"slot\""), "{page}");
+        assert!(
+            page.contains("\"frame\":\"slot:demo:demo-panel:0\""),
+            "{page}"
+        );
+        assert!(page.contains("\"slot\":\"panel\""), "{page}");
+        assert!(page.contains("\"id\":\"demo-panel\""), "{page}");
+        // `context` is a JSON string inside the config; the bridge parses it.
+        assert!(page.contains(r#""context":"{\"index\":0}""#), "{page}");
+    }
+
+    #[test]
+    fn host_page_escapes_script_breakers_in_the_config() {
+        let spec = FrameSpec {
+            frame: "slot:demo:x".into(),
+            mode: FrameMode::Slot,
+            slot: "panel".into(),
+            id: "x</script><script>alert(1)</script>".into(),
+            context: r#"{"html":"</script>"}"#.into(),
+            theme: "light".into(),
+        };
+        let page = host_page(&half("demo"), b"", &spec);
+        // Every config value survives serialization without closing the script.
+        assert!(!page.contains("x</script>"), "{page}");
+        assert!(!page.contains(r#"{"html":"</script>"}"#), "{page}");
+        assert!(page.contains(r"\u003c/script"), "{page}");
+        assert!(page.contains("x\\u003c/script>"), "{page}");
+        assert!(page.contains("data-theme=\"light\""), "{page}");
+    }
+
+    #[test]
+    fn frame_spec_serializes_with_snake_case_modes() {
+        let spec = FrameSpec {
+            frame: "slot:demo:x:0".into(),
+            mode: FrameMode::Slot,
+            slot: "settings.section".into(),
+            id: "x".into(),
+            context: r#"{"a":1}"#.into(),
+            theme: "dark".into(),
+        };
+        let value = serde_json::to_value(&spec).expect("serialize");
+        assert_eq!(value["mode"], "slot");
+        assert_eq!(value["frame"], "slot:demo:x:0");
+        assert_eq!(value["context"], r#"{"a":1}"#);
+        let default = serde_json::to_value(FrameSpec::default()).expect("serialize");
+        assert_eq!(default["mode"], "registry");
+        assert_eq!(FrameMode::default(), FrameMode::Registry);
+        assert_eq!(
+            default,
+            serde_json::json!({
+                "frame": "",
+                "mode": "registry",
+                "slot": "",
+                "id": "",
+                "context": "",
+                "theme": "",
+            })
+        );
+    }
+
+    #[test]
     fn asset_host_page_imports_the_capability_url() {
         let mut half = half("demo");
         half.bundle = BundleMode::Assets;
-        let page = host_page_assets(&half, "/v1/plugins/demo/asset/cap123", "dark");
+        let page = host_page_assets(&half, "/v1/plugins/demo/asset/cap123", &registry("dark"));
         assert!(page.contains("/v1/plugins/demo/asset/cap123"), "{page}");
         assert!(page.contains("encodeURI(\"dist/client.js\")"), "{page}");
         assert!(!page.contains("atob("), "{page}");
         assert!(!page.contains("revokeObjectURL"), "{page}");
         assert!(page.contains("data-theme=\"dark\""), "{page}");
+        assert!(page.contains("\"frame\":\"registry:demo\""), "{page}");
     }
 }
 

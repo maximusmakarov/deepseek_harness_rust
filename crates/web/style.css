@@ -37,3 +37,31 @@ dialog:has(.plugin-frame) { max-width: 760px; width: 760px; }
 .plugin-stage-body { margin-top: 10px; }
 .plugin-frame { width: 100%; height: 340px; border: 1px solid var(--border); border-radius: 10px; background: transparent; display: block; }
 .plugin-frame.hidden { display: none; }
+
+
+/* ---- Regional slot mounting (ADR-013 §5, round 76) ---------------------- */
+/* Every shell region is a mount point; a slot registration renders into the
+   region its DSH slot key maps to. Empty regions stay in the DOM so the shell
+   layout is stable and the smoke test can assert the anchors exist. */
+.slot-region { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.slot-region:empty { display: none; }
+.slot-frame { width: 100%; height: 24px; border: 0; background: transparent; display: block; color-scheme: normal; }
+.registry-frame { display: none; }
+
+#slot-region-shell-leading { flex-direction: row; align-items: center; }
+#sessions .slot-region { margin: 4px 0; }
+[data-region="sidebar.top"] { margin-bottom: 6px; }
+[data-region="sidebar.footer"] { margin-top: auto; }
+[data-region="sidebar.session.action"], [data-region="message.action"],
+[data-region="tool.card"] { margin-top: 4px; }
+[data-region="composer.actions"] { flex-direction: row; align-items: center; }
+[data-region="shell.bottom"] { background: var(--panel); border-top: 1px solid var(--border); padding: 4px 12px; }
+[data-region="shell.overlay"] { position: fixed; inset: 0; z-index: 30; pointer-events: none; display: block; }
+[data-region="shell.overlay"]:empty { display: none; }
+[data-region="shell.overlay"] .slot-frame { pointer-events: auto; }
+[data-region="conversation.header"] { flex-direction: row; align-items: center; padding: 6px 16px 0; }
+[data-region="plugins.add"], [data-region="plugins.detail"],
+[data-region="settings.section"], [data-region="settings.action"],
+[data-region="settings.icon"], [data-region="approval.detail"] { margin: 6px 0; }
+[data-region="settings.icon"] { flex-direction: row; }
+#plugin-stage .slot-region[data-region="panel"] { display: block; }

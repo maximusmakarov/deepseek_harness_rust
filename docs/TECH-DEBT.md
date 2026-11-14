@@ -38,13 +38,13 @@
 | ACP не принимал embedded `resource` | текст/blob → text/image/audio — [ADR-034](adr/034-acp.md) |
 | ACP игнорировал `resource_link` | блок разворачивается в текст с именем/URI — [ADR-034](adr/034-acp.md) |
 | Не было стабильных бинарных дистрибутивов | Архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула — [ADR-039](adr/039-release-artifacts.md) |
+| Региональный монтаж слотов клиентской половины был отложен (только слоты-вкладки панели) | Eager registry-кадр на каждую `dsh.client`-половину + отдельный sandboxed iframe на регистрацию; полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол моста v1.2 (frame token, `region`, slot-режим, `context`). React-компоненты и `ownerProps`/hooks/семантика слотов остаются сознательно вне scope по [ADR-013](adr/013-cordis-compat.md) §5 — это не долг, а решение. Replica 98.1/100. |
 
 ## Открыто
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
 | Deferred | Windows sandbox и сеть | Отложено по решению пользователя: нужен реальный Windows-хост. По умолчанию fail-closed; `DSHR_WINDOWS_SANDBOX` — opt-in, его CI-шаг помечен `continue-on-error` (AppContainer setup на hosted runner'ах зависает; прогон виден в summary, но не блокирует trunk). Enforcement сети на Windows — `Partial`. |
-| Out of scope | Полный набор React-слотов клиентских плагинов | Решение ADR-013 §5: React-совместимости нет, есть iframe-мост. Имена слотов подмножества (`panel`, `settings.section`, `message.action`, `settings.action`) проходят через мост (smoke 29/29); региональный монтаж слотов требует eager-монтажа и iframe на слот — отдельная фаза. Replica 98.0/100. |
 | P2 | Notarization | Тулинг есть (`scripts/notarize-app.sh`), нужны Apple Developer ID, сертификат и app-specific password; без них распространяется ad-hoc подпись. |
 | P2 | GHCR-бутылки и brew-прогон | OCI-publisher и формула есть, push/pull подтверждены против mock и в Actions; нет tap-репозитория и учётных данных пакетов, brew-прогон на реальном GHCR не делался. |
 | P2 | Центральная база отзывов plugin market | Отзывы серверные и общие для всех клиентов одного инстанса (`<home>/plugin-reviews.json`), но центральной/федеративной базы между инстансами нет. |

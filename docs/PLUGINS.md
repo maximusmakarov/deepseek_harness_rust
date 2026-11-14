@@ -184,7 +184,7 @@ serving-реестр инструментов (`ToolRegistry` — общий м�
 ```js
 export default function activate(ctx) {
   ctx.slots.register(
-    { name: "panel", id: "demo", title: "Demo", order: 10 },
+    { name: "sidebar.footer.action", id: "demo-footer", title: "Demo", order: 10 },
     (element, props) => { element.textContent = `theme: ${props.theme}`; },
   );
   ctx.effect(() => {
@@ -201,6 +201,69 @@ export default function activate(ctx) {
 снимаются вместе, а `ctx.effect(factory)` возвращает disposer и тоже принадлежит
 фрейму. Устаревшая форма `{ slot, render }` тоже принимается.
 
+### Слоты и регионы
+
+Имя слота — ключ из словаря слотов DSH; шелл отображает его в **регион** своей
+раскладки и монтирует туда **отдельный iframe на регистрацию**. React не нужен:
+`render(element, props)` получает контейнер и строит DOM сам. Полный словарь DSH
+(116 ключей каталога `@deepseek-ai/dsh-client-ui-*` версии 0.2.2-rc.2) разложен по
+регионам; незнакомое имя монтируется в панель плагина (fallback, как раньше).
+
+| Регион | Где в шелле | Примеры ключей DSH |
+|---|---|---|
+| `panel` | панель плагина (вкладки) | `panel`, `main`, `conversation.view`, `contextMenu.content`, `rightbar`, `deliverables.*` |
+| `sidebar.top` | верх левой колонки | `sidebar.workspaces`, `sidebar.brand.mark`, `sidebar.brand.name`, `sidebar.toggle.badge` |
+| `sidebar.footer` | низ левой колонки | `sidebar.footer.action`, `sidebar.settings`, `sidebar.panellist*`, `sidebar.workspaces.session.menu.item` |
+| `sidebar.session.action` | строка сессии | `sidebar.session.action`, `sidebar.session.row.trailing/leading/hover`, `sidebar.workspaces.session.row.action` |
+| `settings.section` | тело диалога Settings | `settings.section`, `settings.general.item`, `settings.header`, `settings.models.*`, `settings.plugins.tab` |
+| `settings.icon` | навигация Settings | `settings.section.icon` |
+| `settings.action` | футер Settings | `settings.action`, `settings.close`, `settings.models.footer` |
+| `message.action` | под сообщением | `message.action`, `conversation.chat.assistant-actions`, `conversation.chat.turnTail`, `conversation.chat.user.before`, `conversation.user.text.node` |
+| `tool.card` | под карточкой инструмента | `tool.call.toolview`, `tool.call.images`, `tool.view.cordis` |
+| `conversation.header` | шапка чата | `conversation.header`, `conversation.session.header.actions`, `.lineage`, `.utilities`, `.corner`, `.views.actions` |
+| `composer.actions` | строка ввода | `conversation.input.right/left/activity/model/...`, `conversation.composer*`, `conversation.plan-review.actions` |
+| `shell.leading` | левый край шапки | `shell.leading`, `settings.launcher*`, `settings.trigger` |
+| `shell.bottom` | нижняя полоса | `shell.bottom`, `shell.quota-notice`, `workspace.toast` |
+| `shell.overlay` | фиксированный overlay над шеллом | `shell.overlay` |
+| `plugins.add` | диалог Plugins (над списком) | `plugins.add.actions` |
+| `plugins.detail` | диалог Plugins (низ) | `plugins.detail.*`, `plugins.tab`, `plugins.item`, `plugins.row.config`, `plugins.bundle.*` |
+| `approval.detail` | диалог approval | `conversation.approval.detail` |
+
+Повторяющиеся регионы (`message.action`, `tool.card`, `sidebar.session.action`)
+монтируются на каждое вхождение и получают `props.context`:
+
+```js
+ctx.slots.register(
+  { name: "conversation.chat.assistant-actions", id: "copy" },
+  (element, props) => {
+    element.textContent = `message #${props.context.index} (${props.context.role})`;
+  },
+);
+```
+
+- сообщение — `{index, role}`; карточка инструмента — `{index, role: "tool"}`;
+- строка сессии — `{session}`; карточка панели — `{}`; регистрация без контекста — `null`.
+
+### Как монтируются фреймы
+
+- **Eager registry**: при старте шелл монтирует по одному **скрытому** iframe на
+  каждую половину (в порядке `inject`; `immediately`-половины идут первыми среди
+  корней). Эти фреймы публикуют регистрации и их регионы — поэтому панель, сайдбар
+  и диалоги знают о слотах до открытия панели.
+- **Slot frame**: на каждую регистрацию (и на каждое вхождение повторяющегося
+  региона) шелл создаёт отдельный iframe `mode=slot` с `slot`/`id`/`context`;
+  бандл в нём рендерит ровно эту регистрацию. Фреймы всегда-видимых регионов
+  монтируются со стартом; фреймы панели — при открытии панели, диалогов — при
+  открытии диалога, повторяющихся — вместе со строкой.
+- `ctx.effect` и `inject`-группы живут вместе с фреймом: закрытие панели/диалога
+  снимает его фреймы (регистрации в registry-фрейме при этом сохраняются).
+- Тема: начальная приходит в URL, дальше шелл рассылает её всем фреймам
+  (`onTheme`), перезагрузка не нужна.
+- `resize`: после рендера (и на resize окна) мост шлёт высоту, шелл выставляет
+  inline-height фрейма (24…640 px).
+- `reload`: все фреймы плагина перезагружают бандл (в URL меняется `v`), панель
+  остаётся открытой.
+
 Мост (`window.dshr`) в изолированном iframe:
 
 - `ctx.name`, `ctx.theme`, `ctx.protocol === 1`, `ctx.onTheme(listener)`;
@@ -208,21 +271,17 @@ export default function activate(ctx) {
   `list()`; `render(element, props)` получает контейнер слота (React не нужен);
 - `ctx.effect(factory)` — ресурсы с cleanup'ом, снимаются на `dispose`/выгрузке;
 - `ctx.action(action, payload) -> Promise<{ok, result?, error?}>`; шелл выполняет
-  `close` (закрыть панель), `reload` (перезагрузить плагин и открытую панель),
+  `close` (закрыть панель), `reload` (перезагрузить плагин и все его фреймы),
   `compose` (`payload.text` — вставка в поле ввода), `notify`
   (`payload.message` — статус-строка); неизвестное действие возвращает `ok: false`;
 - `ctx.log(...)` — строка в консоль шелла.
 
-Протокол `postMessage` v1: iframe → шелл `ready`, `slots`, `action`, `resize`,
-`error`, `log`; шелл → iframe `activate`, `deactivate`, `theme`, `action-result`.
-Сообщения помечены `ns: "dshr-client"` / `ns: "dshr-shell"` и `v: 1`.
-
-Жизненный цикл панели: шелл монтирует по одному iframe на плагин и не размонтирует
-его при закрытии панели (скрывает), поэтому `immediately`-половина продолжает
-работать, а повторное открытие не перезагружает бандл. Переключение вкладок слота
-шлёт `activate`, закрытие — `deactivate` (очищает вид, но сохраняет регистрации).
-После `reload` шелл поднимает версию кадра, и открытая панель перезагружает уже
-новый бандл. Порядок активации `immediately`-половин учитывает `inject`.
+Протокол `postMessage` v1.2: iframe → шелл `ready`, `slots`, `action`, `resize`,
+`error`, `log`; шелл → iframe `theme`, `action-result`, а также `activate`/
+`deactivate` для registry-фрейма (совместимость). Все сообщения помечены
+`ns: "dshr-client"` / `ns: "dshr-shell"`, `v: 1`, именем плагина, токеном фрейма
+(`frame`) и режимом (`mode: "registry"|"slot"`). В `slots` и `resize` приходит
+`region`; в `ready` — готовность бандла.
 
 Доставка бандла — два режима:
 
@@ -237,17 +296,23 @@ export default function activate(ctx) {
 
 - `GET /v1/plugins/clients` — список половин (`name`, `package`, `platform`,
   `entry`, `bundle`, `immediately`, `inject`) и ошибки разбора;
-- `GET /v1/plugins/{name}/host?token=…&theme=light|dark` — host-страница для
-  `<iframe sandbox="allow-scripts">`, токен нужен только для её выдачи;
+- `GET /v1/plugins/{name}/host?token=…&theme=light|dark[&frame=…&mode=registry|slot&slot=…&id=…&context=…]`
+  — host-страница для `<iframe sandbox="allow-scripts">`; токен нужен только для
+  её выдачи. `frame` — непрозрачный токен шелла (эхо в сообщениях), `mode=slot` +
+  `slot`/`id`/`context` — рендер одной регистрации; невалидные значения → 400;
 - `GET /v1/plugins/{name}/asset/{capability}/{path}` — файлы пакета по capability
   (без bearer-токена; путь канонизируется и не выходит за пакет; ≤ 8 МиБ);
 - `GET /v1/plugins/{name}/client.js?token=…` — бандл отдельным файлом для отладки;
-- deep link `/?token=…&plugin=demo` открывает панель и подключается автоматически.
+- deep link `/?token=…&plugin=demo` открывает панель; страница подключается
+  автоматически, когда токен есть в URL или localStorage.
 
 Ограничения: React-компоненты не поддерживаются (ADR-013 §5) — бандл должен
 экспортировать `default`/`apply`/`activate` или использовать шим
-`__ModuleLoader__.load({ id, factory })` и сам строить DOM; внешние модули
-(`dsh.client.external`) не подключаются — бандл должен быть самодостаточным.
+`__ModuleLoader__.load({ id, factory })` и сам строить DOM; `ownerProps`/hooks/
+chain/hoc-семантика слотов DSH не воспроизводится — `props` ограничены
+`{theme, slot, id, plugin, context}`; внешние модули (`dsh.client.external`) не
+подключаются — бандл должен быть самодостаточным; произвольная инъекция в DOM
+шелла недоступна (только регионы из таблицы).
 
 ### Установка npm-плагинов
 
@@ -297,5 +362,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — мост iframe, несколько слотов, capability-ассеты и host-действия; React-слотов DSH нет.
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами и host-действиями; React-компоненты и `ownerProps`/hooks-семантика слотов не поддерживаются.
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

@@ -41,7 +41,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
-| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (sandboxed iframe, несколько слотов по `name`/`order`, `inject`/`effect`-lifecycle, capability-ассеты для многофайловых бандлов, host-действия, перезагрузка открытой панели); Replica-паритет клиентской половины 98.0/100 (must 12/12); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
+| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; серверный каталог с категориями/тегами/поиском и карточкой пакета (`/v1/plugins/catalog*`); установка через CLI/UI; внешней общей базы отзывов нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
@@ -66,13 +66,14 @@ recovery-окно с профилями/плагинами, first-run home. Ос
 с секретами Apple.
 P1: plugin market — каталог с категориями/поиском и карточкой пакета сделан; GUI-менеджер
 плагинов есть; внешней (общей) базы отзывов нет — отзывы живут в home.
-P2: прогон brew/desktop CI на теге, React-слоты клиентских плагинов
-(сейчас мост, ADR-013 §5), приватные terminal shim'ы.
+P2: прогон brew/desktop CI на теге, React-компоненты клиентских плагинов
+(сейчас мост + региональные iframe-слоты, ADR-013 §5; регионы и словарь имён
+сделаны в раунде 76), приватные terminal shim'ы.
 
 ## Проверка (14.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 335 passed + 3 ignored; desktop 21 passed (итого 356).
+- `cargo test --workspace`: 346 passed + 3 ignored; desktop 21 passed (итого 367).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
@@ -81,25 +82,29 @@ P2: прогон brew/desktop CI на теге, React-слоты клиентс�
   `/v1/plugins/ratings` отвечают.
 - Браузерный e2e (`scripts/web-e2e.py`, stdlib CDP): «New session» → промпт →
   модалка approval для `bash` → Allow → выполнение → стрим ответа → карточка
-  инструмента → файл реально записан → сессия в журнале; 9/9 проверок, джоба
-  `web-e2e` в CI.
+  инструмента → файл реально записан → сессия в журнале; 16/16 проверок
+  (добавлены второй ход с `edit`/diff и загрузка/сохранение настроек провайдера),
+  джоба `web-e2e` в CI.
 - Linux/Windows desktop: [run 43591784883](https://github.com/maximusmakarov/deepseek_harness_rust/actions/runs/43591784883)
   — обе сборки и упаковка успешны; `.deb` проверен `dpkg-deb --info`.
 - Cordis hot reload проверен на живом `serve`: правка entry перезагружает плагин
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
   состояние; `/v1/plugins/installed` следует за супервизором.
-- Клиентская половина: `python3 scripts/plugin-smoke.py` — 28 проверок в headless
-  Chrome: вкладки слотов и переключение, resize, live-тема, `ctx.action`
-  (`close`/`reload`/`compose`/`notify` и отказ для неизвестного), eager-половина
-  переживает закрытие панели, многофайловый capability-бандл и module-table бандл
-  рендерятся, открытая панель подхватывает новый бандл после reload.
-- Replica-оценка клиентской половины (`replica-diff`): 98.0/100, must 12/12 —
+- Клиентская половина: `python3 scripts/plugin-smoke.py` — 45
+  проверок в headless Chrome: eager registry-кадры всех половин, монтаж слота в
+  регион по таблице `slot key → регион` (17 регионов), fallback незнакомого имени
+  в панель, `context` повторяющихся регионов, адресный `resize`, live-тема,
+  `ctx.action` (`close`/`reload`/`compose`/`notify` и отказ для неизвестного),
+  открытие/закрытие диалогов монтирует/снимает их регионы, многофайловый
+  capability-бандл и module-table бандл рендерятся, reload поднимает версию всех
+  фреймов плагина.
+- Replica-оценка клиентской половины (`replica-diff`): 98.1/100, must 13/13 —
   `docs/replica/client-half-parity.md`.
 - Формализация: `./formal/run_tlc.sh` — 3 модели / 5 конфигов TLC без нарушений
   (`CordisSupervisor` safety+liveness, `ClientAssets`, `ApprovalGate` safety+liveness);
   модели и абстракции — `docs/formal/README.md`.
-- Каталог тест-кейсов `docs/testing/test-cases.md`: ~120 кейсов с ID, уровнями,
+- Каталог тест-кейсов `docs/testing/test-cases.md`: ~150 кейсов с ID, уровнями,
   привязкой к инвариантам TLA+ и статусами; baseline покрытия —
   `cargo llvm-cov --workspace --summary-only`: 72.9% строк (66.9% функций).
 

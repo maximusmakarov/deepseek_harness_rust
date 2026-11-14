@@ -298,6 +298,176 @@ async fn lists_and_serves_client_halves() {
     // The bundle is inlined (the frame is network-free), not linked.
     assert!(!page.contains("/client.js?"), "{page}");
     assert!(page.contains("dshr-client"), "{page}");
+    // A plain host request is a registry frame: mode defaults and the slot-only
+    // fields stay empty, so the v1.1 behaviour is unchanged.
+    assert!(page.contains("window.__DSHR_FRAME__ = "), "{page}");
+    assert!(page.contains("\"mode\":\"registry\""), "{page}");
+    assert!(page.contains("\"plugin\":\"demo\""), "{page}");
+    assert!(page.contains("\"slot\":\"\""), "{page}");
+    assert!(page.contains("\"id\":\"\""), "{page}");
+    assert!(page.contains("\"context\":\"\""), "{page}");
+}
+
+/// Percent-encodes a JSON context payload for a query string. The test payloads
+/// are ASCII, so encoding every non-alphanumeric byte is enough.
+fn encoded_context(context: &str) -> String {
+    context
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_string()
+            } else {
+                format!("%{:02X}", ch as u32)
+            }
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn slot_host_page_embeds_the_frame_config() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let uri = "/v1/plugins/demo/host?token=test-token&theme=light\
+&frame=slot:demo:demo-panel:0&mode=slot&slot=panel&id=demo-panel\
+&context=%7B%22index%22%3A0%7D";
+    let (status, headers, bytes) = raw(&app, uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.contains_key(header::CONTENT_SECURITY_POLICY));
+    assert_eq!(headers[header::X_FRAME_OPTIONS], "SAMEORIGIN");
+    let page = String::from_utf8(bytes).expect("utf8");
+    assert!(page.contains("data-theme=\"light\""), "{page}");
+    assert!(page.contains("\"mode\":\"slot\""), "{page}");
+    assert!(
+        page.contains("\"frame\":\"slot:demo:demo-panel:0\""),
+        "{page}"
+    );
+    assert!(page.contains("\"slot\":\"panel\""), "{page}");
+    assert!(page.contains("\"id\":\"demo-panel\""), "{page}");
+    assert!(page.contains(r#""context":"{\"index\":0}""#), "{page}");
+    assert!(page.contains("\"theme\":\"light\""), "{page}");
+
+    // Context values are escaped into the config; `<` cannot close the script.
+    let context = r#"{"html":"</script>"}"#;
+    let uri = format!(
+        "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&context={}",
+        encoded_context(context)
+    );
+    let (status, _, bytes) = raw(&app, &uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let page = String::from_utf8(bytes).expect("utf8");
+    assert!(page.contains(r"\u003c/script"), "{page}");
+    assert!(!page.contains(context), "{page}");
+}
+
+#[tokio::test]
+async fn rejects_invalid_host_frame_queries() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let long_frame = "a".repeat(121);
+    let long_slot = format!("{}.{}", "a".repeat(60), "b".repeat(21));
+    let cases = vec![
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=bogus".to_owned(),
+            "invalid mode",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=slot&id=demo-panel".to_owned(),
+            "slot is required",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel".to_owned(),
+            "id is required",
+        ),
+        (
+            format!(
+                "/v1/plugins/demo/host?token=test-token&mode=slot&slot={long_slot}&id=demo-panel"
+            ),
+            "invalid slot name",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=slot&slot=bad%20slot&id=demo-panel"
+                .to_owned(),
+            "invalid slot name",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=bad%20id".to_owned(),
+            "invalid registration id",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&frame=bad%20frame".to_owned(),
+            "invalid frame token",
+        ),
+        (
+            format!("/v1/plugins/demo/host?token=test-token&frame={long_frame}"),
+            "invalid frame token",
+        ),
+        // Slot fields are validated whenever they are present, even though a
+        // registry frame does not use them.
+        (
+            "/v1/plugins/demo/host?token=test-token&id=bad%20id".to_owned(),
+            "invalid registration id",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&context=not-json"
+                .to_owned(),
+            "context must be a JSON object",
+        ),
+        (
+            "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&context=%5B1%5D"
+                .to_owned(),
+            "context must be a JSON object",
+        ),
+    ];
+    for (uri, expected) in cases {
+        let (status, headers, bytes) = raw(&app, &uri, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+        assert_eq!(headers[header::CONTENT_TYPE], "application/json", "{uri}");
+        let body: Value = serde_json::from_slice(&bytes).expect("json error body");
+        let error = body["error"].as_str().expect("error field");
+        assert!(error.contains(expected), "{uri}: {error}");
+    }
+
+    // The 4096-character context limit is inclusive.
+    let base = r#"{"a":""#;
+    let suffix = r#""}"#;
+    let fits = format!("{base}{}{suffix}", "a".repeat(4088));
+    assert_eq!(fits.chars().count(), 4096);
+    let uri = format!(
+        "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&context={}",
+        encoded_context(&fits)
+    );
+    let (status, _, _) = raw(&app, &uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let oversized = format!("{base}{}{suffix}", "a".repeat(4089));
+    assert_eq!(oversized.chars().count(), 4097);
+    let uri = format!(
+        "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&context={}",
+        encoded_context(&oversized)
+    );
+    let (status, _, bytes) = raw(&app, &uri, None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let body: Value = serde_json::from_slice(&bytes).expect("json error body");
+    assert!(
+        body["error"].as_str().expect("error").contains("4096"),
+        "{body}"
+    );
 }
 
 #[tokio::test]

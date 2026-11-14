@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–63)
+# Журнал раундов паритета (1–76)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 335 root-тестов
-(+3 ignored) и 21 desktop-тест = **356**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 346 root-тестов
+(+3 ignored) и 21 desktop-тест = **367**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -141,25 +141,57 @@ release-бинарь воспроизводим.
   диалог Settings с подсказкой о перезапуске и явным «ключи — из окружения»;
   e2e расширен проверками загрузки/сохранения настроек (16/16).
 
+- 76: региональный монтаж слотов клиентской половины — отложенная фаза
+  [ADR-013](adr/013-cordis-compat.md) §5 («Региональный монтаж слотов»):
+  - eager registry-кадр на каждую `dsh.client`-половину (скрытый iframe
+    `mode=registry`, порядок `inject`, `immediately`-половины первыми среди
+    корней) — панель, сайдбар и диалоги знают о регистрациях до открытия панели;
+  - по sandboxed iframe `mode=slot` на каждую регистрацию и на каждое вхождение
+    повторяющегося региона (`message.action`, `tool.card`,
+    `sidebar.session.action`), с `slot`/`id`/`context`;
+  - полный словарь DSH 0.2.2-rc.2 (116 ключей `@deepseek-ai/dsh-client-ui-*`)
+    плюс legacy `panel`/`message.action` разложен по 17 регионам шелла
+    (`panel`, `sidebar.top/footer/session.action`, `settings.section/icon/action`,
+    `message.action`, `tool.card`, `conversation.header`, `composer.actions`,
+    `shell.leading/bottom/overlay`, `plugins.add/detail`, `approval.detail`);
+    незнакомое имя — fallback в панель плагина;
+  - протокол моста v1.2: токен фрейма и режим в каждом сообщении, `region` в
+    `slots`/`resize`, `context` повторяющихся регионов, адресный `action-result`
+    тому фрейму, который спросил; host-страница встраивает
+    `window.__DSHR_FRAME__`, `/v1/plugins/{name}/host` валидирует
+    `frame`/`mode`/`slot`/`id`/`context` (400 на мусор).
+  - Код: `crates/cordis/src/bridge.js` (таблица `SLOT_REGIONS`, регионы,
+    slot-режим), `crates/cordis/src/client.rs` (`FrameSpec`/`FrameMode`),
+    `crates/server/src/lib.rs` (валидация host-запроса),
+    `crates/web/src/main.rs` (`SlotRegion`/`SlotFrame`/`RegistryFrames`/
+    `PanelRegion`, монтаж/снятие регионов диалогов, live-тема, resize, reload).
+  - Проверки: `crates/cordis/tests/bridge_harness.mjs` (покрытие каталога,
+    slot-режим, регионы), `crates/server/tests/plugins_live.rs` (валидация),
+    `scripts/plugin-smoke.py` — 45 проверок в headless Chrome,
+    регресс e2e `scripts/web-e2e.py` — 16/16. Replica клиентской половины —
+    **98.1/100** (must 13/13, `docs/replica/client-half-parity.md`).
+  - React-компоненты, `ownerProps`/hooks/chain/hoc-семантика слотов и
+    произвольная инъекция в DOM шелла по-прежнему вне scope.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS.
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–76 закрыли
+визуальный diff в Web UI, экран настроек провайдера и региональный монтаж
+слотов клиентской половины.
 
 Открыто и не заблокировано:
 
-- Клиентские слоты сверх `panel`/`settings.section`: `sidebar.footer.action`,
-  `shell.overlay`, `settings.section.icon` — нужен iframe на слот, а не на плагин.
-- Визуальный diff в Web UI (сейчас карточки tool_start/tool_end со сводкой).
-- Экран настроек провайдера в Web UI (сейчас CLI/desktop).
 - Общая серверная база отзывов plugin market (сейчас home-scoped файл).
 
 Заблокировано внешним условием:
 
-- **React-слоты клиентских плагинов** — полный набор слотов DSH требует React-хоста
-  и мультиплексирования iframe на слот; по [ADR-013](adr/013-cordis-compat.md) §5
-  клиентская половина ограничена iframe-мостом (Replica 98.0/100). Отдельная фаза.
+- **React-компоненты клиентских плагинов** — React-компоненты (`render` строит
+  DOM сам), `ownerProps`/hooks/chain/hoc-семантика слотов DSH и произвольная
+  инъекция в DOM шелла остаются вне scope по [ADR-013](adr/013-cordis-compat.md) §5
+  (Leptos-шелл, изоляция в iframe). Региональный монтаж слотов и полный словарь
+  имён DSH 0.2.2-rc.2 реализованы в раунде 76 (Replica 98.1/100).
 - **Windows sandbox/сеть** — нужен реальный Windows-хост; CI-шаг есть, локально
   только компиляция.
 - **Notarization** — нужны Apple Developer ID, сертификат и app-specific password.
@@ -172,7 +204,7 @@ compaction 100k, браузерный e2e, plugin market (каталог/пои�
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,
   `ApprovalGate` safety+liveness), 5 конфигов TLC; `./formal/run_tlc.sh` →
   «all models checked». Абстракции и результаты: `docs/formal/README.md`.
-- `docs/testing/test-cases.md` — каталог ~120 кейсов с ID, уровнями, привязкой к
+- `docs/testing/test-cases.md` — каталог ~150 кейсов с ID, уровнями, привязкой к
   инвариантам и статусами; baseline `cargo llvm-cov`: 72.9% строк, 66.9% функций.
 - Деривированные тесты: атомарность `register_all` под читателями, symlink-escape
   в ассетах, восстановление после падения sidecar, CSP-инъекция через `Host`,

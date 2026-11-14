@@ -163,7 +163,14 @@ S1 — блокер, S2 — функциональный пробел, S3 — к
 | CLI-18 | Слоты: несколько, переключение, `deactivate` при закрытии | E | ✅ smoke |
 | CLI-19 | Ошибка бандла показывается в панели, не «пустой экран» | E | ✅ smoke |
 | CLI-20 | `compose`/`notify` действия доходят до шелла | E | ✅ smoke |
-| CLI-21 | 28 сквозных проверок в headless Chrome | E | ✅ `scripts/plugin-smoke.py` |
+| CLI-21 | 45 сквозных проверок в headless Chrome | E | ✅ `scripts/plugin-smoke.py` |
+| CLI-22 | Eager registry: скрытый `mode=registry`-кадр на каждую половину, порядок `inject`/`immediately` | E | ✅ smoke |
+| CLI-23 | Региональный монтаж: регистрация монтируется в регион по таблице `slot key → регион` (17 регионов шелла) | E | ✅ smoke |
+| CLI-24 | Полный словарь: 116 ключей DSH 0.2.2-rc.2 + legacy `panel`/`message.action` покрыты таблицей регионов | U | ✅ `crates/cordis/tests/bridge_harness.mjs` + `slot-catalog.json` |
+| CLI-25 | Незнакомое имя слота → fallback в панель плагина (`panel`) | E | ✅ smoke |
+| CLI-26 | `context` повторяющихся регионов: сообщение `{index, role}`, карточка инструмента, строка сессии | E | ✅ smoke |
+| CLI-27 | Адресный `resize`: высота конкретного slot-кадра, кламп 24–640 px | E | ✅ smoke |
+| CLI-28 | `reload`: версия поднимается у всех фреймов плагина, открытая панель остаётся | E | ✅ smoke |
 
 ## WASM
 
@@ -195,6 +202,7 @@ S1 — блокер, S2 — функциональный пробел, S3 — к
 | SRV-12 | Враждебный Host не попадает в CSP | I | ✅ новый |
 | SRV-13 | SSE keep-alive и реконнект клиента | I | 📋 S3 |
 | SRV-14 | Больше лимита тела запроса → 413 | I | 📋 S3 |
+| SRV-15 | `/host`: валидация `frame`/`mode`/`slot`/`id`/`context`, 400 на мусор; slot-режим требует `slot`+`id` | I | ✅ `plugins_live.rs` |
 
 ## Web UI
 
@@ -204,7 +212,7 @@ S1 — блокер, S2 — функциональный пробел, S3 — к
 | WEB-02 | Подключение по токену, список сессий, стрим ответа | E | ✅ |
 | WEB-03 | Approval/question диалоги | E | ✅ |
 | WEB-04 | Панель Plugins: каталог, оценки/отзывы, install | E | ✅ |
-| WEB-05 | Клиентские половины: вкладки слотов, resize, тема | E | ✅ smoke |
+| WEB-05 | Клиентские половины: региональный монтаж слотов (17 регионов), eager registry, resize, тема | E | ✅ smoke |
 | WEB-06 | Deep link `?token=&plugin=` подключается автоматически | E | ✅ smoke |
 | WEB-07 | Нет console error/5xx во время сценария | E | ✅ smoke (падает на ошибках) |
 | WEB-08 | Клавиатурная доступность панелей | E | 📋 S3 |

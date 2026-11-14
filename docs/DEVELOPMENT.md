@@ -24,7 +24,7 @@ Gates that need their own invocation:
 cargo test -p dshr-cli --test evals -- --nocapture   # 10-task eval suite, budgets in target/evals/report.json
 cargo test -p dshr-perf --release -- --nocapture     # ARCHITECTURE §20 budgets (debug runs print SKIP)
 python3 scripts/web-e2e.py                           # chat -> approval -> tool -> journal in headless Chrome
-python3 scripts/plugin-smoke.py                      # client-half bridge and slot names (29 checks)
+python3 scripts/plugin-smoke.py                      # client-half bridge: eager registry, regional slot frames, actions (45 checks)
 ```
 
 ## Web UI

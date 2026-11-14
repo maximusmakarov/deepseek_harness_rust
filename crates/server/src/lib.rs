@@ -23,6 +23,7 @@ use dshr_agent::{
     Agent, AgentConfig, AgentObserver, ApprovalPolicy, ApprovalRequest, Approver, PermissionMode,
     ToolCallInfo,
 };
+use dshr_cordis::client::{FrameMode, FrameSpec};
 use dshr_core::DshrError;
 use dshr_llm::{LlmProvider, Usage};
 use dshr_session_jsonl::SessionStore;
@@ -1157,32 +1158,162 @@ struct ClientHostQuery {
     theme: Option<String>,
     #[serde(default)]
     token: Option<String>,
+    /// Opaque shell frame token echoed in every bridge message.
+    #[serde(default)]
+    frame: Option<String>,
+    /// `registry` (default) or `slot`.
+    #[serde(default)]
+    mode: Option<String>,
+    /// Slot name (DSH slot key) rendered by a slot frame.
+    #[serde(default)]
+    slot: Option<String>,
+    /// Registration id rendered by a slot frame.
+    #[serde(default)]
+    id: Option<String>,
+    /// URL-encoded JSON object handed to the slot render props.
+    #[serde(default)]
+    context: Option<String>,
+}
+
+/// Maximum length of the URL-encoded JSON `context` a slot frame accepts.
+const FRAME_CONTEXT_MAX_CHARS: usize = 4096;
+/// Maximum length of the opaque frame token the shell echoes back.
+const FRAME_TOKEN_MAX_CHARS: usize = 120;
+/// Maximum length of a slot name or registration id.
+const FRAME_NAME_MAX_CHARS: usize = 80;
+
+fn host_query_error(message: impl Into<String>) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": message.into() })),
+    )
+}
+
+/// Validates the host-page query and builds the bridge's v1.2 frame config.
+///
+/// A missing `mode` means `registry` for backwards compatibility; slot frames
+/// additionally need the slot name and registration id they render. `frame`,
+/// `slot`, `id` and `context` are valid charset-wise whenever they are present
+/// — a malformed shell URL should fail loudly instead of silently shrinking to
+/// a registry frame. Only slot mode actually forwards the slot fields.
+fn frame_spec(query: &ClientHostQuery) -> Result<FrameSpec, (StatusCode, Json<Value>)> {
+    let mode = match query.mode.as_deref() {
+        None => FrameMode::Registry,
+        Some("registry") => FrameMode::Registry,
+        Some("slot") => FrameMode::Slot,
+        Some(other) => {
+            return Err(host_query_error(format!(
+                "invalid mode '{other}' (expected 'registry' or 'slot')"
+            )));
+        }
+    };
+
+    let frame = query.frame.as_deref().unwrap_or_default();
+    if frame.chars().count() > FRAME_TOKEN_MAX_CHARS
+        || !frame
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "._:-".contains(ch))
+    {
+        return Err(host_query_error(format!("invalid frame token '{frame}'")));
+    }
+
+    let slot = query.slot.as_deref().unwrap_or_default();
+    if !slot.is_empty()
+        && (slot.chars().count() > FRAME_NAME_MAX_CHARS
+            || !slot
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || "._-".contains(ch)))
+    {
+        return Err(host_query_error(format!("invalid slot name '{slot}'")));
+    }
+
+    let id = query.id.as_deref().unwrap_or_default();
+    if !id.is_empty()
+        && (id.chars().count() > FRAME_NAME_MAX_CHARS
+            || !id
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || "._:-".contains(ch)))
+    {
+        return Err(host_query_error(format!("invalid registration id '{id}'")));
+    }
+
+    let context = query.context.as_deref().unwrap_or_default();
+    if !context.is_empty() {
+        if context.chars().count() > FRAME_CONTEXT_MAX_CHARS {
+            return Err(host_query_error(format!(
+                "context is larger than {FRAME_CONTEXT_MAX_CHARS} characters"
+            )));
+        }
+        if !matches!(serde_json::from_str::<Value>(context), Ok(Value::Object(_))) {
+            return Err(host_query_error("context must be a JSON object"));
+        }
+    }
+
+    if mode == FrameMode::Slot {
+        if slot.is_empty() {
+            return Err(host_query_error("slot is required in slot mode"));
+        }
+        if id.is_empty() {
+            return Err(host_query_error("id is required in slot mode"));
+        }
+    }
+
+    let (slot, id, context) = if mode == FrameMode::Slot {
+        (slot.to_owned(), id.to_owned(), context.to_owned())
+    } else {
+        (String::new(), String::new(), String::new())
+    };
+    Ok(FrameSpec {
+        frame: frame.to_owned(),
+        mode,
+        slot,
+        id,
+        context,
+        theme: match query.theme.as_deref() {
+            Some("light") => "light".to_owned(),
+            _ => "dark".to_owned(),
+        },
+    })
 }
 
 /// Serves the sandboxed host page that runs one client half.
 ///
 /// Single-file bundles are inlined base64 into a network-free page. Bundles
 /// with relative imports get a short-lived read capability and load their
-/// module graph from the asset route instead.
+/// module graph from the asset route instead. The query also carries the frame
+/// config: a registry frame by default, or a slot frame bound to one
+/// registration and its occurrence context.
 async fn plugin_client_host(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(name): Path<String>,
     Query(query): Query<ClientHostQuery>,
-) -> Result<Response, StatusCode> {
-    authorize(&state, &headers, query.token.as_deref())?;
-    let manager = state.config.plugins.as_ref().ok_or(StatusCode::NOT_FOUND)?;
-    let half = manager
-        .client_half(&name)
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    let theme = query.theme.as_deref().unwrap_or("dark");
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    authorize(&state, &headers, query.token.as_deref())
+        .map_err(|status| (status, Json(json!({ "error": "unauthorized" }))))?;
+    let spec = frame_spec(&query)?;
+    let manager = state.config.plugins.as_ref().ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "no plugin supervisor is attached to this server" })),
+        )
+    })?;
+    let half = manager.client_half(&name).map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": format!("plugin '{name}' has no client half") })),
+        )
+    })?;
     let (page, csp) = match half.bundle {
         dshr_cordis::client::BundleMode::Inline => {
-            let bundle = tokio::fs::read(&half.path)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let bundle = tokio::fs::read(&half.path).await.map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "failed to read the plugin bundle" })),
+                )
+            })?;
             (
-                dshr_cordis::client::host_page(&half, &bundle, theme),
+                dshr_cordis::client::host_page(&half, &bundle, &spec),
                 CLIENT_HOST_CSP.to_owned(),
             )
         }
@@ -1194,7 +1325,7 @@ async fn plugin_client_host(
             );
             let origin = request_origin(&headers);
             (
-                dshr_cordis::client::host_page_assets(&half, &base, theme),
+                dshr_cordis::client::host_page_assets(&half, &base, &spec),
                 asset_host_csp(&origin),
             )
         }
