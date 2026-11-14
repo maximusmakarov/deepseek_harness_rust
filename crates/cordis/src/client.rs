@@ -16,6 +16,17 @@ use crate::CordisPluginSpec;
 /// The bridge runtime embedded into every plugin host page.
 pub const BRIDGE_JS: &str = include_str!("bridge.js");
 
+/// How the browser half is delivered into the frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BundleMode {
+    /// One self-contained file, base64-inlined; the frame makes no requests.
+    Inline,
+    /// A module graph fetched from a capability-addressed asset route, so
+    /// relative imports and dynamic chunks resolve as the bundler emitted them.
+    Assets,
+}
+
 /// A plugin's browser half, resolved to a concrete bundle file.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct ClientHalf {
@@ -30,9 +41,14 @@ pub struct ClientHalf {
     pub inject: Vec<String>,
     /// Bundle path relative to the package directory, for display.
     pub entry: String,
+    /// How to deliver the bundle into the frame.
+    pub bundle: BundleMode,
     /// Absolute, canonicalized bundle path.
     #[serde(skip)]
     pub path: PathBuf,
+    /// Canonical package directory (asset reads are confined to it).
+    #[serde(skip)]
+    pub directory: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -137,6 +153,28 @@ pub fn discover_client_half(spec: &CordisPluginSpec) -> Result<ClientHalf, Clien
         ));
     }
 
+    let bundle = match client
+        .get("bundle")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("auto")
+    {
+        "inline" => BundleMode::Inline,
+        "assets" => BundleMode::Assets,
+        _ => {
+            // A bundle with relative specifiers cannot be inlined: blob URLs
+            // have no base for `./chunk.js`. Detect that instead of making
+            // every author declare a mode.
+            let text = std::fs::read_to_string(&canonical)
+                .map(|text| text.chars().take(2 * 1024 * 1024).collect::<String>())
+                .unwrap_or_default();
+            if declares_relative_imports(&text) {
+                BundleMode::Assets
+            } else {
+                BundleMode::Inline
+            }
+        }
+    };
+
     Ok(ClientHalf {
         name,
         package: manifest
@@ -163,8 +201,65 @@ pub fn discover_client_half(spec: &CordisPluginSpec) -> Result<ClientHalf, Clien
             .to_string_lossy()
             .trim_start_matches("./")
             .to_owned(),
+        bundle,
         path: canonical,
+        directory: canonical_root,
     })
+}
+
+/// True when the bundle references a sibling file, i.e. cannot be inlined as a
+/// single blob module.
+#[must_use]
+pub fn declares_relative_imports(source: &str) -> bool {
+    const SPECIFIERS: [&str; 12] = [
+        "from \"./",
+        "from './",
+        "from \"../",
+        "from '../",
+        "import(\"./",
+        "import('./",
+        "import(\"../",
+        "import('../",
+        "require(\"./",
+        "require('./",
+        "require(\"../",
+        "require('../",
+    ];
+    SPECIFIERS
+        .iter()
+        .any(|specifier| source.contains(specifier))
+}
+
+/// Resolves a capability-addressed asset path inside the plugin package.
+pub fn resolve_asset(half: &ClientHalf, relative: &str) -> Result<PathBuf, ClientHalfError> {
+    let relative = Path::new(relative);
+    if relative.is_absolute()
+        || relative.components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        })
+    {
+        return Err(ClientHalfError::Invalid(
+            half.name.clone(),
+            format!("asset '{relative:?}' must be package-relative"),
+        ));
+    }
+    let path = half.directory.join(relative);
+    let canonical = std::fs::canonicalize(&path).map_err(|error| {
+        ClientHalfError::Io(
+            half.name.clone(),
+            format!("asset {}: {error}", path.display()),
+        )
+    })?;
+    if !canonical.starts_with(&half.directory) || !canonical.is_file() {
+        return Err(ClientHalfError::Invalid(
+            half.name.clone(),
+            format!("asset '{relative:?}' escapes the plugin package"),
+        ));
+    }
+    Ok(canonical)
 }
 
 /// Follows an `exports` target: a string, or an object whose `browser`,
@@ -300,9 +395,42 @@ mod tests {
 #[must_use]
 pub fn host_page(half: &ClientHalf, bundle: &[u8], theme: &str) -> String {
     use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bundle);
+    page(
+        half,
+        theme,
+        &format!(
+            "URL.createObjectURL(new Blob([Uint8Array.from(atob(\"{encoded}\"), (char) => char.charCodeAt(0))], {{ type: \"text/javascript\" }}))"
+        ),
+        true,
+    )
+}
+
+/// Host page for a multi-file bundle.
+///
+/// The entry is fetched from the capability-addressed asset route, so its
+/// relative imports and dynamic chunks resolve against that URL; the CSP for
+/// this page allows scripts from that origin only, and no other network.
+#[must_use]
+pub fn host_page_assets(half: &ClientHalf, asset_base: &str, theme: &str) -> String {
+    let base = js_string(asset_base);
+    let entry = js_string(&half.entry);
+    page(
+        half,
+        theme,
+        &format!("({base} + \"/\" + encodeURI({entry}).replace(/^\\.\\//, \"\"))"),
+        false,
+    )
+}
+
+fn page(half: &ClientHalf, theme: &str, url_expression: &str, revoke: bool) -> String {
     let name = js_string(&half.name);
     let theme = js_string(if theme == "light" { "light" } else { "dark" });
-    let bundle = base64::engine::general_purpose::STANDARD.encode(bundle);
+    let revoke = if revoke {
+        "URL.revokeObjectURL(url);"
+    } else {
+        ""
+    };
     format!(
         r#"<!doctype html>
 <html lang="en" data-theme={theme}>
@@ -325,10 +453,7 @@ pub fn host_page(half: &ClientHalf, bundle: &[u8], theme: &str) -> String {
 {BRIDGE_JS}
 </script>
 <script type="module">
-const plugin = {name};
-const encoded = "{bundle}";
-const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
-const url = URL.createObjectURL(new Blob([bytes], {{ type: "text/javascript" }}));
+const url = {url_expression};
 
 // `require` stand-in for bundles built against the reference module table:
 // React and other host modules are not available (ADR-013 §5), so a request
@@ -338,7 +463,6 @@ function requireShim(specifier) {{
 }}
 
 function activateModule(module) {{
-  // Reference-shaped module table entry: factory() returns the plugin object.
   const loaded = window.dshr.__loaded || [];
   for (const definition of loaded) {{
     const exported = definition.factory(requireShim);
@@ -362,7 +486,7 @@ import(url).then(function (module) {{
   document.documentElement.dataset.dshrReady = "error";
   window.dshr.__fail(error);
 }}).finally(function () {{
-  URL.revokeObjectURL(url);
+  {revoke}
 }});
 </script>
 </body>
@@ -391,7 +515,9 @@ mod host_page_tests {
             immediately: false,
             inject: Vec::new(),
             entry: "dist/client.js".into(),
+            bundle: BundleMode::Inline,
             path: PathBuf::from("/tmp/client.js"),
+            directory: PathBuf::from("/tmp"),
         }
     }
 
@@ -402,6 +528,115 @@ mod host_page_tests {
         assert!(page.contains("data-theme=\"light\""), "{page}");
         assert!(page.contains("de\\\"mo\\u003cscript>"), "{page}");
         assert!(page.contains("ZXhwb3J0IGRlZmF1bHQgMTs="), "{page}"); // base64 bundle
+        assert!(
+            page.contains("__DSHR_PLUGIN__ = \"de\\\"mo\\u003cscript>\""),
+            "{page}"
+        );
         assert!(!page.contains("de\"mo<script>"), "{page}");
+    }
+
+    #[test]
+    fn asset_host_page_imports_the_capability_url() {
+        let mut half = half("demo");
+        half.bundle = BundleMode::Assets;
+        let page = host_page_assets(&half, "/v1/plugins/demo/asset/cap123", "dark");
+        assert!(page.contains("/v1/plugins/demo/asset/cap123"), "{page}");
+        assert!(page.contains("encodeURI(\"dist/client.js\")"), "{page}");
+        assert!(!page.contains("atob("), "{page}");
+        assert!(!page.contains("revokeObjectURL"), "{page}");
+        assert!(page.contains("data-theme=\"dark\""), "{page}");
+    }
+}
+
+#[cfg(test)]
+mod bundle_mode_tests {
+    use super::*;
+
+    fn package(dir: &std::path::Path, manifest: &str, files: &[(&str, &str)]) {
+        std::fs::write(dir.join("package.json"), manifest).expect("manifest");
+        for (name, contents) in files {
+            let path = dir.join(name);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("parent");
+            }
+            std::fs::write(path, contents).expect("asset");
+        }
+    }
+
+    fn spec(dir: &std::path::Path) -> CordisPluginSpec {
+        CordisPluginSpec {
+            name: "demo".into(),
+            entry: dir.to_path_buf(),
+            root: dir.to_path_buf(),
+            env: Default::default(),
+            grants: crate::CordisGrants::default(),
+        }
+    }
+
+    const MANIFEST: &str =
+        r#"{"name":"demo","dsh":{"client":{"platform":"web","entry":"client.js"}}}"#;
+
+    #[test]
+    fn a_single_file_bundle_is_inlined() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(
+            dir.path(),
+            MANIFEST,
+            &[(
+                "client.js",
+                "export default function (ctx) { ctx.slots.list(); }",
+            )],
+        );
+        let half = discover_client_half(&spec(dir.path())).expect("half");
+        assert_eq!(half.bundle, BundleMode::Inline);
+    }
+
+    #[test]
+    fn relative_imports_switch_to_assets() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(
+            dir.path(),
+            MANIFEST,
+            &[
+                (
+                    "client.js",
+                    "import { panel } from \"./lib/panel.js\";\nexport default (ctx) => panel(ctx);",
+                ),
+                ("lib/panel.js", "export function panel() {}"),
+            ],
+        );
+        let half = discover_client_half(&spec(dir.path())).expect("half");
+        assert_eq!(half.bundle, BundleMode::Assets);
+    }
+
+    #[test]
+    fn the_manifest_can_override_the_mode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(
+            dir.path(),
+            r#"{"name":"demo","dsh":{"client":{"platform":"web","entry":"client.js","bundle":"inline"}}}"#,
+            &[("client.js", "import \"./lib.js\";")],
+        );
+        let half = discover_client_half(&spec(dir.path())).expect("half");
+        assert_eq!(half.bundle, BundleMode::Inline);
+    }
+
+    #[test]
+    fn assets_resolve_inside_the_package_only() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(
+            dir.path(),
+            MANIFEST,
+            &[
+                ("client.js", "export default 1;"),
+                ("lib/panel.js", "export const x = 1;"),
+            ],
+        );
+        let half = discover_client_half(&spec(dir.path())).expect("half");
+        let resolved = resolve_asset(&half, "lib/panel.js").expect("asset");
+        assert!(resolved.ends_with("lib/panel.js"));
+        assert!(resolve_asset(&half, "../escape.js").is_err());
+        assert!(resolve_asset(&half, "/etc/passwd").is_err());
+        assert!(resolve_asset(&half, "missing.js").is_err());
     }
 }

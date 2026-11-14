@@ -68,6 +68,14 @@ pub struct AppState {
     store: Arc<SessionStore>,
     runtimes: Arc<Mutex<HashMap<String, Arc<Runtime>>>>,
     rate_limit: Arc<RateLimit>,
+    /// Capabilities that let one sandboxed frame read one plugin package.
+    assets: Arc<std::sync::Mutex<HashMap<String, AssetGrant>>>,
+}
+
+/// Time-limited read capability over a plugin's package files.
+struct AssetGrant {
+    plugin: String,
+    expires: Instant,
 }
 
 impl AppState {
@@ -86,6 +94,7 @@ impl AppState {
             store,
             runtimes: Arc::new(Mutex::new(HashMap::new())),
             rate_limit: Arc::new(RateLimit::new(rate_limit_per_min)),
+            assets: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -355,6 +364,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/clients", get(plugin_clients))
         .route("/v1/plugins/{name}/client.js", get(plugin_client_bundle))
         .route("/v1/plugins/{name}/host", get(plugin_client_host))
+        .route(
+            "/v1/plugins/{name}/asset/{capability}/{*path}",
+            get(plugin_client_asset),
+        )
         .route("/v1/plugins/toggle", post(toggle_plugin))
         .route("/v1/plugins/remove", post(remove_plugin))
         .route("/v1/sessions", get(list_sessions).post(create_session))
@@ -916,6 +929,10 @@ struct ClientHostQuery {
 }
 
 /// Serves the sandboxed host page that runs one client half.
+///
+/// Single-file bundles are inlined base64 into a network-free page. Bundles
+/// with relative imports get a short-lived read capability and load their
+/// module graph from the asset route instead.
 async fn plugin_client_host(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -927,16 +944,35 @@ async fn plugin_client_host(
     let half = manager
         .client_half(&name)
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    let bundle = tokio::fs::read(&half.path)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let theme = query.theme.as_deref().unwrap_or("dark");
-    let page = dshr_cordis::client::host_page(&half, &bundle, theme);
+    let (page, csp) = match half.bundle {
+        dshr_cordis::client::BundleMode::Inline => {
+            let bundle = tokio::fs::read(&half.path)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            (
+                dshr_cordis::client::host_page(&half, &bundle, theme),
+                CLIENT_HOST_CSP.to_owned(),
+            )
+        }
+        dshr_cordis::client::BundleMode::Assets => {
+            let capability = grant_assets(&state, &half.name);
+            let base = format!(
+                "/v1/plugins/{}/asset/{capability}",
+                percent_encode(&half.name)
+            );
+            let origin = request_origin(&headers);
+            (
+                dshr_cordis::client::host_page_assets(&half, &base, theme),
+                asset_host_csp(&origin),
+            )
+        }
+    };
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, "no-store"),
-            (header::CONTENT_SECURITY_POLICY, CLIENT_HOST_CSP),
+            (header::CONTENT_SECURITY_POLICY, csp.as_str()),
             (
                 header::HeaderName::from_static("x-frame-options"),
                 "SAMEORIGIN",
@@ -947,9 +983,132 @@ async fn plugin_client_host(
         .into_response())
 }
 
-/// The host page runs with an opaque origin and must stay network-free; the
-/// bundle arrives base64-inlined and executes from a blob URL.
+/// The inline host page runs with an opaque origin and must stay network-free:
+/// the bundle arrives base64-inlined and executes from a blob URL.
 const CLIENT_HOST_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+/// Capability TTL: long enough to open a panel, short enough to be useless if
+/// it leaks into a log.
+const ASSET_TTL: Duration = Duration::from_secs(3600);
+const ASSET_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+fn grant_assets(state: &AppState, plugin: &str) -> String {
+    let capability = uuid::Uuid::new_v4().simple().to_string();
+    let mut grants = state
+        .assets
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let now = Instant::now();
+    grants.retain(|_, grant| grant.expires > now);
+    grants.insert(
+        capability.clone(),
+        AssetGrant {
+            plugin: plugin.to_owned(),
+            expires: now + ASSET_TTL,
+        },
+    );
+    capability
+}
+
+/// `http://<host>` of the request, used for the asset-mode CSP so the frame can
+/// load its module graph from this server only.
+fn request_origin(headers: &HeaderMap) -> String {
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("http");
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("127.0.0.1");
+    format!("{scheme}://{host}")
+}
+
+fn asset_host_csp(origin: &str) -> String {
+    format!(
+        "default-src 'none'; script-src 'unsafe-inline' {origin}; style-src 'unsafe-inline' {origin}; \
+         img-src {origin} data: blob:; font-src {origin}; connect-src {origin}; \
+         media-src {origin}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+    )
+}
+
+fn asset_content_type(path: &std::path::Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+    {
+        "js" | "mjs" | "cjs" => "application/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" | "map" => "application/json; charset=utf-8",
+        "wasm" => "application/wasm",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "txt" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Serves one file of a plugin package under a capability derived from the host
+/// page request. The iframe is sandboxed, so this is the only way for a
+/// multi-file bundle to resolve `./chunk.js` without exposing the shell token.
+async fn plugin_client_asset(
+    State(state): State<AppState>,
+    Path((name, capability, path)): Path<(String, String, String)>,
+) -> Result<Response, StatusCode> {
+    if capability.len() != 32 || !capability.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let granted = {
+        let mut grants = state
+            .assets
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let now = Instant::now();
+        grants.retain(|_, grant| grant.expires > now);
+        grants
+            .get(&capability)
+            .is_some_and(|grant| grant.plugin == name)
+    };
+    if !granted {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let manager = state.config.plugins.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let half = manager
+        .client_half(&name)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let file =
+        dshr_cordis::client::resolve_asset(&half, &path).map_err(|_| StatusCode::NOT_FOUND)?;
+    let metadata = tokio::fs::metadata(&file)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    if metadata.len() as usize > ASSET_MAX_BYTES {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    let bytes = tokio::fs::read(&file)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, asset_content_type(&file)),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (
+                header::HeaderName::from_static("cross-origin-resource-policy"),
+                "cross-origin",
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
+}
 
 async fn run_plugin_cli(state: &AppState, arguments: &[&str]) -> Result<Json<Value>, StatusCode> {
     let executable = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

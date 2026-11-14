@@ -231,6 +231,30 @@ async fn reports_plugin_status_and_hot_reloads() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+fn write_asset_client_half(dir: &Path) {
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"name":"@acme/assets","dsh":{"client":{"platform":"web","entry":"client.js"}}}"#,
+    )
+    .expect("manifest");
+    std::fs::write(
+        dir.join("client.js"),
+        r#"
+import { render } from "./lib/panel.js";
+export default function activate(ctx) {
+  ctx.slots.register({ name: "panel", id: "assets", title: "Assets" }, render);
+}
+"#,
+    )
+    .expect("client");
+    std::fs::create_dir_all(dir.join("lib")).expect("lib");
+    std::fs::write(
+        dir.join("lib/panel.js"),
+        r#"export function render(element) { element.textContent = "panel from a chunk"; }"#,
+    )
+    .expect("chunk");
+}
+
 #[tokio::test]
 async fn lists_and_serves_client_halves() {
     if !node_available() {
@@ -274,4 +298,86 @@ async fn lists_and_serves_client_halves() {
     // The bundle is inlined (the frame is network-free), not linked.
     assert!(!page.contains("/client.js?"), "{page}");
     assert!(page.contains("dshr-client"), "{page}");
+}
+
+#[tokio::test]
+async fn multi_file_client_bundle_uses_capability_assets() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_asset_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let (status, body) = call(&app, "GET", "/v1/plugins/clients", Some(TOKEN), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["clients"][0]["bundle"], "assets", "{body}");
+
+    let (status, headers, bytes) = raw(
+        &app,
+        "/v1/plugins/demo/host?token=test-token&theme=dark",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let csp = headers[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .expect("csp")
+        .to_owned();
+    assert!(csp.contains("script-src 'unsafe-inline' http://"), "{csp}");
+    let page = String::from_utf8(bytes).expect("utf8");
+    assert!(page.contains("encodeURI(\"client.js\")"), "{page}");
+    let start =
+        page.find("/v1/plugins/demo/asset/").expect("asset base") + "/v1/plugins/demo/asset/".len();
+    let capability: String = page[start..].chars().take(32).collect();
+    assert_eq!(capability.len(), 32, "{capability}");
+
+    let (status, headers, bytes) = raw(
+        &app,
+        &format!("/v1/plugins/demo/asset/{capability}/client.js"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        headers[header::CONTENT_TYPE],
+        "application/javascript; charset=utf-8"
+    );
+    assert_eq!(headers[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    assert!(String::from_utf8_lossy(&bytes).contains("./lib/panel.js"));
+
+    let (status, _, bytes) = raw(
+        &app,
+        &format!("/v1/plugins/demo/asset/{capability}/lib/panel.js"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&bytes).contains("panel from a chunk"));
+
+    // A capability is scoped to one plugin and only to package files.
+    let (status, _, _) = raw(
+        &app,
+        "/v1/plugins/demo/asset/00000000000000000000000000000000/client.js",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = raw(
+        &app,
+        &format!("/v1/plugins/demo/asset/{capability}/missing.js"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = raw(
+        &app,
+        &format!("/v1/plugins/demo/asset/{capability}/%2e%2e/%2e%2e/secret.txt"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
