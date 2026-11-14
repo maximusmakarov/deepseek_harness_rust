@@ -48,4 +48,4 @@
 | P3 | i18n остатка CLI | Help, sessions/show/export, plugin/release — ru/en; сообщения ошибок и часть справки остаются en. |
 | P2 | MCP elicitation | OAuth refresh (expiry + 401 retry) есть; `elicitation/create` не поддержан. |
 | P2 | Cordis/npm-совместимость | Sidecar-прототип есть (`dshr-cordis`); нет HMR, кэша грантов/аудита, полного набора Node-builtins и клиентской UI-половины. |
-| P3 | ghcr-бутылки | Архивы детерминированы, бинарь воспроизводим с remap; `brew bottle` нет — [ADR-039](adr/039-release-artifacts.md). |
+| P3 | ghcr-бутылки | Бутылки собираются в release CI (GitHub Releases); GHCR-хостинг и `brew bottle`-прогон отсутствуют — [ADR-039](adr/039-release-artifacts.md). |

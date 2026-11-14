@@ -4,6 +4,8 @@ class Dshr < Formula
   version "__VERSION__"
   license "MIT"
 
+__BOTTLES__
+
   on_macos do
     on_arm do
       url "https://github.com/maximusmakarov/deepseek_harness_rust/releases/download/v__VERSION__/dshr-__VERSION__-aarch64-apple-darwin.tar.gz"

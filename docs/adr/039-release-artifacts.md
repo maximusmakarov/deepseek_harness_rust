@@ -35,7 +35,7 @@ HEAD-формула, systemd/launchd и Dockerfile покрывали устан
 - Установка без Rust: скачать архив или применить `dshr.rb`, проверить сумму.
 - Подпись не решает bootstrap-проблему: проверять её нужно уже доверенным бинарём
   или независимой реализацией Ed25519.
-- Архивы детерминированы; release-сборка использует `SOURCE_DATE_EPOCH=0`, `CARGO_INCREMENTAL=0` и remap путей, поэтому бинарь воспроизводим при том же toolchain (проверено `scripts/check-reproducible.sh`). ghcr-бутылок нет.
+- Архивы детерминированы; release-сборка использует `SOURCE_DATE_EPOCH=0`, `CARGO_INCREMENTAL=0` и remap путей, поэтому бинарь воспроизводим при том же toolchain (проверено `scripts/check-reproducible.sh`). Homebrew-бутылки публикуются как release-ассеты с `bottle do` (root_url — GitHub Releases); ghcr-бутылок нет.
 
 ## Альтернативы
 

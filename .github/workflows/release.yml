@@ -22,19 +22,24 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             bin: dshr
+            bottle: x86_64_linux
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             bin: dshr
+            bottle: aarch64_linux
             cross: true
           - os: macos-latest
             target: aarch64-apple-darwin
             bin: dshr
+            bottle: arm64_sequoia
           - os: macos-latest
             target: x86_64-apple-darwin
             bin: dshr
+            bottle: sonoma
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             bin: dshr.exe
+            bottle: ""
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -64,6 +69,10 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           scripts/package-release.sh "$version" "${{ matrix.target }}" \
             "target/${{ matrix.target }}/release/${{ matrix.bin }}"
+          if [ -n "${{ matrix.bottle }}" ]; then
+            scripts/package-bottle.sh "$version" "${{ matrix.bottle }}" \
+              "target/${{ matrix.target }}/release/${{ matrix.bin }}"
+          fi
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist/*.tar.gz
@@ -206,6 +215,9 @@ jobs:
           set -euo pipefail
           cat dist/*.sha256 | sort -k2 > dist/SHA256SUMS
           cat dist/SHA256SUMS
+          if ls dist/bottles-* >/dev/null 2>&1; then
+            cat dist/bottles-* > dist/BOTTLES
+          fi
       - name: sign checksums
         if: env.DSHR_RELEASE_KEY != ''
         shell: bash
@@ -224,12 +236,18 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr.rb
+          if [ -s dist/BOTTLES ]; then
+            BOTTLES_FILE=dist/BOTTLES scripts/render-formula.sh \
+              "$version" dist/SHA256SUMS dist/dshr.rb
+          else
+            scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr.rb
+          fi
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.bottle.tar.gz
             dist/SHA256SUMS
             dist/SHA256SUMS.sig
             dist/SHA256SUMS.pub

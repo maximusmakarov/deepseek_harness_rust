@@ -12,6 +12,7 @@
 | `SHA256SUMS.pub` | публичный ключ подписи |
 | `dshr.rb` | бинарная Homebrew-формула с закреплёнными `sha256` |
 | `dshr-<version>-macos.zip` | подписанный ad-hoc `.app` (Tauri + `dshr`) |
+| `dshr--<version>.<tag>.bottle.tar.gz` | Homebrew bottle для macOS/Linux (GitHub Releases) |
 | `dshr-<version>-linux-desktop.tar.gz` | `dshr` + `dshr-desktop` (WebKitGTK build) |
 | `dshr-<version>-windows-desktop.zip` | `dshr.exe` + `dshr-desktop.exe` |
 
@@ -54,6 +55,12 @@ scripts/render-formula.sh 0.1.0 SHA256SUMS dshr.rb   # нужны все 4 та�
 
 `scripts/install.sh` умеет ставить из локального каталога:
 `DSHR_RELEASE_BASE_URL=file://$PWD/dist DSHR_VERSION=0.1.0 DSHR_TARGET=... scripts/install.sh`.
+
+## Bottles
+
+Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
+для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на
+GitHub Releases, не GHCR; pour проверяется при следующем теге.
 
 ## Notarization (macOS)
 
