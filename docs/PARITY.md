@@ -58,12 +58,23 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 
 ## Приоритеты паритета
 
-P0 закрыто: трей/close-to-tray, профили, фиксированный порт/LAN, диагностика,
-`apply_patch`, `ask_user` (включая ACP), обновления (проверка/скачивание/установка macOS),
-recovery-меню и first-run home. Осталось: notarization и каналы обновлений.
-P1: setup/onboarding и drag-and-drop папки, полный plugin market/catalog,
-Windows sandbox (нужен Windows-раннер), GUI plugin manager.
-P2: Linux-режимы/кастомный titlebar, recovery-окно вместо нативных диалогов,
-ghcr-бутылки, прогон desktop CI на теге.
+P0 закрыто: трей/close-to-tray, профили, фиксированный порт/LAN, drag-and-drop папки,
+диагностика, `apply_patch`, `ask_user` (включая ACP), каналы и установка обновлений,
+recovery-окно с профилями/плагинами, first-run home. Осталось: прогон notarization
+с секретами Apple.
+P1: композиция профилей из бандлов, полный plugin market/catalog, GUI-менеджер плагинов,
+верификация Windows sandbox на реальном Windows.
+P2: ghcr-хостинг бутылок, прогон brew/desktop CI на теге, Cordis hot reload и grants,
+приватные terminal shim'ы.
+
+## Известные блокеры
+
+- **GHCR-бутылки:** нет tap-репозитория/учётных данных пакетов; бутылки публикуются
+  как GitHub release-ассеты.
+- **Windows sandbox:** нужен реальный Windows-хост; локально проверяется только
+  компиляция, ignored-тест вынесен в Windows CI.
+- **Notarization:** нужны Apple Developer ID, сертификат и app-specific password.
+- **Desktop CI/brew:** джобы выполняются только на теге; локально прогнан dry-run
+  упаковки/установки.
 
 Каждый срез: код + тест/сборка + обновление этой матрицы.
