@@ -40,6 +40,9 @@ pub struct Config {
     /// Optional bundle layers for this profile (`<home>/bundles/<name>/config.yaml`).
     #[serde(default)]
     pub bundles: Vec<String>,
+    /// Bundles required by a bundle layer.
+    #[serde(default)]
+    pub requires: Vec<String>,
 }
 
 impl Default for Config {
@@ -56,6 +59,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             plugins: PluginsConfig::default(),
             bundles: Vec::new(),
+            requires: Vec::new(),
         }
     }
 }
@@ -461,10 +465,8 @@ impl ConfigLoader {
 
         let profile_path = self.profile_path();
         let bundle_names = profile_bundles(&profile_path)?;
-        for name in &bundle_names {
-            if name.is_empty() || name.contains(['/', '\\']) || name == ".." {
-                return Err(DshrError::config(format!("invalid bundle name: {name}")));
-            }
+        let ordered = resolve_bundles(&self.home, &bundle_names)?;
+        for name in &ordered {
             let path = self.home.join("bundles").join(name).join("config.yaml");
             merge_file(
                 &mut merged,
@@ -518,6 +520,52 @@ impl ConfigLoader {
             merged,
         })
     }
+}
+
+fn resolve_bundles(home: &Path, names: &[String]) -> Result<Vec<String>> {
+    fn visit(
+        home: &Path,
+        name: &str,
+        stack: &mut Vec<String>,
+        ordered: &mut Vec<String>,
+    ) -> Result<()> {
+        if ordered.iter().any(|existing| existing == name) {
+            return Ok(());
+        }
+        if stack.iter().any(|existing| existing == name) {
+            return Err(DshrError::config(format!(
+                "bundle dependency cycle: {} -> {name}",
+                stack.join(" -> ")
+            )));
+        }
+        if name.is_empty() || name.contains(['/', '\\']) || name == ".." {
+            return Err(DshrError::config(format!("invalid bundle name: {name}")));
+        }
+        let path = home.join("bundles").join(name).join("config.yaml");
+        let text = std::fs::read_to_string(&path)
+            .map_err(|error| DshrError::config(format!("bundle '{name}': {error}")))?;
+        let value: Value = serde_saphyr::from_str(&text)
+            .map_err(|err| DshrError::config(format!("cannot parse {}: {err}", path.display())))?;
+        let requires: Vec<String> = value["requires"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect();
+        stack.push(name.to_owned());
+        for dependency in requires {
+            visit(home, &dependency, stack, ordered)?;
+        }
+        stack.pop();
+        ordered.push(name.to_owned());
+        Ok(())
+    }
+
+    let mut ordered = Vec::new();
+    for name in names {
+        visit(home, name, &mut Vec::new(), &mut ordered)?;
+    }
+    Ok(ordered)
 }
 
 fn profile_bundles(path: &Path) -> Result<Vec<String>> {
@@ -776,6 +824,52 @@ mod tests {
         let schema = json_schema();
         assert!(schema.get("properties").is_some(), "{schema}");
         assert!(schema["properties"].get("model").is_some(), "{schema}");
+    }
+
+    #[test]
+    fn bundle_dependencies_apply_in_order_and_detect_cycles() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path();
+        write(
+            &home.join("bundles/base/config.yaml"),
+            "requires: [core]\nui:\n  language: en\n",
+        );
+        write(
+            &home.join("bundles/core/config.yaml"),
+            "session:\n  auto_title: false\n",
+        );
+        write(
+            &home.join("profiles/work/profile.yaml"),
+            "bundles: [base]\nmodel:\n  name: profile-model\n",
+        );
+        let loaded = ConfigLoader::new(home, "work").load().expect("load");
+        assert_eq!(loaded.config.model.name, "profile-model");
+        assert_eq!(loaded.config.ui.language, "en");
+        assert!(!loaded.config.session.auto_title);
+        let layers: Vec<_> = loaded
+            .sources
+            .iter()
+            .map(|source| source.layer.as_str())
+            .collect();
+        let core = layers
+            .iter()
+            .position(|layer| *layer == "bundle:core")
+            .expect("core");
+        let base = layers
+            .iter()
+            .position(|layer| *layer == "bundle:base")
+            .expect("base");
+        assert!(core < base);
+
+        write(&home.join("bundles/base/config.yaml"), "requires: [core]\n");
+        write(&home.join("bundles/core/config.yaml"), "requires: [base]\n");
+        assert!(
+            ConfigLoader::new(home, "work")
+                .load()
+                .expect_err("cycle")
+                .to_string()
+                .contains("cycle")
+        );
     }
 
     #[test]
