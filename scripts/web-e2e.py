@@ -95,8 +95,16 @@ def start_serve(binary: Path, home: Path, workspace: Path, port: int, cassette: 
     raise RuntimeError("server did not become healthy")
 
 
-def evaluate(smoke, dt, expression: str):
-    return dt.eval(expression)
+def evaluate(smoke, dt, expression: str, attempts: int = 8):
+    """Evaluate in the page, retrying while a navigation swaps contexts."""
+    last = None
+    for _ in range(attempts):
+        try:
+            return dt.eval(expression)
+        except Exception as error:  # noqa: BLE001 - retried below
+            last = error
+            time.sleep(0.25)
+    raise TimeoutError(f"evaluate failed: {last}")
 
 
 def run(args: argparse.Namespace) -> int:
