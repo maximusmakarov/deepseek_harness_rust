@@ -203,6 +203,13 @@ fn build_tray(
         None::<&str>,
     )?;
     let rollback = MenuItem::with_id(app, "rollback", "Rollback profile", true, None::<&str>)?;
+    let install = MenuItem::with_id(
+        app,
+        "install-update",
+        "Install downloaded update…",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let window_settings = load_window_settings(home);
@@ -272,6 +279,7 @@ fn build_tray(
             &safe_restart,
             &normal_restart,
             &rollback,
+            &install,
             &diagnostics,
             &quit,
         ],
@@ -311,6 +319,20 @@ fn build_tray(
                 let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
                 stop_server(app);
                 app.restart();
+            }
+            "install-update" => {
+                let home = home_dir();
+                match install_downloaded_update(&home) {
+                    Ok(bundle) => {
+                        notify(
+                            "dshr update installing",
+                            &format!("Replacing {} and restarting", bundle.display()),
+                        );
+                        stop_server(app);
+                        app.exit(0);
+                    }
+                    Err(error) => notify("dshr update install failed", &error),
+                }
             }
             "rollback" => {
                 let home = home_dir();
@@ -758,6 +780,81 @@ fn sha256_file(path: &Path) -> Result<String, String> {
         }
     }
     Err("no shasum/sha256sum available".to_owned())
+}
+
+fn install_downloaded_update(home: &Path) -> Result<PathBuf, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = home;
+        return Err("silent install is implemented for macOS .app only".to_owned());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let source = newest_downloaded_app(home)
+            .ok_or_else(|| "no downloaded .app found; use Download update… first".to_owned())?;
+        let executable =
+            std::env::current_exe().map_err(|error| format!("current exe: {error}"))?;
+        let target = current_app_bundle(&executable)
+            .ok_or_else(|| "the app is not running from a .app bundle".to_owned())?;
+        if source == target {
+            return Err("downloaded app is the running app".to_owned());
+        }
+        let helper = home.join("updates").join("install-update.sh");
+        std::fs::create_dir_all(helper.parent().expect("parent"))
+            .map_err(|error| error.to_string())?;
+        let script = "#!/bin/sh\nPID=$1\nSOURCE=$2\nTARGET=$3\nwhile kill -0 \"$PID\" 2>/dev/null; do sleep 0.2; done\nrm -rf \"$TARGET\"\ncp -R \"$SOURCE\" \"$TARGET\"\nopen \"$TARGET\"\n".to_owned();
+        std::fs::write(&helper, script).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755))
+                .map_err(|error| error.to_string())?;
+        }
+        let child = Command::new("sh")
+            .args([
+                helper.display().to_string(),
+                std::process::id().to_string(),
+                source.display().to_string(),
+                target.display().to_string(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|error| format!("spawn updater: {error}"))?;
+        // Detach: the helper waits for this process to exit.
+        std::mem::forget(child);
+        Ok(target)
+    }
+}
+
+fn newest_downloaded_app(home: &Path) -> Option<PathBuf> {
+    let root = home.join("updates");
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    let entries = std::fs::read_dir(&root).ok()?;
+    for entry in entries.flatten() {
+        let Some(app) = find_app(&entry.path()) else {
+            continue;
+        };
+        let modified = std::fs::metadata(&app)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if best.as_ref().is_none_or(|(time, _)| modified > *time) {
+            best = Some((modified, app));
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
+fn current_app_bundle(executable: &Path) -> Option<PathBuf> {
+    let mut path = executable;
+    while let Some(parent) = path.parent() {
+        if path.extension().and_then(|value| value.to_str()) == Some("app") {
+            return Some(path.to_path_buf());
+        }
+        path = parent;
+    }
+    None
 }
 
 fn find_app(directory: &Path) -> Option<PathBuf> {
@@ -1298,6 +1395,25 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn finds_the_newest_downloaded_app() {
+        let home = std::env::temp_dir().join(format!("dshr-updates-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(home.join("updates/1.2.3/app/dshr.app")).expect("app");
+        let found = newest_downloaded_app(&home).expect("app");
+        assert!(found.ends_with("dshr.app"), "{}", found.display());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn finds_the_running_app_bundle() {
+        let executable = Path::new("/Applications/dshr.app/Contents/MacOS/dshr-desktop");
+        assert_eq!(
+            current_app_bundle(executable).as_deref(),
+            Some(Path::new("/Applications/dshr.app"))
+        );
+        assert!(current_app_bundle(Path::new("/tmp/dshr")).is_none());
     }
 
     #[test]

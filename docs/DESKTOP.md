@@ -52,8 +52,9 @@ scripts/package-desktop.sh 0.1.0
 
 `--check` проверяет запуск sidecar-сервера без окна. Обновления: «Check for updates…» и фоновая проверка GitHub Releases; «Download update…»
 скачивает macOS zip, сверяет SHA256SUMS, распаковывает в `<home>/updates/<version>` и
-показывает в Finder. Тихая установка/замена приложения не выполняется — пользователь
-заменяет `.app` сам (как при открытии DMG в оригинале). Recovery-окна и режимы окна
+показывает в Finder. Трей **Install downloaded update…** (macOS) запускает helper:
+он ждёт выхода приложения, заменяет текущий `.app` и открывает новый. Замена
+пользовательская (кнопка в трее), notarization нет. Recovery-окна и режимы окна
 (compatibility/extended/enhanced) пока не реализованы — это следующий
 срез desktop; матрица — [PARITY.md](PARITY.md).
 
