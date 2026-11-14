@@ -44,6 +44,7 @@ pub struct TuiOptions {
     pub output_limit: usize,
     pub mode: PermissionMode,
     pub lang: Lang,
+    pub auto_title: bool,
 }
 
 enum Command {
@@ -211,6 +212,13 @@ fn spawn_agent(
                 workspace,
                 approver,
             };
+            let title_provider = if options.auto_title {
+                Some(std::sync::Arc::clone(&options.provider))
+            } else {
+                None
+            };
+            let title_store = std::sync::Arc::clone(&options.store);
+            let mut title_requested = false;
             let mut agent = Agent::new(
                 options.provider,
                 options.tools,
@@ -231,6 +239,25 @@ fn spawn_agent(
                 match command {
                     Command::Quit => break,
                     Command::Prompt(prompt) => {
+                        if let Some(provider) = &title_provider
+                            && !title_requested
+                            && agent.session().header.title.is_none()
+                            && !matches!(provider.name(), "replay" | "scripted" | "mock")
+                        {
+                            title_requested = true;
+                            let provider = std::sync::Arc::clone(provider);
+                            let store = std::sync::Arc::clone(&title_store);
+                            let session_id = agent.session().header.id.to_string();
+                            let title_prompt = prompt.clone();
+                            tokio::spawn(async move {
+                                if let Ok(Some(title)) =
+                                    dshr_agent::generate_title(provider.as_ref(), &title_prompt)
+                                        .await
+                                {
+                                    let _ = store.set_title(&session_id, &title);
+                                }
+                            });
+                        }
                         let token = CancellationToken::new();
                         if let Ok(mut slot) = cancel.lock() {
                             *slot = Some(token.clone());

@@ -32,7 +32,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | LLM-провайдеры, tool-loop, сессии, resume/fork/rewind, compaction | DeepSeek + OpenAI-совместимые | ✅ |
 | Инструменты fs/shell/search/todo/present/web | есть | ✅ |
 | `apply_patch` (DSH-формат) | есть, multi-file add/update/delete/move | ✅ |
-| LLM-заголовки сессий | `run` и HTTP server генерируют заголовок провайдером (DSH-промпт), fallback — первая строка; TUI пока нет | ⚠️ |
+| LLM-заголовки сессий | `run`, HTTP server и TUI генерируют заголовок провайдером (DSH-промпт), fallback — первая строка | ✅ |
 | Импорт сессий DSH v4 | `sessions import` (zstd JSONL → наша модель, title/tool calls) | ✅ |
 | `ask_user` | TUI-модалка и Web-диалог через observer; headless/ACP fail-closed | ✅ |
 | persistent bash, diff-view | нет | ❌ |
