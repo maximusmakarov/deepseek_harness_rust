@@ -48,7 +48,8 @@ Safe mode пишет маркер `<home>/desktop-safe-mode` и передаёт
 API key, base URL для OpenAI-совместимого); настройки пишутся в `<home>/desktop.env`
 с правами `0600` и передаются дочернему `dshr serve`. Tray → Provider setup… меняет
 их и перезапускает shell. Ошибка старта открывает отдельное recovery-окно (data URL): Retry, Safe mode,
-Export diagnostics, Quit; кнопки вызывают Tauri-команду `recovery_action`. `--export-diagnostics` собирает `system-info.txt`,
+Export diagnostics, Open config folder, Quit и кнопки профилей; кнопки вызывают
+Tauri-команду `recovery_action` (профиль переключается и перезапускает shell). `--export-diagnostics` собирает `system-info.txt`,
 `desktop.log`, вывод `dshr doctor` и упаковывает в `dshr-diagnostics-*.tar.gz`.
 
 Сборка `.app` (macOS):

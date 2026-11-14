@@ -1376,13 +1376,19 @@ fn recovery_action(app: tauri::AppHandle, action: String) {
             let _ = std::fs::write(home.join("desktop-safe-mode"), "1\n");
             app.restart()
         }
-        "diagnostics" => {
-            match export_diagnostics() {
-                Ok(path) => notify("diagnostics exported", &path.display().to_string()),
-                Err(error) => notify("diagnostics failed", &error.to_string()),
-            }
-        }
+        "diagnostics" => match export_diagnostics() {
+            Ok(path) => notify("diagnostics exported", &path.display().to_string()),
+            Err(error) => notify("diagnostics failed", &error.to_string()),
+        },
         "quit" => app.exit(0),
+        "config" => {
+            let _ = Command::new("open").arg(&home).spawn();
+        }
+        action if action.starts_with("profile:") => {
+            let name = action.trim_start_matches("profile:");
+            let _ = std::fs::write(home.join("desktop-profile"), format!("{name}\n"));
+            app.restart()
+        }
         _ => {}
     }
 }
@@ -1391,10 +1397,7 @@ fn show_recovery_window(
     app: &tauri::AppHandle,
     error: &dyn std::fmt::Display,
 ) -> tauri::Result<()> {
-    let error = escape_html(&error.to_string());
-    let html = format!(
-        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button>"
-    );
+    let html = recovery_html(error, &home_dir());
     let url: tauri::Url = data_url(&html)
         .parse::<tauri::Url>()
         .map_err(tauri::Error::InvalidUrl)?;
@@ -1403,6 +1406,19 @@ fn show_recovery_window(
         .inner_size(620.0, 420.0)
         .build()?;
     Ok(())
+}
+
+fn recovery_html(error: &dyn std::fmt::Display, home: &Path) -> String {
+    let error = escape_html(&error.to_string());
+    let mut profiles = String::new();
+    for profile in list_profiles(home) {
+        profiles.push_str(&format!(
+            "<button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'profile:{profile}'}})\">{profile}</button>"
+        ));
+    }
+    format!(
+        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'config'}})\">Open config folder</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button><h3>Profiles</h3>{profiles}"
+    )
 }
 
 fn data_url(html: &str) -> String {
@@ -1700,6 +1716,21 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn recovery_window_lists_profiles_and_escapes_errors() {
+        let home =
+            std::env::temp_dir().join(format!("dshr-recovery-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("home");
+        let profile = home.join("profiles").join("work");
+        std::fs::create_dir_all(&profile).expect("profile");
+        std::fs::write(profile.join("config.yaml"), "profile: work\n").expect("config");
+        let html = recovery_html(&"<boom>", &home);
+        assert!(html.contains("profile:work"), "{html}");
+        assert!(html.contains("&lt;boom&gt;"));
+        assert!(html.contains("Open config folder"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
