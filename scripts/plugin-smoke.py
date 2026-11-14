@@ -260,6 +260,74 @@ window.__ModuleLoader__.load({
 });
 """
 
+ORDERED_MANIFEST = {
+    "name": "@smoke/ordered",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js", "inject": ["demo6"]}},
+}
+
+ORDERED_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "ordered", description: "ordered", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+ORDERED_CLIENT = """
+export default function activate(ctx) {
+  ctx.slots.register({ name: "panel", id: "ordered-panel", title: "Ordered" }, (el) => {
+    el.innerHTML = "<h3>Ordered panel</h3>";
+  });
+}
+"""
+
+ERROR_MANIFEST = {
+    "name": "@smoke/error",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+}
+
+ERROR_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "broken", description: "broken", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+ERROR_CLIENT = """
+export default function activate() {
+  throw new Error("boom from plugin");
+}
+"""
+
+EXPORTS_MANIFEST = {
+    "name": "@smoke/exports",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web"}},
+    "exports": {"./client": {"browser": "./browser.js", "default": "./browser.js"}},
+}
+
+EXPORTS_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "exports", description: "exports", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+EXPORTS_CLIENT = """
+export default function activate(ctx) {
+  ctx.slots.register({ name: "panel", id: "exports-panel", title: "Exports" }, (el) => {
+    el.innerHTML = "<h3>Exports map panel</h3>";
+  });
+}
+"""
+
 EAGER_MANIFEST = {
     "name": "@smoke/eager",
     "version": "1.0.0",
@@ -294,12 +362,18 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("demo2", EAGER_MANIFEST, EAGER_PLUGIN, EAGER_CLIENT),
         ("demo3", ASSETS_MANIFEST, ASSETS_PLUGIN, ASSETS_CLIENT),
         ("demo4", LEGACY_MANIFEST, LEGACY_PLUGIN, LEGACY_CLIENT),
+        ("demo5", ERROR_MANIFEST, ERROR_PLUGIN, ERROR_CLIENT),
+        ("demo6", EXPORTS_MANIFEST, EXPORTS_PLUGIN, EXPORTS_CLIENT),
+        ("demo7", ORDERED_MANIFEST, ORDERED_PLUGIN, ORDERED_CLIENT),
     ]:
         directory = workspace / name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
         (directory / "plugin.mjs").write_text(plugin, encoding="utf-8")
         (directory / "client.js").write_text(client, encoding="utf-8")
+        if name == "demo6":
+            # Resolved through exports["./client"], not dsh.client.entry.
+            (directory / "browser.js").write_text(client, encoding="utf-8")
         if name == "demo3":
             chunk = directory / "lib" / "panel.js"
             chunk.parent.mkdir(parents=True, exist_ok=True)
@@ -486,7 +560,7 @@ def run(args: argparse.Namespace) -> int:
         )
         with urllib.request.urlopen(request, timeout=10) as response:
             clients = json.load(response)["clients"]
-        check("lists every client half", len(clients) == 4, str(clients))
+        check("lists every client half", len(clients) == 7, str(clients))
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -610,6 +684,47 @@ def run(args: argparse.Namespace) -> int:
             )
             check("module-table bundle activates through apply(ctx)", True)
             legacy.close()
+
+        # A bundle that throws surfaces its error in the shell, not a blank panel.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo5"},
+        )
+        wait_until(
+            lambda: "boom from plugin" in str(shell.eval("document.querySelector('.plugin-stage-head .tool')?.textContent")),
+            label="plugin error surfaces",
+        )
+        check("a failing bundle reports its error to the shell", True)
+
+        # exports["./client"] resolution renders too.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo6"},
+        )
+        wait_until(
+            lambda: frame_target(debug_port, "demo6") is not None,
+            label="exports frame mounts",
+        )
+        check(
+            "exports-map bundle renders",
+            wait_for_frame_text(debug_port, "demo6", "Exports map panel"),
+        )
+
+        # inject ordering: opening demo7 mounts its dependency (demo6) first.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo7"},
+        )
+        wait_until(
+            lambda: frame_target(debug_port, "demo7") is not None,
+            label="ordered frame mounts",
+        )
+        order = str(shell.eval("[...document.querySelectorAll('iframe')].map(f => f.id).join(',')"))
+        check(
+            "inject dependency is mounted before the panel that needs it",
+            order.index("plugin-frame-demo6") < order.index("plugin-frame-demo7"),
+            order,
+        )
 
         # Host actions: a plugin can compose into the prompt and notify.
         shell.call(
