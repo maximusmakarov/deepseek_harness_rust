@@ -1485,6 +1485,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dshr-perf"
+version = "0.1.0"
+dependencies = [
+ "dshr-core",
+ "dshr-llm",
+ "dshr-prompt",
+ "dshr-search",
+ "dshr-session",
+ "dshr-session-jsonl",
+ "tempfile",
+]
+
+[[package]]
 name = "dshr-prompt"
 version = "0.1.0"
 dependencies = [

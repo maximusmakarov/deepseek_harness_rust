@@ -116,7 +116,11 @@ async fn main() -> ExitCode {
     let code = match run(cli).await {
         Ok(code) => ExitCode::from(code),
         Err(err) => {
-            eprintln!("error[{}]: {err}", err.code());
+            eprintln!(
+                "{}[{}]: {err}",
+                dshr_i18n::current().error_label(),
+                err.code()
+            );
             ExitCode::from(2)
         }
     };

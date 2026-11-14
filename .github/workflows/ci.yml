@@ -99,6 +99,73 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: cargo test --manifest-path crates/desktop/Cargo.toml
 
+  evals:
+    name: evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: eval suite (10 tasks, success + cost budgets)
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p dshr-cli --test evals -- --nocapture 2>&1 | tee evals.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: |
+            target/evals/report.json
+            evals.log
+          if-no-files-found: ignore
+
+  web-e2e:
+    name: web e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p dshr-cli
+      - name: chat -> approval -> tool -> journal in headless Chrome
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/web-e2e.py --binary target/debug/dshr 2>&1 | tee web-e2e.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-e2e-log
+          path: web-e2e.log
+          if-no-files-found: ignore
+
+  perf:
+    name: perf budgets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: ARCHITECTURE §20 budgets
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test -p dshr-perf --release -- --nocapture 2>&1 | tee perf.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## Performance budget regressions"
+              echo '```'
+              grep -a -E "^(PASS|FAIL|SKIP)" perf.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest

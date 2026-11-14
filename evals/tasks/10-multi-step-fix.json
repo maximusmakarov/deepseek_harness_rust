@@ -1,0 +1,128 @@
+{
+  "id": "10-multi-step-fix",
+  "model": "deepseek-flash",
+  "title": "Цикл из трёх инструментов: read → edit → bash",
+  "prompt": "Fix the add function so it adds, then verify the fix landed.",
+  "files": {
+    "src/lib.rs": "pub fn add(a: i32, b: i32) -> i32 { a - b }\n"
+  },
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "read"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"path\": \"src/lib.rs\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 18,
+          "output_tokens": 5
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_2",
+        "name": "edit"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"path\": \"src/lib.rs\", \"old_string\": \"a - b\", \"new_string\": \"a + b\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 30,
+          "output_tokens": 12
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_3",
+        "name": "bash"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"command\": \"echo ok > check.log\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 8
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Fixed and verified the add function."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 60,
+          "output_tokens": 12
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "files_contain": {
+      "src/lib.rs": "a + b",
+      "check.log": "ok"
+    },
+    "stdout_contains": [
+      "Fixed and verified"
+    ],
+    "steps_max": 4,
+    "tool_calls_max": 3,
+    "tokens_max": 220
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "id": "09-subagent-delegate",
+  "model": "deepseek-flash",
+  "title": "Делегировать подзадачу субагенту",
+  "prompt": "Delegate the counting task to a subagent.",
+  "files": {},
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "subagent"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"prompt\": \"child task: answer 42\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 24,
+          "output_tokens": 8
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "child result 42"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 70,
+          "output_tokens": 6
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "42 received from the subagent."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 90,
+          "output_tokens": 10
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "stdout_contains": [
+      "42 received"
+    ],
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 250
+  }
+}

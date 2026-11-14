@@ -82,86 +82,59 @@ pub fn run(loader: &ConfigLoader, args: &DoctorArgs) -> Result<u8> {
 
 fn print_human(report: &Report) {
     let lang = current();
-    let ru = lang.is_ru();
     println!("dshr doctor");
-    println!(
-        "  {:<12} {}",
-        if ru { "версия" } else { "version" },
-        report.version
-    );
+    println!("  {:<12} {}", lang.doctor_version(), report.version);
     println!(
         "  {:<12} {} {}",
-        if ru { "платформа" } else { "platform" },
+        lang.doctor_platform(),
         report.os,
         report.arch
     );
     println!(
         "  {:<12} {} ({})",
-        if ru { "каталог" } else { "home" },
+        lang.doctor_home(),
         report.home,
         if report.home_exists {
-            if ru { "есть" } else { "present" }
-        } else if ru {
-            "нет"
+            lang.present(true)
         } else {
-            "missing"
+            lang.missing()
         }
     );
     println!(
         "  {:<12} {} ({})",
-        if ru { "конфиг" } else { "config" },
+        lang.doctor_config(),
         report.config_path,
-        if report.config_found {
-            if ru { "найден" } else { "found" }
-        } else if ru {
-            "нет"
-        } else {
-            "missing"
-        }
+        file_status(lang, report.config_found)
     );
     println!(
         "  {:<12} {}: {} ({})",
-        if ru { "профиль" } else { "profile" },
+        lang.doctor_profile(),
         report.profile,
         report.profile_path,
-        if report.profile_found {
-            if ru { "найден" } else { "found" }
-        } else if ru {
-            "нет"
-        } else {
-            "missing"
-        }
+        file_status(lang, report.profile_found)
     );
     println!(
         "  {:<12} {}/{}",
-        if ru { "провайдер" } else { "provider" },
+        lang.doctor_provider(),
         report.provider,
         report.model
     );
     println!(
         "  {:<12} DSH_DEEPSEEK_TOKEN={}, DEEPSEEK_API_KEY={}, ROUTERAI_API_KEY={}",
-        if ru { "ключи" } else { "credentials" },
-        present(lang, report.credentials.dsh_deepseek_token),
-        present(lang, report.credentials.deepseek_api_key),
-        present(lang, report.credentials.routerai_api_key),
+        lang.doctor_credentials(),
+        lang.present(report.credentials.dsh_deepseek_token),
+        lang.present(report.credentials.deepseek_api_key),
+        lang.present(report.credentials.routerai_api_key),
     );
-    println!(
-        "  {:<12} {}",
-        if ru { "песочница" } else { "sandbox" },
-        report.sandbox
-    );
+    println!("  {:<12} {}", lang.doctor_sandbox(), report.sandbox);
     if let Some(error) = &report.error {
-        println!("  {:<12} {error}", if ru { "ошибка" } else { "error" });
+        println!("  {:<12} {error}", lang.error_label());
     }
-    println!(
-        "{}: {}",
-        if ru { "статус" } else { "status" },
-        report.status
-    );
+    println!("{}: {}", lang.doctor_status(), report.status);
 }
 
-fn present(lang: Lang, value: bool) -> &'static str {
-    lang.present(value)
+fn file_status(lang: Lang, exists: bool) -> &'static str {
+    if exists { lang.found() } else { lang.missing() }
 }
 
 fn env_present(key: &str) -> bool {

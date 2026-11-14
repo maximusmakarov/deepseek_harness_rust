@@ -24,6 +24,22 @@ pub fn current() -> Lang {
     *CURRENT.get().unwrap_or(&Lang::En)
 }
 
+/// Human-readable labels for Markdown session export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportLabels {
+    pub session: &'static str,
+    pub created: &'static str,
+    pub provider: &'static str,
+    pub model: &'static str,
+    pub cwd: &'static str,
+    pub user: &'static str,
+    pub assistant: &'static str,
+    pub thinking: &'static str,
+    pub result: &'static str,
+    pub image: &'static str,
+    pub audio: &'static str,
+}
+
 impl Lang {
     #[must_use]
     pub fn parse(value: &str) -> Self {
@@ -386,6 +402,226 @@ impl Lang {
             }
         }
     }
+
+    #[must_use]
+    pub fn export_labels(self) -> ExportLabels {
+        match self {
+            Self::Ru => ExportLabels {
+                session: "Сессия",
+                created: "создана",
+                provider: "провайдер",
+                model: "модель",
+                cwd: "каталог",
+                user: self.role_user(),
+                assistant: self.role_assistant(),
+                thinking: "размышления",
+                result: "результат",
+                image: "изображение",
+                audio: "аудио",
+            },
+            Self::En => ExportLabels {
+                session: "Session",
+                created: "created",
+                provider: "provider",
+                model: "model",
+                cwd: "cwd",
+                user: self.role_user(),
+                assistant: self.role_assistant(),
+                thinking: "thinking",
+                result: "result",
+                image: "image",
+                audio: "audio",
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn session_created_at(self, at: &str) -> String {
+        match self {
+            Self::Ru => format!("создана:  {at}"),
+            Self::En => format!("created:  {at}"),
+        }
+    }
+
+    #[must_use]
+    pub fn session_provider(self, provider: &str) -> String {
+        match self {
+            Self::Ru => format!("провайдер: {provider}"),
+            Self::En => format!("provider: {provider}"),
+        }
+    }
+
+    #[must_use]
+    pub fn session_model(self, model: &str) -> String {
+        match self {
+            Self::Ru => format!("модель:   {model}"),
+            Self::En => format!("model:    {model}"),
+        }
+    }
+
+    #[must_use]
+    pub fn session_cwd(self, cwd: &str) -> String {
+        match self {
+            Self::Ru => format!("каталог:  {cwd}"),
+            Self::En => format!("cwd:      {cwd}"),
+        }
+    }
+
+    #[must_use]
+    pub fn role_system(self) -> &'static str {
+        match self {
+            Self::Ru => "Система",
+            Self::En => "System",
+        }
+    }
+
+    #[must_use]
+    pub fn role_tool(self) -> &'static str {
+        match self {
+            Self::Ru => "Инструмент",
+            Self::En => "Tool",
+        }
+    }
+
+    #[must_use]
+    pub fn npm_no_packages(self) -> &'static str {
+        match self {
+            Self::Ru => "(пакетов нет)",
+            Self::En => "(no packages)",
+        }
+    }
+
+    #[must_use]
+    pub fn npm_homepage(self, url: &str) -> String {
+        match self {
+            Self::Ru => format!("домашняя страница: {url}"),
+            Self::En => format!("homepage: {url}"),
+        }
+    }
+
+    #[must_use]
+    pub fn npm_repository(self, url: &str) -> String {
+        match self {
+            Self::Ru => format!("репозиторий: {url}"),
+            Self::En => format!("repository: {url}"),
+        }
+    }
+
+    #[must_use]
+    pub fn plugin_updated(self, name: &str) -> String {
+        match self {
+            Self::Ru => format!("плагин обновлён: {name}"),
+            Self::En => format!("updated plugin {name}"),
+        }
+    }
+
+    #[must_use]
+    pub fn plugin_state(self, name: &str, enabled: bool) -> String {
+        format!(
+            "{name}: {}",
+            if enabled {
+                self.enabled()
+            } else {
+                self.disabled()
+            }
+        )
+    }
+
+    #[must_use]
+    pub fn found(self) -> &'static str {
+        match self {
+            Self::Ru => "найден",
+            Self::En => "found",
+        }
+    }
+
+    #[must_use]
+    pub fn missing(self) -> &'static str {
+        match self {
+            Self::Ru => "нет",
+            Self::En => "missing",
+        }
+    }
+
+    #[must_use]
+    pub fn error_label(self) -> &'static str {
+        match self {
+            Self::Ru => "ошибка",
+            Self::En => "error",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_version(self) -> &'static str {
+        match self {
+            Self::Ru => "версия",
+            Self::En => "version",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_platform(self) -> &'static str {
+        match self {
+            Self::Ru => "платформа",
+            Self::En => "platform",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_home(self) -> &'static str {
+        match self {
+            Self::Ru => "каталог",
+            Self::En => "home",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_config(self) -> &'static str {
+        match self {
+            Self::Ru => "конфиг",
+            Self::En => "config",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_profile(self) -> &'static str {
+        match self {
+            Self::Ru => "профиль",
+            Self::En => "profile",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_provider(self) -> &'static str {
+        match self {
+            Self::Ru => "провайдер",
+            Self::En => "provider",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_credentials(self) -> &'static str {
+        match self {
+            Self::Ru => "ключи",
+            Self::En => "credentials",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_sandbox(self) -> &'static str {
+        match self {
+            Self::Ru => "песочница",
+            Self::En => "sandbox",
+        }
+    }
+
+    #[must_use]
+    pub fn doctor_status(self) -> &'static str {
+        match self {
+            Self::Ru => "статус",
+            Self::En => "status",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -402,5 +638,100 @@ mod tests {
                 .approval("bash", "echo", "shell")
                 .contains("Разрешить")
         );
+    }
+
+    fn assert_localized<T: PartialEq + ToString + std::fmt::Debug>(ru: T, en: T) {
+        assert_ne!(ru, en);
+        assert!(!ru.to_string().is_empty());
+        assert!(!en.to_string().is_empty());
+    }
+
+    #[test]
+    fn session_labels_differ_between_languages() {
+        assert_localized(
+            Lang::Ru.session_created_at("2026-01-01"),
+            Lang::En.session_created_at("2026-01-01"),
+        );
+        assert_localized(
+            Lang::Ru.session_provider("deepseek"),
+            Lang::En.session_provider("deepseek"),
+        );
+        assert_localized(
+            Lang::Ru.session_model("flash"),
+            Lang::En.session_model("flash"),
+        );
+        assert_localized(Lang::Ru.session_cwd("/tmp"), Lang::En.session_cwd("/tmp"));
+        assert_localized(Lang::Ru.role_system(), Lang::En.role_system());
+        assert_localized(Lang::Ru.role_tool(), Lang::En.role_tool());
+    }
+
+    #[test]
+    fn export_labels_differ_between_languages() {
+        let ru = Lang::Ru.export_labels();
+        let en = Lang::En.export_labels();
+        for (ru, en) in [
+            (ru.session, en.session),
+            (ru.created, en.created),
+            (ru.provider, en.provider),
+            (ru.model, en.model),
+            (ru.cwd, en.cwd),
+            (ru.user, en.user),
+            (ru.assistant, en.assistant),
+            (ru.thinking, en.thinking),
+            (ru.result, en.result),
+            (ru.image, en.image),
+            (ru.audio, en.audio),
+        ] {
+            assert!(!ru.is_empty(), "ru label is empty");
+            assert!(!en.is_empty(), "en label is empty");
+            assert_ne!(ru, en, "labels collide: {ru}");
+        }
+    }
+
+    #[test]
+    fn plugin_and_doctor_labels_differ_between_languages() {
+        assert_localized(Lang::Ru.npm_no_packages(), Lang::En.npm_no_packages());
+        assert_localized(
+            Lang::Ru.npm_homepage("https://example.test"),
+            Lang::En.npm_homepage("https://example.test"),
+        );
+        assert_localized(
+            Lang::Ru.npm_repository("https://example.test"),
+            Lang::En.npm_repository("https://example.test"),
+        );
+        assert_localized(
+            Lang::Ru.plugin_updated("demo"),
+            Lang::En.plugin_updated("demo"),
+        );
+        assert_localized(
+            Lang::Ru.plugin_state("demo", true),
+            Lang::En.plugin_state("demo", true),
+        );
+        assert_localized(
+            Lang::Ru.plugin_state("demo", false),
+            Lang::En.plugin_state("demo", false),
+        );
+        assert_localized(Lang::Ru.found(), Lang::En.found());
+        assert_localized(Lang::Ru.missing(), Lang::En.missing());
+        assert_localized(Lang::Ru.error_label(), Lang::En.error_label());
+        assert_localized(Lang::Ru.doctor_version(), Lang::En.doctor_version());
+        assert_localized(Lang::Ru.doctor_platform(), Lang::En.doctor_platform());
+        assert_localized(Lang::Ru.doctor_home(), Lang::En.doctor_home());
+        assert_localized(Lang::Ru.doctor_config(), Lang::En.doctor_config());
+        assert_localized(Lang::Ru.doctor_profile(), Lang::En.doctor_profile());
+        assert_localized(Lang::Ru.doctor_provider(), Lang::En.doctor_provider());
+        assert_localized(Lang::Ru.doctor_credentials(), Lang::En.doctor_credentials());
+        assert_localized(Lang::Ru.doctor_sandbox(), Lang::En.doctor_sandbox());
+        assert_localized(Lang::Ru.doctor_status(), Lang::En.doctor_status());
+    }
+
+    #[test]
+    fn sessions_list_labels_are_localized() {
+        assert_ne!(Lang::Ru.col_created(), Lang::En.col_created());
+        assert_ne!(Lang::Ru.col_model(), Lang::En.col_model());
+        assert_ne!(Lang::Ru.col_turns(), Lang::En.col_turns());
+        assert_ne!(Lang::Ru.no_sessions(), Lang::En.no_sessions());
+        assert!(!Lang::Ru.no_sessions().is_empty());
+        assert!(!Lang::En.no_sessions().is_empty());
     }
 }

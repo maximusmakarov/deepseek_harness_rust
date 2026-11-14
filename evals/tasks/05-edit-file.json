@@ -1,0 +1,68 @@
+{
+  "id": "05-edit-file",
+  "model": "deepseek-flash",
+  "title": "Точечно поднять версию через edit",
+  "prompt": "Bump the version in Cargo.toml from 0.1.0 to 0.2.0.",
+  "files": {
+    "Cargo.toml": "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n"
+  },
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "edit"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"path\": \"Cargo.toml\", \"old_string\": \"0.1.0\", \"new_string\": \"0.2.0\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 22,
+          "output_tokens": 9
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Bumped the version to 0.2.0."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 45,
+          "output_tokens": 8
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "files_contain": {
+      "Cargo.toml": "version = \"0.2.0\""
+    },
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 120
+  }
+}

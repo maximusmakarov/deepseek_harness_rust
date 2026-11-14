@@ -1,0 +1,66 @@
+{
+  "id": "07-bash-log",
+  "model": "deepseek-flash",
+  "title": "Выполнить команду в песочнице",
+  "prompt": "Record the build result in build.log.",
+  "files": {},
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "bash"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"command\": \"echo ok > build.log\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 16,
+          "output_tokens": 7
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Recorded the build result."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 48,
+          "output_tokens": 9
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "files_contain": {
+      "build.log": "ok"
+    },
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 120
+  }
+}

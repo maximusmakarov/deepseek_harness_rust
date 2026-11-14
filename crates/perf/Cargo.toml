@@ -1,0 +1,17 @@
+[package]
+name = "dshr-perf"
+description = "Performance budget harness for ARCHITECTURE §20"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+dshr-core.workspace = true
+dshr-llm.workspace = true
+dshr-prompt.workspace = true
+dshr-search.workspace = true
+dshr-session.workspace = true
+dshr-session-jsonl.workspace = true
+tempfile.workspace = true

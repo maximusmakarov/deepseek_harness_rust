@@ -24,6 +24,7 @@ members = [
     "crates/office",
     "crates/browser",
     "crates/search",
+    "crates/perf",
     "crates/wasm",
     "crates/cordis",
     "crates/sign",

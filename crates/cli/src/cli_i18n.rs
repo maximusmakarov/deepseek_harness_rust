@@ -63,6 +63,11 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::Ru, "sessions.title") => "Задать заголовок сессии",
         (Lang::Ru, "sessions.search") => "Полнотекстовый поиск по сессиям",
         (Lang::Ru, "sessions.reindex") => "Построить или перестроить FTS5-индекс",
+        (Lang::Ru, "sessions.import") => "Импортировать сессию DSH v4 (session.v4.jsonl.zstd)",
+        (Lang::Ru, "sessions.import.path") => "Каталог или файл сессии",
+        (Lang::Ru, "sessions.import.provider") => "Метка провайдера в заголовке импорта",
+        (Lang::Ru, "sessions.import.model") => "Метка модели в заголовке импорта",
+        (Lang::Ru, "sessions.import.all") => "Импортировать все файлы сессий под путём",
         (Lang::Ru, "schedule.add") => "Добавить расписание",
         (Lang::Ru, "schedule.list") => "Список расписаний",
         (Lang::Ru, "schedule.remove") => "Удалить расписание",
@@ -125,6 +130,11 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (_, "sessions.title") => "Set a session title",
         (_, "sessions.search") => "Full-text search across sessions",
         (_, "sessions.reindex") => "Build or rebuild the FTS5 search index",
+        (_, "sessions.import") => "Import a DSH v4 session (session.v4.jsonl.zstd)",
+        (_, "sessions.import.path") => "Session directory or file",
+        (_, "sessions.import.provider") => "Provider label stored in the imported header",
+        (_, "sessions.import.model") => "Model label stored in the imported header",
+        (_, "sessions.import.all") => "Import every session file under the path",
         (_, "schedule.add") => "Add a schedule",
         (_, "schedule.list") => "List schedules",
         (_, "schedule.remove") => "Remove a schedule",
@@ -153,6 +163,29 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::Ru, "plugin.args") => "Аргумент (можно повторять)",
         (Lang::Ru, "plugin.env") => "Переменная окружения KEY=VALUE (можно повторять)",
         (Lang::Ru, "plugin.url") => "Streamable HTTP endpoint вместо команды",
+        (Lang::Ru, "plugin.npm") => "Установка и управление npm/Cordis-плагинами",
+        (Lang::Ru, "plugin.npm.add") => "Установить npm-пакет как Cordis-плагин",
+        (Lang::Ru, "plugin.npm.add.spec") => "npm-спецификация: пакет, @scope/name@version, file:…",
+        (Lang::Ru, "plugin.npm.add.name") => {
+            "Имя конфига и пакета, если не выводится из спецификации"
+        }
+        (Lang::Ru, "plugin.npm.remove") => "Удалить установленный Cordis-плагин",
+        (Lang::Ru, "plugin.npm.remove.name") => "Имя плагина",
+        (Lang::Ru, "plugin.npm.update") => "Обновить установленные Cordis-плагины",
+        (Lang::Ru, "plugin.npm.update.name") => "Имя плагина; обновить все, если не задано",
+        (Lang::Ru, "plugin.npm.enable") => "Включить Cordis-плагин",
+        (Lang::Ru, "plugin.npm.enable.name") => "Имя плагина",
+        (Lang::Ru, "plugin.npm.disable") => "Выключить Cordis-плагин без удаления",
+        (Lang::Ru, "plugin.npm.disable.name") => "Имя плагина",
+        (Lang::Ru, "plugin.npm.list") => "Список настроенных Cordis-плагинов",
+        (Lang::Ru, "plugin.npm.list.json") => "Вывести JSON",
+        (Lang::Ru, "plugin.npm.search") => "Искать Cordis-плагины в npm registry",
+        (Lang::Ru, "plugin.npm.search.query") => "Запрос к npm registry",
+        (Lang::Ru, "plugin.npm.search.limit") => "Максимум совпадений",
+        (Lang::Ru, "plugin.npm.search.json") => "Вывести JSON",
+        (Lang::Ru, "plugin.npm.info") => "Показать метаданные npm-пакета",
+        (Lang::Ru, "plugin.npm.info.name") => "Имя npm-пакета",
+        (Lang::Ru, "plugin.npm.info.json") => "Вывести JSON",
         (Lang::Ru, "serve.bind") => "Адрес привязки",
         (Lang::Ru, "serve.port") => "Порт (0 — свободный)",
         (Lang::Ru, "serve.token") => "Bearer-токен; генерируется, если не задан",
@@ -216,6 +249,29 @@ fn t(lang: Lang, key: &str) -> &'static str {
         (Lang::En, "plugin.args") => "Argument (repeatable)",
         (Lang::En, "plugin.env") => "Environment entry KEY=VALUE (repeatable)",
         (Lang::En, "plugin.url") => "Streamable HTTP endpoint instead of a command",
+        (Lang::En, "plugin.npm") => "Install and manage npm/Cordis plugins",
+        (Lang::En, "plugin.npm.add") => "Install an npm package as a Cordis plugin",
+        (Lang::En, "plugin.npm.add.spec") => "npm spec (package, @scope/name@version, file:…)",
+        (Lang::En, "plugin.npm.add.name") => {
+            "Config name and package name when it cannot be derived from the spec"
+        }
+        (Lang::En, "plugin.npm.remove") => "Remove an installed Cordis plugin",
+        (Lang::En, "plugin.npm.remove.name") => "Plugin name",
+        (Lang::En, "plugin.npm.update") => "Update installed Cordis plugins",
+        (Lang::En, "plugin.npm.update.name") => "Plugin name; all plugins when omitted",
+        (Lang::En, "plugin.npm.enable") => "Enable a Cordis plugin",
+        (Lang::En, "plugin.npm.enable.name") => "Plugin name",
+        (Lang::En, "plugin.npm.disable") => "Disable a Cordis plugin without removing it",
+        (Lang::En, "plugin.npm.disable.name") => "Plugin name",
+        (Lang::En, "plugin.npm.list") => "List configured Cordis plugins",
+        (Lang::En, "plugin.npm.list.json") => "Emit JSON",
+        (Lang::En, "plugin.npm.search") => "Search the npm registry for Cordis plugins",
+        (Lang::En, "plugin.npm.search.query") => "Registry query",
+        (Lang::En, "plugin.npm.search.limit") => "Maximum number of hits",
+        (Lang::En, "plugin.npm.search.json") => "Emit JSON",
+        (Lang::En, "plugin.npm.info") => "Show npm package metadata",
+        (Lang::En, "plugin.npm.info.name") => "Package name",
+        (Lang::En, "plugin.npm.info.json") => "Emit JSON",
         (Lang::En, "serve.bind") => "Bind address",
         (Lang::En, "serve.port") => "Port (0 selects a free port)",
         (Lang::En, "serve.token") => "Bearer token; generated when omitted",
@@ -390,6 +446,7 @@ pub fn localize(mut command: Command, lang: Lang) -> Command {
             ("title", "sessions.title"),
             ("search", "sessions.search"),
             ("reindex", "sessions.reindex"),
+            ("import", "sessions.import"),
         ] {
             c = c.mut_subcommand(name, |s| {
                 let mut s = s.about(t(lang, key));
@@ -428,6 +485,16 @@ pub fn localize(mut command: Command, lang: Lang) -> Command {
                     "title" => {
                         for (arg, key) in [("id", "sessions.id"), ("title", "sessions.title_value")]
                         {
+                            s = s.mut_arg(arg, |a| a.help(t(lang, key)));
+                        }
+                    }
+                    "import" => {
+                        for (arg, key) in [
+                            ("path", "sessions.import.path"),
+                            ("provider", "sessions.import.provider"),
+                            ("model", "sessions.import.model"),
+                            ("all", "sessions.import.all"),
+                        ] {
                             s = s.mut_arg(arg, |a| a.help(t(lang, key)));
                         }
                     }
@@ -487,6 +554,37 @@ pub fn localize(mut command: Command, lang: Lang) -> Command {
                 "plugin",
                 &["manifest", "key"],
             )
+        });
+        c = c.mut_subcommand("npm", |npm| {
+            let mut npm = npm.about(t(lang, "plugin.npm"));
+            for (name, key) in [
+                ("add", "plugin.npm.add"),
+                ("remove", "plugin.npm.remove"),
+                ("update", "plugin.npm.update"),
+                ("enable", "plugin.npm.enable"),
+                ("disable", "plugin.npm.disable"),
+                ("list", "plugin.npm.list"),
+                ("search", "plugin.npm.search"),
+                ("info", "plugin.npm.info"),
+            ] {
+                npm = npm.mut_subcommand(name, |s| {
+                    let s = s.about(t(lang, key));
+                    match name {
+                        "add" => with_args(s, lang, "plugin.npm.add", &["spec", "name"]),
+                        "remove" => with_args(s, lang, "plugin.npm.remove", &["name"]),
+                        "update" => with_args(s, lang, "plugin.npm.update", &["name"]),
+                        "enable" => with_args(s, lang, "plugin.npm.enable", &["name"]),
+                        "disable" => with_args(s, lang, "plugin.npm.disable", &["name"]),
+                        "list" => with_args(s, lang, "plugin.npm.list", &["json"]),
+                        "search" => {
+                            with_args(s, lang, "plugin.npm.search", &["query", "limit", "json"])
+                        }
+                        "info" => with_args(s, lang, "plugin.npm.info", &["name", "json"]),
+                        _ => s,
+                    }
+                });
+            }
+            npm
         });
         c
     });

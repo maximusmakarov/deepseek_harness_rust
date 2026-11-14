@@ -57,6 +57,8 @@ struct PackageHit {
     #[serde(default)]
     version: String,
     description: String,
+    #[serde(default)]
+    category: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -860,8 +862,26 @@ fn App() -> impl IntoView {
                 .await
             {
                 Ok(data) => {
-                    status.set(format!("session {}", data.session.id));
-                    // The next refresh makes the sidebar show it.
+                    let id = data.session.id.clone();
+                    status.set(format!("session {id}"));
+                    // Select the new session immediately: `send` refuses to run
+                    // without an active session, and the sidebar entry only
+                    // appears after a refresh.
+                    messages.set(Vec::new());
+                    streaming.set(false);
+                    approval.set(None);
+                    current.set(Some(id.clone()));
+                    connect_events(
+                        id,
+                        value.clone(),
+                        messages,
+                        streaming,
+                        busy,
+                        status,
+                        approval,
+                        question,
+                    );
+                    refresh_sessions();
                 }
                 Err(error) => status.set(format!("error: {error}")),
             }
@@ -1361,8 +1381,13 @@ fn App() -> impl IntoView {
                         view! {
                             <li>
                                 {format!(
-                                    "{} — {} · ★{:.1} ({})",
+                                    "{} — {}{} · ★{:.1} ({})",
                                     package.name,
+                                    if package.category.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!("[{}] ", package.category)
+                                    },
                                     package.description,
                                     reviews
                                         .get()

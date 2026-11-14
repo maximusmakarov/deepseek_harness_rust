@@ -79,43 +79,49 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 Легенда: **T1** — MVP (4–6 мес), **T2** — v1 (7–11 мес, включая M5b), **T3** — паритет + улучшения (13–21 мес). `—` — не планируется. Колонка DSH: ✓ — подтверждено документацией 0.2.2-rc.2, «частично» — поддержка ограничена или не подтверждена.
 
-| Возможность | DSH | T1 | T2 | T3 |
+Колонки T1/T2 — исходный план; **T3 — фактическое состояние на 14.11.2026**: ✅ закрыто и проверено,
+⚠️ закрыто частично (ограничение указано в строке), ⏸ сознательно отложено/заблокировано внешним условием.
+
+| Возможность | DSH | T1 | T2 | T3 (факт) |
 |---|---|---|---|---|
-| LLM: DeepSeek Messages, OpenAI-совместимые | ✓ | ✓ | ✓ | ✓ |
-| LLM: Anthropic, Gemini, локальные | частично | — | ✓ | ✓ |
-| Стриминг, reasoning-контент, usage | ✓ | ✓ | ✓ | ✓ |
-| Агентный цикл turn/step, отмена | ✓ | ✓ | ✓ | ✓ |
-| Инструменты: fs (read/write/edit), glob, grep | ✓ | ✓ | ✓ | ✓ |
-| Инструменты: bash (в т.ч. persistent), jobs | ✓ | bash, jobs | ✓ | ✓ |
-| Инструменты: web_search / web_fetch | ✓ | ✓ | ✓ | ✓ |
-| Инструменты: todo, ask_user, present | ✓ | ✓ | ✓ | ✓ |
-| Инструменты: subagent, workflow | ✓ | subagent | ✓ | ✓ |
-| Инструменты: schedule, goal, skill, terminal | ✓ | skill | — | ✓ |
-| Журнал сессий, resume, list, export | ✓ | ✓ | ✓ | ✓ |
-| Fork, rewind, поиск по сессиям (FTS) | ✓ | ✓ | ✓ | ✓ |
-| Compaction (сжатие контекста) | ✓ | ✓ | ✓ | ✓ |
-| Approvals + политики прав | ✓ | ✓ | ✓ | ✓ |
-| Песочница ОС (Seatbelt / bwrap+Landlock / ACL) | ✓ | — | macOS/Linux | Windows |
-| MCP-клиент (tools/resources) | ✓ | ✓ | ✓ | ✓ |
-| MCP-сервер | — (клиент) | — | ✓ | ✓ |
-| Субагенты (spawn/fork, дерево, сообщения) | ✓ | ✓ | ✓ | ✓ |
-| Фоновые задачи (jobs) | ✓ | ✓ | ✓ | ✓ |
-| Skills (`SKILL.md`) | ✓ | ✓ | ✓ | ✓ |
-| Плагины: WASM + Cordis-совместимость + sidecar | Cordis/TS | — | ✓ (host-половина) | ✓ + UI-мост |
-| Профили/бандлы/патчи конфигурации | ✓ | базово | ✓ | ✓ |
-| TUI | ✓ | ✓ | ✓ | ✓ |
-| Headless / one-shot | ✓ | ✓ | ✓ | ✓ |
-| HTTP/WS API | ✓ | — | ✓ | ✓ |
-| Web UI (чат, diff, approvals) | ✓ | — | ✓ | ✓ |
-| Desktop (Tauri) | Electron | — | — | ✓ |
-| SDK (JSON-RPC, Python/TS) | ✓ | — | ✓ | ✓ |
-| ACP | ✓ | — | — | ✓ |
-| Workflows (скриптовые мультиагентные сценарии) | ✓ | — | — | ✓ |
-| Расписания (cron) | ✓ | — | — | ✓ |
-| Agent Teams, worktrees | ✓ | — | — | ✓ |
-| LSP, Office, CUA/browser | ✓ | — | — | ✓ |
-| OTel/телеметрия | ✓ | — | — | ✓ |
-| i18n (ru/en) | ✓ | ru | ru/en | ru/en |
+| LLM: DeepSeek Messages, OpenAI-совместимые | ✓ | ✓ | ✓ | ✅ DeepSeek (Anthropic wire) + OpenAI-совместимые |
+| LLM: Anthropic, Gemini, локальные | частично | — | ✓ | ⚠️ отдельные адаптеры Anthropic/Gemini и локальные рантаймы не заведены; Anthropic-совместимый wire используется DeepSeek |
+| Стриминг, reasoning-контент, usage | ✓ | ✓ | ✓ | ✅ |
+| Агентный цикл turn/step, отмена | ✓ | ✓ | ✓ | ✅ |
+| Инструменты: fs (read/write/edit), glob, grep | ✓ | ✓ | ✓ | ✅ + `apply_patch` (DSH-формат) |
+| Инструменты: bash (в т.ч. persistent), jobs | ✓ | bash, jobs | ✓ | ✅ persistent bash на Unix, jobs durable |
+| Инструменты: web_search / web_fetch | ✓ | ✓ | ✓ | ✅ (SSRF-guard) |
+| Инструменты: todo, ask_user, present | ✓ | ✓ | ✓ | ✅ `ask_user` в TUI/Web/ACP |
+| Инструменты: subagent, workflow | ✓ | subagent | ✓ | ✅ + teams |
+| Инструменты: schedule, goal, skill, terminal | ✓ | skill | — | ⚠️ schedule/skill/terminal-шимы есть, отдельного `goal`-инструмента нет |
+| Журнал сессий, resume, list, export | ✓ | ✓ | ✓ | ✅ |
+| Fork, rewind, поиск по сессиям (FTS) | ✓ | ✓ | ✓ | ✅ FTS5 |
+| Compaction (сжатие контекста) | ✓ | ✓ | ✓ | ✅ live-гейт 100k |
+| Approvals + политики прав | ✓ | ✓ | ✓ | ✅ |
+| Песочница ОС (Seatbelt / bwrap+Landlock / ACL) | ✓ | — | macOS/Linux | ⏸ macOS Seatbelt, Linux Landlock+seccomp — ✅; Windows AppContainer — experimental, нужен реальный Windows-хост |
+| MCP-клиент (tools/resources) | ✓ | ✓ | ✓ | ✅ stdio/HTTP, resources, prompts, sampling, elicitation, OAuth refresh |
+| MCP-сервер | — (клиент) | — | ✓ | ✅ |
+| Субагенты (spawn/fork, дерево, сообщения) | ✓ | ✓ | ✓ | ✅ |
+| Фоновые задачи (jobs) | ✓ | ✓ | ✓ | ✅ durable |
+| Skills (`SKILL.md`) | ✓ | ✓ | ✓ | ✅ |
+| Плагины: WASM + Cordis-совместимость + sidecar | Cordis/TS | — | ✓ (host-половина) | ⚠️ WASM + Cordis-sidecar + host-половина ✅; клиентская половина — iframe-мост с подмножеством слотов (`panel`, `settings.section`, `message.action`, `settings.action`); полный набор React-слотов — вне scope по ADR-013 §5 |
+| Профили/бандлы/патчи конфигурации | ✓ | базово | ✓ | ✅ |
+| TUI | ✓ | ✓ | ✓ | ✅ |
+| Headless / one-shot | ✓ | ✓ | ✓ | ✅ |
+| HTTP/WS API | ✓ | — | ✓ | ✅ |
+| Web UI (чат, diff, approvals) | ✓ | — | ✓ | ⚠️ чат/стрим/карточки/approvals ✅ (e2e); визуального diff нет, экрана настроек провайдера нет |
+| Desktop (Tauri) | Electron | — | — | ⚠️ macOS `.app`+DMG ✅; Linux deb/tar.gz и Windows zip собираются, NSIS-инсталлятора нет |
+| SDK (JSON-RPC, Python/TS) | ✓ | — | ✓ | ✅ |
+| ACP | ✓ | — | — | ✅ v1 (сессии, permissions, fs, terminal, MCP, elicitation) |
+| Workflows (скриптовые мультиагентные сценарии) | ✓ | — | — | ✅ |
+| Расписания (cron) | ✓ | — | — | ✅ durable-очередь |
+| Agent Teams, worktrees | ✓ | — | — | ✅ |
+| LSP, Office, CUA/browser | ✓ | — | — | ✅ |
+| OTel/телеметрия | ✓ | — | — | ✅ OTLP/HTTP |
+| i18n (ru/en) | ✓ | ru | ru/en | ✅ TUI/CLI, справка и рантайм-сообщения ru/en; тексты ошибок намеренно en, `--json` не зависит от языка |
+| Plugin market | ✓ | — | — | ⚠️ каталог с категориями/поиском/карточкой, установка, отзывы в home; общей серверной базы отзывов нет |
+| Eval-набор и perf-гейты (DoD M7) | — | — | — | ✅ 10 задач + бюджет токенов, perf-бюджеты §20 в CI |
+| Воспроизводимые сборки/дистрибутивы | ✓ | — | — | ⚠️ архивы и бинарь воспроизводимы, brew-формула/бутылки есть; GHCR-tap и notarization — внешние блокеры |
 
 ---
 
@@ -161,7 +167,7 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M2 — Инструменты + цикл + TUI (15–20 дней)
 
-**Статус:** ядро выполнено 12.11.2026; `apply_patch`, `ask_user`, persistent bash, diff-view и eval-набор перенесены.
+**Статус:** закрыто. Ядро — 12.11.2026; `apply_patch`, `ask_user`, persistent bash, diff-view и eval-набор (10 задач + бюджеты токенов, CI-джоба `evals`) перенесены.
 
 **Содержание**
 - `dshr-tools`: реестр со scoped-регистрацией, JSON Schema (`schemars` + `jsonschema`), пайплайн `pre → execute → post`, лимиты вывода, spill в файл, параллелизм с семафором.
@@ -262,11 +268,11 @@ TUI, headless и HTTP API используют один и тот же `AgentHan
 
 ### M7 — Паритет (84–145 дней, итеративно)
 
-**Статус:** срез 13.11.2026 — workflows, agent teams, worktrees, schedules, LSP, guardrails; остальное в работе.
+**Статус:** срез 14.11.2026 — workflows, agent teams, worktrees, schedules, LSP, guardrails; DoD-гейты (eval-набор и perf-бюджеты §20 как CI-гейт) закрыты, см. ROADMAP «DoD-гейты M7».
 
 Workflows (скриптовый движок + мультиагентные сценарии), расписания, agent teams, worktrees/forge, LSP, Office, CUA/browser, OTel, i18n, упаковка (cargo-dist, brew, Docker), desktop (Tauri), ACP, plugin market.
 
-**Критерий выхода фазы** — у каждого эпика есть DoD: eval-набор (задачи + метрики успеха) и perf-бюджеты §20 ARCHITECTURE как CI-гейт; матрица §4 заполнена для T3.
+**Критерий выхода фазы** — у каждого эпика есть DoD: eval-набор (задачи + метрики успеха) и perf-бюджеты §20 ARCHITECTURE как CI-гейт (оба гейта в CI: `evals`, `perf`); матрица §4 заполнена для T3.
 
 ---
 

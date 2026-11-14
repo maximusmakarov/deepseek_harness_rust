@@ -227,6 +227,10 @@ fn list(store: &SessionStore, json: bool) -> Result<u8> {
         lang.col_model(),
         lang.col_turns()
     );
+    if summaries.is_empty() {
+        println!("{}", lang.no_sessions());
+        return Ok(0);
+    }
     for summary in summaries {
         println!(
             "{:<40} {:<26} {:<20} {}",
@@ -238,19 +242,12 @@ fn list(store: &SessionStore, json: bool) -> Result<u8> {
 
 fn show(store: &SessionStore, id: &str) -> Result<u8> {
     let session = store.open(id)?;
-    println!("# {}", session.header.id);
     let lang = current();
-    if lang.is_ru() {
-        println!("создана:  {}", session.header.created_at);
-        println!("провайдер: {}", session.header.provider);
-        println!("модель:   {}", session.header.model);
-        println!("каталог:  {}", session.header.cwd);
-    } else {
-        println!("created:  {}", session.header.created_at);
-        println!("provider: {}", session.header.provider);
-        println!("model:    {}", session.header.model);
-        println!("cwd:      {}", session.header.cwd);
-    }
+    println!("# {}", session.header.id);
+    println!("{}", lang.session_created_at(&session.header.created_at));
+    println!("{}", lang.session_provider(&session.header.provider));
+    println!("{}", lang.session_model(&session.header.model));
+    println!("{}", lang.session_cwd(&session.header.cwd));
     println!();
 
     for message in session.derive_messages() {
@@ -259,8 +256,8 @@ fn show(store: &SessionStore, id: &str) -> Result<u8> {
             match message.role {
                 Role::User => lang.role_user(),
                 Role::Assistant => lang.role_assistant(),
-                Role::System => "System",
-                Role::Tool => "Tool",
+                Role::System => lang.role_system(),
+                Role::Tool => lang.role_tool(),
             }
         );
         println!();
@@ -275,23 +272,19 @@ fn export(store: &SessionStore, id: &str, format: &str) -> Result<u8> {
     let text = match format {
         "json" => store.export_json(&session)?,
         "markdown" | "md" => {
-            let lang = current();
-            let labels = if lang.is_ru() {
-                MarkdownLabels {
-                    session: "Сессия",
-                    created: "создана",
-                    provider: "провайдер",
-                    model: "модель",
-                    cwd: "каталог",
-                    user: "Пользователь",
-                    assistant: "Ассистент",
-                    thinking: "размышления",
-                    result: "результат",
-                    image: "изображение",
-                    audio: "аудио",
-                }
-            } else {
-                MarkdownLabels::default()
+            let labels = current().export_labels();
+            let labels = MarkdownLabels {
+                session: labels.session,
+                created: labels.created,
+                provider: labels.provider,
+                model: labels.model,
+                cwd: labels.cwd,
+                user: labels.user,
+                assistant: labels.assistant,
+                thinking: labels.thinking,
+                result: labels.result,
+                image: labels.image,
+                audio: labels.audio,
             };
             store.export_markdown_with(&session, &labels)?
         }

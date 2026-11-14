@@ -16,8 +16,8 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Режимы окна (compatibility/extended/enhanced), материалы macOS | Compatibility/Enhanced/Extended: overlay title bar на macOS, frameless+кастомный titlebar на Linux/Windows; Material (macOS vibrancy) | ⚠️ |
 | Локальный web-порт: random/фиксированный, LAN-подтверждение | трей Network: local/LAN с предупреждением, фиксированный/случайный порт; как в оригинале — без отдельного LAN-диалога подтверждения | ✅ |
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
-| Web UI: тема | light/dark через кнопку Theme, localStorage и `?theme=light` | ✅ |
-| Plugin market | Plugins UI: featured-каталог, поиск/инфо npm, Install, менеджер установленных, локальные оценки и отзывы с агрегатом ★/count; общей серверной базы отзывов нет | ⚠️ |
+| Web UI: тема | light/dark через кнопку Theme, localStorage и `?theme=light`; live-тема для iframe-плагинов | ✅ |
+| Plugin market | Plugins UI: каталог с категориями и тегами, серверный поиск `?q=`/`?category=`/`?limit=`, детальная карточка `GET /v1/plugins/catalog/{name}` (оценка, агрегат отзывов, признак установки), поиск/инфо npm, Install, менеджер установленных, оценки и отзывы с агрегатом ★/count; общая серверная база отзывов ограничена home'ом пользователя | ⚠️ |
 | Плагины: `dsh plugin --profile add/remove/update`, рестарт | CLI add/remove/update/list/enable/disable + Web-менеджер (installed, toggle/remove/install) для активного профиля | ✅ |
 | Терминал из трея с приватными shim'ами | terminal.sh с DSHR_HOME/профилем/PATH и shim `<home>/bin/dshr` | ✅ |
 | Обновления: фоновая проверка, канал, installer, Linux → download page | проверка, уведомление, каналы Stable/Beta, скачивание macOS zip с проверкой SHA256SUMS, распаковка/reveal, установка через helper (macOS); notarization нет | ⚠️ |
@@ -40,10 +40,10 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (sandboxed iframe, несколько слотов по `name`/`order`, `inject`/`effect`-lifecycle, capability-ассеты для многофайловых бандлов, host-действия, перезагрузка открытой панели); Replica-паритет клиентской половины 98.0/100 (must 12/12); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
-| Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; установка через CLI, отдельного каталога нет | ⚠️ |
+| Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; серверный каталог с категориями/тегами/поиском и карточкой пакета (`/v1/plugins/catalog*`); установка через CLI/UI; внешней общей базы отзывов нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
-| i18n ru/en | TUI/CLI частично; ошибки en | ⚠️ |
+| i18n ru/en | TUI/CLI, справка и рантайм-сообщения ru/en; тексты ошибок en (по плану), `--json` не зависит от языка | ✅ |
 | OTel, SDK, rate-limit, OpenAPI | есть | ✅ |
 
 ## Дистрибутивы и CI
@@ -62,7 +62,8 @@ P0 закрыто: трей/close-to-tray, профили, фиксирован�
 диагностика, `apply_patch`, `ask_user` (включая ACP), каналы и установка обновлений,
 recovery-окно с профилями/плагинами, first-run home. Осталось: прогон notarization
 с секретами Apple.
-P1: полный plugin market/catalog и GUI-менеджер плагинов.
+P1: plugin market — каталог с категориями/поиском и карточкой пакета сделан; GUI-менеджер
+плагинов есть; внешней (общей) базы отзывов нет — отзывы живут в home.
 P2: прогон brew/desktop CI на теге, React-слоты клиентских плагинов
 (сейчас мост, ADR-013 §5), приватные terminal shim'ы.
 
@@ -76,6 +77,10 @@ P2: прогон brew/desktop CI на теге, React-слоты клиентс�
   DMG собран (UDZO); установочный/архивный dry-run проверен ранее.
 - Headless Chrome: light-тема, версия, Plugins; `/v1/tools`, `/v1/plugins/catalog`,
   `/v1/plugins/ratings` отвечают.
+- Браузерный e2e (`scripts/web-e2e.py`, stdlib CDP): «New session» → промпт →
+  модалка approval для `bash` → Allow → выполнение → стрим ответа → карточка
+  инструмента → файл реально записан → сессия в журнале; 9/9 проверок, джоба
+  `web-e2e` в CI.
 - Linux/Windows desktop: [run 43591784883](https://github.com/maximusmakarov/deepseek_harness_rust/actions/runs/43591784883)
   — обе сборки и упаковка успешны; `.deb` проверен `dpkg-deb --info`.
 - Cordis hot reload проверен на живом `serve`: правка entry перезагружает плагин
@@ -91,10 +96,10 @@ P2: прогон brew/desktop CI на теге, React-слоты клиентс�
   `docs/replica/client-half-parity.md`.
 - Формализация: `./formal/run_tlc.sh` — 3 модели / 5 конфигов TLC без нарушений
   (`CordisSupervisor` safety+liveness, `ClientAssets`, `ApprovalGate` safety+liveness);
-  абстракции и результаты — `docs/formal/README.md`.
-- Каталог тест-кейсов `docs/testing/test-cases.md`: ~120 кейсов с ID, уровнями (U/I/E/T),
-  привязкой к инвариантам и статусами; baseline покрытия
-  `cargo llvm-cov --workspace --summary-only` — 72.9% строк, 66.9% функций.
+  модели и абстракции — `docs/formal/README.md`.
+- Каталог тест-кейсов `docs/testing/test-cases.md`: ~120 кейсов с ID, уровнями,
+  привязкой к инвариантам TLA+ и статусами; baseline покрытия —
+  `cargo llvm-cov --workspace --summary-only`: 72.9% строк (66.9% функций).
 
 ## Итог 60 раундов
 

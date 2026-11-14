@@ -1,0 +1,69 @@
+{
+  "id": "02-grep-locate",
+  "model": "deepseek-flash",
+  "title": "Найти маркер TODO через grep",
+  "prompt": "Where is the TODO marker?",
+  "files": {
+    "src/main.rs": "fn main() { /* TODO fix */ }\n",
+    "src/lib.rs": "pub fn ok() {}\n"
+  },
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "grep"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"pattern\": \"TODO\", \"path\": \"src\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 18,
+          "output_tokens": 6
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Found a TODO marker in src/main.rs."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 60,
+          "output_tokens": 10
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "stdout_contains": [
+      "src/main.rs"
+    ],
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 120
+  }
+}

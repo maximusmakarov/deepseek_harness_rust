@@ -1301,3 +1301,400 @@ fn safe_mode_skips_external_plugins() {
         .stderr(predicate::str::contains("safe mode: skipping WASM plugins"))
         .stderr(predicate::str::contains("safe mode: skipping MCP plugins"));
 }
+
+fn run_cassette_session(home: &str, dir: &std::path::Path, prompt: &str) -> String {
+    let cassette = write_cassette(dir);
+    dshr()
+        .args([
+            "--home",
+            home,
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            prompt,
+        ])
+        .assert()
+        .success();
+    let listed = dshr()
+        .args(["--home", home, "sessions", "list", "--json"])
+        .output()
+        .expect("list sessions");
+    let sessions: serde_json::Value = serde_json::from_slice(&listed.stdout).expect("json");
+    sessions[0]["id"].as_str().expect("id").to_owned()
+}
+
+#[test]
+fn sessions_list_empty_state_follows_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "sessions", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("СОЗДАНА"))
+        .stdout(predicate::str::contains("(сессий нет)"))
+        .stdout(predicate::str::contains("CREATED").not());
+
+    dshr()
+        .args(["--home", home, "--lang", "en", "sessions", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("CREATED"))
+        .stdout(predicate::str::contains("(no sessions)"))
+        .stdout(predicate::str::contains("СОЗДАНА").not());
+}
+
+#[test]
+fn sessions_show_and_export_follow_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+    let id = run_cassette_session(home, dir.path(), "hi");
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "sessions", "show"])
+        .arg(&id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("создана:"))
+        .stdout(predicate::str::contains("провайдер:"))
+        .stdout(predicate::str::contains("## Пользователь"))
+        .stdout(predicate::str::contains("## Ассистент"));
+
+    dshr()
+        .args(["--home", home, "--lang", "en", "sessions", "show"])
+        .arg(&id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("created:"))
+        .stdout(predicate::str::contains("provider:"))
+        .stdout(predicate::str::contains("## User"))
+        .stdout(predicate::str::contains("## Assistant"));
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "sessions", "export"])
+        .arg(&id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Сессия"))
+        .stdout(predicate::str::contains("- создана:"))
+        .stdout(predicate::str::contains("## Пользователь"));
+
+    dshr()
+        .args(["--home", home, "--lang", "en", "sessions", "export"])
+        .arg(&id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("# Session"))
+        .stdout(predicate::str::contains("## User"))
+        .stdout(predicate::str::contains("## Пользователь").not());
+}
+
+#[test]
+fn plugin_list_and_keygen_messages_follow_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "plugin", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(плагинов нет)"));
+
+    dshr()
+        .args(["--home", home, "--lang", "en", "plugin", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(no plugins)"));
+
+    let key = dir.path().join("plugin.key");
+    dshr()
+        .args(["--home", home, "--lang", "ru", "plugin", "keygen", "--out"])
+        .arg(&key)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("секретный ключ записан"))
+        .stdout(predicate::str::contains("публичный ключ:"));
+
+    let key_en = dir.path().join("plugin-en.key");
+    dshr()
+        .args(["--home", home, "--lang", "en", "plugin", "keygen", "--out"])
+        .arg(&key_en)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wrote secret key"))
+        .stdout(predicate::str::contains("public key:"));
+}
+
+#[test]
+fn plugin_npm_state_message_follows_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+    std::fs::write(
+        dir.path().join("config.yaml"),
+        "plugins:\n  cordis:\n    - name: demo\n      entry: /tmp/demo\n      enabled: true\n",
+    )
+    .expect("config");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--profile",
+            "default",
+            "--lang",
+            "ru",
+            "plugin",
+            "npm",
+            "disable",
+            "demo",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("demo: выключено"));
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--profile",
+            "default",
+            "--lang",
+            "ru",
+            "plugin",
+            "npm",
+            "enable",
+            "demo",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("demo: включено"));
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--profile",
+            "default",
+            "--lang",
+            "en",
+            "plugin",
+            "npm",
+            "disable",
+            "demo",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("demo: disabled"));
+}
+
+#[test]
+fn release_messages_follow_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+    let key = dir.path().join("release.key");
+    dshr()
+        .args(["--home", home, "--lang", "ru", "release", "keygen", "--out"])
+        .arg(&key)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("секретный ключ записан"))
+        .stdout(predicate::str::contains("публичный ключ:"));
+
+    let key_en = dir.path().join("release-en.key");
+    dshr()
+        .args(["--home", home, "--lang", "en", "release", "keygen", "--out"])
+        .arg(&key_en)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("wrote secret key"))
+        .stdout(predicate::str::contains("public key:"));
+}
+
+#[test]
+fn doctor_human_output_follows_lang_and_json_is_unchanged() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args(["--home", home, "--lang", "ru", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("версия"))
+        .stdout(predicate::str::contains("платформа"))
+        .stdout(predicate::str::contains("песочница"))
+        .stdout(predicate::str::contains("статус"));
+
+    dshr()
+        .args(["--home", home, "--lang", "en", "doctor"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("version"))
+        .stdout(predicate::str::contains("platform"))
+        .stdout(predicate::str::contains("sandbox"))
+        .stdout(predicate::str::contains("status"));
+
+    let output = dshr()
+        .args(["--home", home, "--lang", "ru", "doctor", "--json"])
+        .output()
+        .expect("doctor json");
+    let text = String::from_utf8_lossy(&output.stdout);
+    let report: serde_json::Value = serde_json::from_str(&text).expect("valid json");
+    assert_eq!(report["status"], "ok");
+    assert_eq!(report["sandbox"], "n/a (M5)");
+    assert!(!text.contains("версия"), "{text}");
+}
+
+#[test]
+fn cli_error_prefix_follows_lang_but_error_text_stays_english() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--lang",
+            "ru",
+            "sessions",
+            "show",
+            "ses_missing",
+        ])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("ошибка[not_found]"))
+        .stderr(predicate::str::contains("session 'ses_missing' not found"));
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--lang",
+            "en",
+            "sessions",
+            "show",
+            "ses_missing",
+        ])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("error[not_found]"));
+}
+
+#[test]
+fn run_summary_follows_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+    let cassette = write_cassette(dir.path());
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--lang",
+            "ru",
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hi",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("сессия ses_"))
+        .stderr(predicate::str::contains("вход /"))
+        .stderr(predicate::str::contains("выход"));
+
+    dshr()
+        .args([
+            "--home",
+            home,
+            "--lang",
+            "en",
+            "run",
+            "--cassette",
+            cassette.to_str().expect("utf8"),
+            "--model",
+            "deepseek-flash",
+            "hi",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("session ses_"))
+        .stderr(predicate::str::contains("in /"))
+        .stderr(predicate::str::contains("out"));
+}
+
+#[test]
+fn plugin_npm_and_sessions_import_help_follow_lang() {
+    dshr()
+        .args(["--lang", "ru", "plugin", "npm", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Установка и управление npm/Cordis-плагинами",
+        ));
+
+    dshr()
+        .args(["--lang", "ru", "plugin", "npm", "add", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("npm-спецификация"))
+        .stdout(predicate::str::contains(
+            "Имя конфига и пакета, если не выводится из спецификации",
+        ));
+
+    dshr()
+        .args(["--lang", "ru", "sessions", "import", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Импортировать сессию DSH v4"))
+        .stdout(predicate::str::contains("Каталог или файл сессии"));
+
+    dshr()
+        .args(["--lang", "en", "plugin", "npm", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Install and manage npm/Cordis plugins",
+        ));
+
+    dshr()
+        .args(["--lang", "en", "sessions", "import", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Import a DSH v4 session"));
+}
+
+#[test]
+fn json_outputs_do_not_depend_on_lang() {
+    let dir = tempfile::tempdir().expect("home");
+    let home = dir.path().to_str().expect("utf8");
+    let id = run_cassette_session(home, dir.path(), "hi");
+
+    let export = |lang: &str| {
+        let output = dshr()
+            .args(["--home", home, "--lang", lang, "sessions", "export"])
+            .arg(&id)
+            .args(["--format", "json"])
+            .output()
+            .expect("export json");
+        assert!(output.status.success());
+        output.stdout
+    };
+    assert_eq!(export("ru"), export("en"));
+
+    let list = |lang: &str| {
+        let output = dshr()
+            .args(["--home", home, "--lang", lang, "sessions", "list", "--json"])
+            .output()
+            .expect("list json");
+        assert!(output.status.success());
+        output.stdout
+    };
+    assert_eq!(list("ru"), list("en"));
+}

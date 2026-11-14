@@ -1,0 +1,70 @@
+{
+  "id": "03-glob-list",
+  "model": "deepseek-flash",
+  "title": "Собрать список Rust-файлов через glob",
+  "prompt": "How many Rust files live under src?",
+  "files": {
+    "src/main.rs": "fn main() {}\n",
+    "src/lib.rs": "pub fn ok() {}\n",
+    "docs/a.md": "# a\n"
+  },
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "glob"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"pattern\": \"src/*.rs\", \"path\": \".\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 15,
+          "output_tokens": 5
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Found 2 Rust files under src."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 55,
+          "output_tokens": 9
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "stdout_contains": [
+      "2 Rust files"
+    ],
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 120
+  }
+}

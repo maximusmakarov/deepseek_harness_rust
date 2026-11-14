@@ -43,9 +43,11 @@
 
 | Приоритет | Долг | Комментарий |
 |---|---|---|
-| Deferred | Windows sandbox | Отложено по решению пользователя. По умолчанию fail-closed; experimental `DSHR_WINDOWS_SANDBOX` не работает (setup зависает). Нужен Win32/low-integrity backend или persistent daemon. |
-| Deferred | Сеть Windows | Отложено вместе с Windows sandbox; enforcement `Partial`. |
-| P3 | i18n остатка CLI | Help, sessions/show/export, plugin/release — ru/en; сообщения ошибок и часть справки остаются en. |
-| P2 | MCP elicitation | OAuth refresh (expiry + 401 retry) есть; `elicitation/create` не поддержан. |
-| P2 | Cordis/npm-совместимость | Sidecar-прототип есть (`dshr-cordis`); нет HMR, кэша грантов/аудита, полного набора Node-builtins и клиентской UI-половины. |
-| P3 | ghcr-бутылки | Бутылки собираются и публикуются в GHCR OCI (`bottles-ghcr`); `brew`-прогон на реальном GHCR/Windows отсутствует — [ADR-039](adr/039-release-artifacts.md). |
+| Deferred | Windows sandbox и сеть | Отложено по решению пользователя: нужен реальный Windows-хост. По умолчанию fail-closed; experimental `DSHR_WINDOWS_SANDBOX` проходит CI-шаг на `windows-latest` (запись внутри/снаружи workspace), локальной проверки нет. Enforcement сети на Windows — `Partial`. |
+| Out of scope | Полный набор React-слотов клиентских плагинов | Решение ADR-013 §5: React-совместимости нет, есть iframe-мост. Имена слотов подмножества (`panel`, `settings.section`, `message.action`, `settings.action`) проходят через мост (smoke 29/29); региональный монтаж слотов требует eager-монтажа и iframe на слот — отдельная фаза. Replica 98.0/100. |
+| P2 | Notarization | Тулинг есть (`scripts/notarize-app.sh`), нужны Apple Developer ID, сертификат и app-specific password; без них распространяется ad-hoc подпись. |
+| P2 | GHCR-бутылки и brew-прогон | OCI-publisher и формула есть, push/pull подтверждены против mock и в Actions; нет tap-репозитория и учётных данных пакетов, brew-прогон на реальном GHCR не делался. |
+| P2 | Центральная база отзывов plugin market | Отзывы серверные и общие для всех клиентов одного инстанса (`<home>/plugin-reviews.json`), но центральной/федеративной базы между инстансами нет. |
+| P3 | Экран настроек провайдера в Web UI | Маршрут/модель/ключ настраиваются через CLI и `desktop.env`; в Web UI экрана нет. |
+| P3 | Визуальный diff в Web UI | Карточки `tool_start`/`tool_end` показывают сводку и результат; построчный diff есть только в TUI. |
+| Done | i18n остатка CLI | Закрыто: TUI/CLI, справка (`plugin npm`, `sessions import`), рантайм-сообщения `sessions`/`plugin`/`doctor`/`run` и префикс ошибок локализованы; тексты `DshrError`/`ToolError` намеренно остаются en, `--json` не зависит от языка. |

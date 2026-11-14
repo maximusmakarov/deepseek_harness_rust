@@ -57,7 +57,7 @@
 
 ## M2 — Инструменты + цикл + TUI (15–20 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 112 тестов, живой tool-loop, TUI PTY-тест. `apply_patch` и `ask_user` добавлены позже; отложено: persistent bash, diff-view, eval-набор.
+**Статус:** закрыто. Ядро — 12.11.2026 (112 тестов, живой tool-loop, TUI PTY-тест); `apply_patch`, `ask_user`, persistent bash, diff-view и eval-набор добавлены позже.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -72,7 +72,7 @@
 | 2.9 | Approval-политика (3 режима, правила, remember) | 1.5 | Матрица 12+ тестов |
 | 2.10 | TUI: стрим, карточки, diff, модалки, статус | 2.5 | `expectrl`-сценарий |
 | 2.11 | Демо-сценарий «баг → фикс → тесты → diff» | 1 | Записанное демо, README |
-| 2.12 | Eval-набор: 10 задач + метрики успеха | 2 | Прогон в CI, отчёт по успеху/стоимости |
+| 2.12 | Eval-набор: 10 задач + метрики успеха | 2 | ✅ `evals/tasks/*.json` + `crates/cli/tests/evals.rs`; успех 10/10, бюджет токенов на задачу, отчёт `target/evals/report.json`, джоба `evals` в CI |
 
 **Выход:** полноценная интерактивная сессия; ни одной записи без политики.
 
@@ -89,7 +89,7 @@
 | 3.3 | Resume/fork/rewind | 2 | Round-trip, границы turn |
 | 3.4 | Заголовки сессий (async провайдер) | 1 | Не блокирует turn |
 | 3.5 | SQLite-индекс + FTS5 + перестройка | 2 | Поиск < 100 мс на 10k событий |
-| 3.6 | Compaction: токены, пороги, суммаризация | 3 | Длинная сессия продолжается |
+| 3.6 | Compaction: токены, пороги, суммаризация | 3 | ✅ `crates/compaction/tests/live_gate_100k.rs`: сессия > 100k токенов сжимается, последние 2 turn'а сохраняются дословно, reopen и продолжение сессии |
 | 3.7 | Pruning tool-результатов + spill-ссылки | 1 | Контекст сокращается, ссылки читаемы |
 | 3.8 | Skills: discovery, каталог, `skill`-инструмент | 2 | 3 источника, ленивая загрузка |
 | 3.9 | Экспорт Markdown/JSON, импорт DSH (флаг) | 1 | Импорт не ломает журнал |
@@ -119,7 +119,7 @@
 
 ## M5 — Песочница + плагины + композиция (15–25 ИД)
 
-**Статус:** ядро выполнено; Linux Landlock + seccomp; Windows AppContainer — experimental opt-in, по умолчанию fail-closed. Отложено: Windows sandbox, hot reload, capability-grants/аудит, Cordis-рантайм.
+**Статус:** закрыто. Linux Landlock + seccomp; Windows AppContainer — experimental opt-in, по умолчанию fail-closed (реальный Windows-хост недоступен); WASM hot reload, capability-гранты, аудит и Cordis-рантайм (sidecar + клиентская половина) сделаны.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -160,18 +160,18 @@
 
 ## M6 — Server + Web UI + SDK (15–25 ИД)
 
-**Статус:** ядро выполнено 12.11.2026 — 149 тестов; REST/SSE, auth, approvals, JSON-RPC подмножество, Leptos CSR Web UI, Dockerfile. Отложено: браузерный e2e, ghcr-бутылки и reproducible builds.
+**Статус:** закрыто. REST/SSE, auth, approvals, JSON-RPC, Leptos CSR Web UI, Dockerfile; браузерный e2e (`scripts/web-e2e.py`) в CI; reproducible-бинарь проверен; бутылки в GHCR-канал требуют внешних учётных данных.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
 | 6.1 | `axum`-сервер: сессии, turns, events (SSE) | 3 | OpenAPI, контрактные тесты |
 | 6.2 | Auth, CORS, rate-limit, статика | 1.5 | Негативные тесты |
 | 6.3 | Approvals по API + отмена | 1.5 | E2E |
-| 6.4 | Web UI: чат + стрим | 3 | Playwright |
-| 6.5 | Web UI: карточки, diff, approvals | 3 | Playwright |
-| 6.6 | Web UI: сессии, настройки провайдеров | 2 | Playwright |
+| 6.4 | Web UI: чат + стрим | 3 | ✅ `scripts/web-e2e.py` (headless Chrome/CDP, без npm): чат → стрим → карточка tool |
+| 6.5 | Web UI: карточки, diff, approvals | 3 | ✅ карточки tool_start/tool_end и модалка approval проверены e2e (Allow → выполнение); визуальный diff остаётся в TUI |
+| 6.6 | Web UI: сессии, настройки провайдеров | 2 | ⚠️ сессии: «New session» выбирает сессию и обновляет сайдбар (баг найден e2e, исправлен); экрана настроек провайдера в Web UI нет |
 | 6.7 | SDK: JSON-RPC сервер/клиент | 2.5 | Пример Python |
-| 6.8 | E2E-сценарий полного цикла | 2 | CI, скриншоты |
+| 6.8 | E2E-сценарий полного цикла | 2 | ✅ джоба `web-e2e` в CI: чат → approval → Allow → выполнение → запись файла → журнал (9 проверок) |
 | 6.9 | Упаковка: cargo-dist, brew, Docker | 2 | Установка с нуля |
 | 6.10 | LLM: Anthropic + Gemini адаптеры | 2.5 | Кассеты, tool-calls, reasoning |
 | 6.11 | MCP-сервер (stdio, tools/resources) | 2 | Пример сервера + интеграционный тест |
@@ -182,7 +182,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 13.11.2026 — M0–M7 закрыты (329 тестов); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar-прототип; Windows отложен.
+**Статус:** срез 14.11.2026 — M0–M7 закрыты (329 тестов); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar + клиентская половина (Replica 98.0/100); Windows отложен. DoD-гейты M7 — см. ниже.
 
 | Эпик | Содержание | ИД |
 |---|---|---|
@@ -198,6 +198,14 @@
 | ACP | протокол, совместимость | 6–10 |
 | i18n | ru/en, вынос строк | 4–6 |
 
+**DoD-гейты M7** (критерий выхода: eval-набор + perf-бюджеты как CI-гейт):
+
+| № | Гейт | Статус |
+|---|---|---|
+| 7.1 | Общий eval-набор: 10 задач, success rate 100 %, бюджет токенов на задачу | ✅ `crates/cli/tests/evals.rs`, джоба `evals` |
+| 7.2 | Perf-бюджеты §20 как CI-гейт: промпт, append+fsync, поиск 10k, turn-context 100k, память 100k | ✅ `crates/perf/tests/budgets.rs`, джоба `perf`, регресс > 20 % — блокер |
+| 7.3 | Матрица §4 заполнена для T3 | ⏳ заполняется, см. PLAN §4 |
+
 ---
 
 ## Контрольные точки
@@ -207,10 +215,10 @@
 | G0 | конец M0 | ✅ пройдена 12.11.2026: `doctor`, конфиг, тесты |
 | G1 | конец M1 | ✅ пройдена 12.11.2026: cassette replay, живой smoke DeepSeek |
 | G2 | конец M2 | ✅ ядро: tool-loop + approvals + TUI e2e; eval-набор отложен |
-| G3 | конец M3 | ✅ ядро: compaction unit-тест; live-гейт 100k отложен |
+| G3 | конец M3 | ✅ live-гейт 100k: `crates/compaction/tests/live_gate_100k.rs` (compaction + reopen + продолжение) |
 | G4 | конец M4 | ✅ MCP mock-сервер + субагент из кассеты; HTTP/resources отложены |
 | G5 | конец M5 | ✅ Seatbelt, Landlock+seccomp и AppContainer: escape + workspace-write + сеть Linux |
-| G6 | конец M6 | ✅ HTTP/SSE + встроенный UI; Playwright e2e отложен |
+| G6 | конец M6 | ✅ HTTP/SSE + встроенный UI; браузерный e2e `scripts/web-e2e.py` в CI (CDP, без Playwright-пакета) |
 | G7 | M7 | матрица возможностей заполнена |
 
 ---

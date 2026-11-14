@@ -1,0 +1,66 @@
+{
+  "id": "08-todo-track",
+  "model": "deepseek-flash",
+  "title": "Зафиксировать план в todo",
+  "prompt": "Track two steps: inspect done, ship in progress.",
+  "files": {},
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "todo"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"items\": [{\"content\": \"inspect\", \"status\": \"completed\"}, {\"content\": \"ship\", \"status\": \"in_progress\"}]}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 15
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Plan saved with two steps."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 55,
+          "output_tokens": 9
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "stdout_contains": [
+      "Plan saved"
+    ],
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 140
+  }
+}

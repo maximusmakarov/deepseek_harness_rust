@@ -1,5 +1,39 @@
 [
-  {"name": "cordis", "description": "Meta-framework of spatiotemporal composability"},
-  {"name": "@deepseek-ai/cordis-plugin-loader", "description": "Plugin loader for cordis"},
-  {"name": "@deepseek-ai/cordis-plugin-timer", "description": "Timer service for cordis"}
+  {
+    "name": "cordis",
+    "description": "Meta-framework of spatiotemporal composability",
+    "category": "framework",
+    "tags": [
+      "cordis",
+      "plugin",
+      "spatiotemporal"
+    ],
+    "homepage": "",
+    "verified": true
+  },
+  {
+    "name": "@deepseek-ai/cordis-plugin-loader",
+    "description": "Plugin loader for cordis",
+    "category": "loader",
+    "tags": [
+      "cordis",
+      "plugin",
+      "loader"
+    ],
+    "homepage": "",
+    "verified": true
+  },
+  {
+    "name": "@deepseek-ai/cordis-plugin-timer",
+    "description": "Timer service for cordis",
+    "category": "service",
+    "tags": [
+      "cordis",
+      "plugin",
+      "timer",
+      "service"
+    ],
+    "homepage": "",
+    "verified": true
+  }
 ]

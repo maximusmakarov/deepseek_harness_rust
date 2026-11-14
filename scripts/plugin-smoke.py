@@ -201,6 +201,26 @@ export default function activate(ctx) {
 }
 """
 
+# A half that uses the DSH slot names for the subset the bridge promises
+# (ADR-013 §5): a panel plus a message action and a settings action.
+DSH_MANIFEST = {
+    "name": "@smoke/dsh-slots",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+}
+
+DSH_CLIENT = """
+export default function activate(ctx) {
+  const render = (label) => (el) => {
+    el.innerHTML = "<p id=\\"slot-label\\">slot: " + label + "</p>";
+  };
+  ctx.slots.register({ name: "panel", id: "dsh-panel", title: "DSH panel", order: 30 }, render("panel"));
+  ctx.slots.register({ name: "message.action", id: "dsh-message", title: "Message action", order: 31 }, render("message.action"));
+  ctx.slots.register({ name: "settings.action", id: "dsh-settings-action", title: "Settings action", order: 32 }, render("settings.action"));
+}
+"""
+
 ASSETS_MANIFEST = {
     "name": "@smoke/assets",
     "version": "1.0.0",
@@ -365,6 +385,7 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("demo5", ERROR_MANIFEST, ERROR_PLUGIN, ERROR_CLIENT),
         ("demo6", EXPORTS_MANIFEST, EXPORTS_PLUGIN, EXPORTS_CLIENT),
         ("demo7", ORDERED_MANIFEST, ORDERED_PLUGIN, ORDERED_CLIENT),
+        ("demo8", DSH_MANIFEST, DEMO_PLUGIN, DSH_CLIENT),
     ]:
         directory = workspace / name
         directory.mkdir(parents=True, exist_ok=True)
@@ -560,7 +581,7 @@ def run(args: argparse.Namespace) -> int:
         )
         with urllib.request.urlopen(request, timeout=10) as response:
             clients = json.load(response)["clients"]
-        check("lists every client half", len(clients) == 7, str(clients))
+        check("lists every client half", len(clients) == 8, str(clients))
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -770,6 +791,23 @@ def run(args: argparse.Namespace) -> int:
             "an open panel picks up a new client bundle",
             wait_for_frame_text(debug_port, "demo", "Smoke panel v2"),
         )
+        # DSH subset slot names (ADR-013 §5): a half that registers panel plus
+        # message.action and settings.action must have all of them surfaced.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo8"},
+        )
+        wait_until(
+            lambda: "message.action" in str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''")),
+            label="DSH slot names render",
+        )
+        dsh_tabs = str(shell.eval("document.querySelector('.plugin-tabs').textContent"))
+        check(
+            "DSH subset slot names are offered (panel/message.action/settings.action)",
+            all(name in dsh_tabs for name in ("panel", "message.action", "settings.action")),
+            dsh_tabs,
+        )
+
         actions.close()
         shell.close()
     finally:

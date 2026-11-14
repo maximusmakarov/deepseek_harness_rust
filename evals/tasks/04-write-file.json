@@ -1,0 +1,66 @@
+{
+  "id": "04-write-file",
+  "model": "deepseek-flash",
+  "title": "Создать файл результата через write",
+  "prompt": "Write the marker done into out/result.txt.",
+  "files": {},
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "write"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"path\": \"out/result.txt\", \"content\": \"done\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 20,
+          "output_tokens": 8
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "Wrote the result to out/result.txt."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 50,
+          "output_tokens": 10
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "files_contain": {
+      "out/result.txt": "done"
+    },
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 120
+  }
+}

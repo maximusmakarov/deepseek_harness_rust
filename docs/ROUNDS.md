@@ -99,15 +99,63 @@ release-бинарь воспроизводим.
   module-table бандлы, hot reload открытой панели); Replica-оценка клиентской
   половины 98.0/100 (must 12/12).
 
+- 67: eval-набор (ROADMAP 2.12): `evals/tasks/*.json` (10 задач) +
+  `crates/cli/tests/evals.rs`; гейт success 10/10 и бюджет токенов на задачу,
+  отчёт `target/evals/report.json`, джоба `evals`.
+- 68: perf-гейты §20: `crates/perf` (`cargo test -p dshr-perf --release`) —
+  промпт (100 инструментов), append+fsync, поиск 10k событий, сборка
+  turn-контекста и память на 100k токенов; регресс > 20 % — блокер, джоба `perf`.
+- 69: live-гейт compaction 100k: `crates/compaction/tests/live_gate_100k.rs` —
+  сессия > 100k токенов, сохранение последних turn'ов дословно, reopen и
+  продолжение после сжатия.
+- 70: браузерный e2e `scripts/web-e2e.py` (headless Chrome/CDP, stdlib) +
+  джоба `web-e2e`; попутно исправлен баг Web UI: «New session» не выбирала
+  созданную сессию (отправка падала с «no session»).
+
+- 71: plugin market: каталог `crates/server/src/catalog.json` получил
+  `category`/`tags`/`homepage`/`verified`; `/v1/plugins/catalog` принимает
+  `q`/`category`/`limit` и отдаёт категории; новый
+  `GET /v1/plugins/catalog/{name}` — карточка пакета с оценкой, агрегатом
+  отзывов и признаком установки; UI показывает категорию; тесты
+  `crates/server/tests/plugins_market.rs` (4).
+
+- 72: i18n остатка CLI: 24 новых метода `Lang` + `ExportLabels`; локализованы
+  рантайм-сообщения `sessions list/show/export`, `plugin npm *`, `doctor`, префикс
+  ошибки (`ошибка[code]`/`error[code]`); справка `plugin npm` и `sessions import`
+  (+21 ключ × ru/en); 10 новых интеграционных тестов, `--json` не зависит от языка.
+
+- 73: слоты клиентской половины: фикстура `demo8` с DSH-именами
+  (`panel`/`message.action`/`settings.action`); smoke-проверка, что все три имени
+  доходят до шелла и рендерятся как вкладки/активации (29/29). Региональный
+  монтаж слотов и полный React-набор — вне scope по ADR-013 §5 (в ADR записана
+  причина: ленивый монтаж половины не позволяет выбрать регион до загрузки
+  бандла).
+
 ## Что осталось
 
-- React-слоты клиентских плагинов: сейчас мост iframe и один слот `panel`
-  (ADR-013 §5), полного набора DSH-слотов нет.
-- WASM hot reload (Cordis hot reload есть).
-- GHCR-хостинг бутылок — нет tap/учётных данных (сейчас GitHub Releases).
-- Windows sandbox на реальном Windows — CI-шаг есть, локальной проверки нет.
+Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
+compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS.
 
-Подробная матрица и блокеры: [PARITY.md](PARITY.md).
+Открыто и не заблокировано:
+
+- Клиентские слоты сверх `panel`/`settings.section`: `sidebar.footer.action`,
+  `shell.overlay`, `settings.section.icon` — нужен iframe на слот, а не на плагин.
+- Визуальный diff в Web UI (сейчас карточки tool_start/tool_end со сводкой).
+- Экран настроек провайдера в Web UI (сейчас CLI/desktop).
+- Общая серверная база отзывов plugin market (сейчас home-scoped файл).
+
+Заблокировано внешним условием:
+
+- **React-слоты клиентских плагинов** — полный набор слотов DSH требует React-хоста
+  и мультиплексирования iframe на слот; по [ADR-013](adr/013-cordis-compat.md) §5
+  клиентская половина ограничена iframe-мостом (Replica 98.0/100). Отдельная фаза.
+- **Windows sandbox/сеть** — нужен реальный Windows-хост; CI-шаг есть, локально
+  только компиляция.
+- **Notarization** — нужны Apple Developer ID, сертификат и app-specific password.
+- **GHCR-tap/brew на реальном GHCR** — нужны tap-репозиторий и учётные данные пакетов.
+
+Подробная матрица и блокеры: [PARITY.md](PARITY.md), реестр долгов — [TECH-DEBT.md](TECH-DEBT.md).
 
 ## Формализация и каталог тестов (14.11.2026)
 

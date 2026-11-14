@@ -166,7 +166,7 @@ fn npm_search(query: &str, limit: usize, json: bool) -> Result<u8> {
     let body = fetch_url(&url)?;
     let hits = parse_search(&body);
     if hits.is_empty() {
-        println!("no packages");
+        println!("{}", current().npm_no_packages());
         return Ok(0);
     }
     if json {
@@ -212,16 +212,16 @@ fn npm_info(name: &str, json: bool) -> Result<u8> {
             .map_err(|error| DshrError::config(error.to_string()))?;
         println!("{encoded}");
     } else {
+        let lang = current();
         println!("{}@{}", name, latest);
         println!("{}", summary["description"].as_str().unwrap_or(""));
-        if !summary["homepage"].as_str().unwrap_or("").is_empty() {
-            println!("homepage: {}", summary["homepage"].as_str().unwrap_or(""));
+        let homepage = summary["homepage"].as_str().unwrap_or("");
+        if !homepage.is_empty() {
+            println!("{}", lang.npm_homepage(homepage));
         }
-        if !summary["repository"].as_str().unwrap_or("").is_empty() {
-            println!(
-                "repository: {}",
-                summary["repository"].as_str().unwrap_or("")
-            );
+        let repository = summary["repository"].as_str().unwrap_or("");
+        if !repository.is_empty() {
+            println!("{}", lang.npm_repository(repository));
         }
     }
     Ok(0)
@@ -368,7 +368,7 @@ fn npm_set_enabled(loader: &ConfigLoader, name: &str, enabled: bool) -> Result<u
         )));
     }
     save_raw(loader, &root)?;
-    println!("{name}: enabled={enabled}");
+    println!("{}", current().plugin_state(name, enabled));
     Ok(0)
 }
 
@@ -406,7 +406,7 @@ fn npm_update(loader: &ConfigLoader, name: Option<&str>) -> Result<u8> {
             &["update", "--prefix", &dir.display().to_string()],
             &dir,
         )?;
-        println!("updated {}", plugin.name);
+        println!("{}", current().plugin_updated(&plugin.name));
     }
     Ok(0)
 }

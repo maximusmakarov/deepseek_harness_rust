@@ -353,6 +353,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/info", get(plugin_info))
         .route("/v1/plugins/catalog", get(plugin_catalog))
+        .route("/v1/plugins/catalog/{name}", get(plugin_catalog_entry))
         .route("/v1/plugins/ratings", get(plugin_ratings))
         .route("/v1/plugins/rate", post(rate_plugin))
         .route("/v1/plugins/reviews", get(plugin_reviews))
@@ -634,14 +635,109 @@ fn save_rating(home: &std::path::Path, name: &str, rating: u8) -> std::io::Resul
     std::fs::write(ratings_path(home), text)
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct CatalogEntry {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    category: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    homepage: String,
+    #[serde(default)]
+    verified: bool,
+}
+
+impl CatalogEntry {
+    fn matches(&self, query: &str) -> bool {
+        let query = query.to_ascii_lowercase();
+        self.name.to_ascii_lowercase().contains(&query)
+            || self.description.to_ascii_lowercase().contains(&query)
+            || self.tags.iter().any(|tag| tag.contains(&query))
+    }
+}
+
+fn catalog_entries() -> Vec<CatalogEntry> {
+    serde_json::from_str(PLUGIN_CATALOG).unwrap_or_default()
+}
+
+fn catalog_categories(entries: &[CatalogEntry]) -> Vec<Value> {
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for entry in entries {
+        if !entry.category.is_empty() {
+            *counts.entry(entry.category.as_str()).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|(category, count)| json!({"name": category, "count": count}))
+        .collect()
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogQuery {
+    q: Option<String>,
+    category: Option<String>,
+    limit: Option<usize>,
+}
+
 async fn plugin_catalog(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<CatalogQuery>,
 ) -> Result<Json<Value>, StatusCode> {
     authorize(&state, &headers, None)?;
-    let packages: Value =
-        serde_json::from_str(PLUGIN_CATALOG).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(json!({"packages": packages})))
+    let entries = catalog_entries();
+    let categories = catalog_categories(&entries);
+    let needle = query.q.unwrap_or_default();
+    let category = query.category.unwrap_or_default();
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let mut packages: Vec<CatalogEntry> = entries
+        .into_iter()
+        .filter(|entry| needle.is_empty() || entry.matches(needle.trim()))
+        .filter(|entry| category.is_empty() || entry.category == category)
+        .collect();
+    packages.truncate(limit);
+    let total = packages.len();
+    Ok(Json(json!({
+        "packages": packages,
+        "total": total,
+        "categories": categories,
+    })))
+}
+
+async fn plugin_catalog_entry(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_package_name(&name) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let Some(entry) = catalog_entries()
+        .into_iter()
+        .find(|entry| entry.name == name)
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    let reviews = load_reviews(&state.config.home);
+    let list = reviews.get(&name).cloned().unwrap_or_default();
+    let (average, count) = summarize(&list);
+    let ratings = load_ratings(&state.config.home);
+    let installed = state
+        .config
+        .cordis_plugins
+        .iter()
+        .any(|(plugin, enabled)| plugin == &name && *enabled);
+    Ok(Json(json!({
+        "package": entry,
+        "rating": ratings.get(&name).copied().unwrap_or(0),
+        "reviews": {"average": average, "count": count},
+        "installed": installed,
+    })))
 }
 
 #[derive(Debug, Deserialize)]

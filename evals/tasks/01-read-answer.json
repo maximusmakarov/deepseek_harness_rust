@@ -1,0 +1,68 @@
+{
+  "id": "01-read-answer",
+  "model": "deepseek-flash",
+  "title": "Прочитать файл и ответить по факту из него",
+  "prompt": "What release is recorded in notes.txt? Reply with the version only.",
+  "files": {
+    "notes.txt": "release: 0.9.4\n"
+  },
+  "calls": [
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "tool_use_start",
+        "index": 0,
+        "id": "call_1",
+        "name": "read"
+      },
+      {
+        "type": "tool_input_delta",
+        "index": 0,
+        "json": "{\"path\": \"notes.txt\"}"
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 4
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "tool_use"
+      }
+    ],
+    [
+      {
+        "type": "start",
+        "model": "deepseek-flash"
+      },
+      {
+        "type": "text_delta",
+        "text": "The release is 0.9.4."
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "input_tokens": 40,
+          "output_tokens": 8
+        }
+      },
+      {
+        "type": "done",
+        "stop_reason": "end_turn"
+      }
+    ]
+  ],
+  "expect": {
+    "stdout_contains": [
+      "0.9.4"
+    ],
+    "steps_max": 2,
+    "tool_calls_max": 1,
+    "tokens_max": 100
+  }
+}
