@@ -22,7 +22,7 @@ async fn connects_lists_and_calls_tools() {
         oauth: None,
     };
     let (_client, tools) = connect_server(spec).await.expect("connect");
-    assert_eq!(tools.len(), 5);
+    assert_eq!(tools.len(), 6);
     assert_eq!(tools[0].name(), "mcp__mock__echo");
 
     let mut registry = ToolRegistry::new();
@@ -34,6 +34,7 @@ async fn connects_lists_and_calls_tools() {
         output_limit: 10_000,
         spill_dir: std::env::temp_dir().join("dshr-mcp-spills"),
         cancel: CancellationToken::new(),
+        prompt: None,
     };
     let outcome = registry
         .execute("mcp__mock__echo", json!({"text": "hi"}), &ctx)
@@ -77,4 +78,48 @@ async fn connects_lists_and_calls_tools() {
         "{}",
         sampled.content
     );
+}
+
+struct YesPrompt;
+
+#[async_trait::async_trait]
+impl dshr_tools::UserPrompt for YesPrompt {
+    async fn ask(&self, question: &str, _options: &[String]) -> Option<String> {
+        assert!(question.contains("Pick a value"), "{question}");
+        Some("yes".to_owned())
+    }
+}
+
+#[tokio::test]
+async fn answers_stdio_elicitation_through_the_prompt() {
+    let spec = McpServerSpec {
+        name: "mock".into(),
+        command: env!("CARGO_BIN_EXE_mock_mcp").into(),
+        args: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: None,
+        url: None,
+        headers: BTreeMap::new(),
+        oauth: None,
+    };
+    let (_client, tools) = connect_server(spec).await.expect("connect");
+    let elicit = tools
+        .iter()
+        .find(|tool| tool.name() == "mcp__mock__elicit")
+        .expect("elicit");
+    let ctx = ToolCtx {
+        cwd: std::env::current_dir().expect("cwd"),
+        session_id: SessionId::new(),
+        output_limit: 10_000,
+        spill_dir: std::env::temp_dir().join("dshr-mcp-spills"),
+        cancel: CancellationToken::new(),
+        prompt: Some(Arc::new(YesPrompt)),
+    };
+    let outcome = elicit.execute(&ctx, json!({})).await.expect("elicit");
+    assert_eq!(outcome.content, "accept:yes");
+
+    let mut declined = ctx.clone();
+    declined.prompt = None;
+    let outcome = elicit.execute(&declined, json!({})).await.expect("decline");
+    assert_eq!(outcome.content, "decline:");
 }

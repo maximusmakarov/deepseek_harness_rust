@@ -23,6 +23,7 @@ use dshr_i18n::Lang;
 use dshr_llm::{LlmProvider, Usage};
 use dshr_session::Session;
 use dshr_session_jsonl::SessionStore;
+use dshr_tools::UserPrompt;
 use dshr_tools::{ToolOutcome, ToolRegistry};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -97,6 +98,29 @@ impl Approver for ChannelApprover {
     }
 }
 
+struct ChannelPrompt {
+    events: Sender<UiEvent>,
+}
+
+#[async_trait::async_trait]
+impl dshr_tools::UserPrompt for ChannelPrompt {
+    async fn ask(&self, question: &str, options: &[String]) -> Option<String> {
+        let (respond, answer) = oneshot::channel();
+        if self
+            .events
+            .send(UiEvent::Question {
+                question: question.to_owned(),
+                options: options.to_vec(),
+                respond,
+            })
+            .is_err()
+        {
+            return None;
+        }
+        answer.await.ok().flatten()
+    }
+}
+
 struct TuiObserver {
     events: Sender<UiEvent>,
 }
@@ -122,19 +146,17 @@ impl AgentObserver for TuiObserver {
     }
 
     async fn on_question(&self, question: &str, options: &[String]) -> Option<String> {
-        let (respond, answer) = oneshot::channel();
-        if self
-            .events
-            .send(UiEvent::Question {
-                question: question.to_owned(),
-                options: options.to_vec(),
-                respond,
-            })
-            .is_err()
-        {
-            return None;
+        ChannelPrompt {
+            events: self.events.clone(),
         }
-        answer.await.ok().flatten()
+        .ask(question, options)
+        .await
+    }
+
+    fn prompt(&self) -> Option<std::sync::Arc<dyn dshr_tools::UserPrompt>> {
+        Some(std::sync::Arc::new(ChannelPrompt {
+            events: self.events.clone(),
+        }))
     }
 }
 

@@ -184,6 +184,7 @@ mod tests {
             output_limit: 10_000,
             spill_dir: PathBuf::from(".spills"),
             cancel: CancellationToken::new(),
+            prompt: None,
         }
     }
 

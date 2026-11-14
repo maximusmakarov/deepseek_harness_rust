@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dshr_llm::{LlmProvider, Message, Request, StreamChunk, ToolDef};
-use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
+use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome, UserPrompt};
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 use thiserror::Error;
@@ -26,6 +26,11 @@ use tokio_util::sync::CancellationToken;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const PROTOCOL_VERSION: &str = "2024-11-05";
+
+tokio::task_local! {
+    /// Prompt handler of the interface executing the current tool call.
+    static PROMPT: Arc<dyn UserPrompt>;
+}
 
 #[derive(Debug, Error)]
 pub enum McpError {
@@ -377,6 +382,8 @@ impl McpClient {
                             "error": {"code": -32601, "message": "sampling is not enabled"}
                         }),
                     }
+                } else if method == "elicitation/create" {
+                    elicitation_response(value["id"].clone(), value["params"].clone()).await
                 } else {
                     json!({
                         "jsonrpc": "2.0",
@@ -781,6 +788,67 @@ async fn fetch_oauth_token(
     })
 }
 
+async fn elicitation_response(id: Value, params: Value) -> Value {
+    let Ok(prompt) = PROMPT.try_with(Arc::clone) else {
+        return json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {"action": "decline"}
+        });
+    };
+    let message = params["message"]
+        .as_str()
+        .unwrap_or("The server requests input");
+    let Some(properties) = params["requestedSchema"]["properties"].as_object() else {
+        return json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {"action": "decline"}
+        });
+    };
+    if properties.is_empty() {
+        return json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {"action": "decline"}
+        });
+    }
+    let mut content = serde_json::Map::new();
+    for (name, schema) in properties {
+        if schema["type"].as_str().unwrap_or("string") != "string" {
+            return json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {"action": "decline"}
+            });
+        }
+        let options: Vec<String> = schema["enum"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect();
+        let label = schema["title"]
+            .as_str()
+            .or_else(|| schema["description"].as_str())
+            .unwrap_or(name);
+        let question = format!("{message}\n\n{label}");
+        let Some(answer) = prompt.ask(&question, &options).await else {
+            return json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {"action": "decline"}
+            });
+        };
+        content.insert(name.clone(), Value::String(answer));
+    }
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {"action": "accept", "content": content}
+    })
+}
+
 async fn start_http_sse_listener(client: Arc<McpHttpClient>) {
     let mut request = client
         .client
@@ -1052,12 +1120,18 @@ impl Tool for McpTool {
         self.schema.clone()
     }
 
-    async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
-        let result = self
-            .client
-            .call_tool(&self.remote_name, args)
-            .await
-            .map_err(|error| ToolError::Failed(error.to_string()))?;
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
+        let call = async {
+            self.client
+                .call_tool(&self.remote_name, args)
+                .await
+                .map_err(|error| ToolError::Failed(error.to_string()))
+        };
+        let result = if let Some(prompt) = &ctx.prompt {
+            PROMPT.scope(Arc::clone(prompt), call).await?
+        } else {
+            call.await?
+        };
         Ok(ToolOutcome {
             content: result.content,
             is_error: result.is_error,

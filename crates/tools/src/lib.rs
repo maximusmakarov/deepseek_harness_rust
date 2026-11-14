@@ -12,7 +12,7 @@ mod tools;
 #[cfg(test)]
 mod test_support;
 
-pub use registry::{Tool, ToolCtx, ToolError, ToolOutcome, ToolRegistry, resolve_path};
+pub use registry::{Tool, ToolCtx, ToolError, ToolOutcome, ToolRegistry, UserPrompt, resolve_path};
 pub use tools::{
     ApplyPatchTool, AskUserTool, BashTool, EditTool, GlobTool, GrepTool, PresentTool, ReadTool,
     TodoTool, WebFetchTool, WebSearchTool, WorktreeCreateTool, WorktreeListTool,

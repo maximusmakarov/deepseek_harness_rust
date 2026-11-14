@@ -55,6 +55,7 @@ export default {
         output_limit: 10_000,
         spill_dir: dir.path().join("spills"),
         cancel: CancellationToken::new(),
+        prompt: None,
     };
     let outcome = echo
         .execute(&ctx, json!({"text": "hi"}))

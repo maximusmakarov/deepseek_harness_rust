@@ -570,6 +570,7 @@ mod tests {
             output_limit: 100_000,
             spill_dir: dir.join("spills"),
             cancel: CancellationToken::new(),
+            prompt: None,
         }
     }
 

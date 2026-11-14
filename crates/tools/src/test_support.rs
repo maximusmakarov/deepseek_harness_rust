@@ -12,5 +12,6 @@ pub fn ctx(cwd: &Path) -> ToolCtx {
         output_limit: 30_000,
         spill_dir: cwd.join(".spills"),
         cancel: CancellationToken::new(),
+        prompt: None,
     }
 }

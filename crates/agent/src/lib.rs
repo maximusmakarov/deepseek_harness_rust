@@ -222,6 +222,11 @@ pub trait AgentObserver: Send + Sync {
     async fn on_question(&self, _question: &str, _options: &[String]) -> Option<String> {
         None
     }
+
+    /// Prompt handler exposed to tools (ask_user, MCP elicitation).
+    fn prompt(&self) -> Option<Arc<dyn dshr_tools::UserPrompt>> {
+        None
+    }
 }
 
 pub struct NullObserver;
@@ -564,6 +569,7 @@ impl Agent {
                             output_limit: self.config.output_limit,
                             spill_dir: self.store.root().join("spills"),
                             cancel: cancel.clone(),
+                            prompt: observer.prompt(),
                         };
                         if call.name == "ask_user" {
                             let question = call.input["question"]
@@ -1115,6 +1121,7 @@ mod tests {
             output_limit: 10_000,
             spill_dir: dir.path().join("spills"),
             cancel: CancellationToken::new(),
+            prompt: None,
         };
         let outcome = tool
             .execute(&ctx, json!({"prompt": "task"}))

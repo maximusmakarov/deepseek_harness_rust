@@ -29,13 +29,34 @@ pub enum ToolError {
     Timeout,
 }
 
-#[derive(Debug, Clone)]
+/// Asks the active interface a question; `None` means the user declined or the
+/// interface cannot answer.
+#[async_trait]
+pub trait UserPrompt: Send + Sync {
+    async fn ask(&self, question: &str, options: &[String]) -> Option<String>;
+}
+
+impl std::fmt::Debug for ToolCtx {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ToolCtx")
+            .field("cwd", &self.cwd)
+            .field("session_id", &self.session_id)
+            .field("output_limit", &self.output_limit)
+            .field("spill_dir", &self.spill_dir)
+            .field("prompt", &self.prompt.is_some())
+            .finish()
+    }
+}
+
+#[derive(Clone)]
 pub struct ToolCtx {
     pub cwd: PathBuf,
     pub session_id: SessionId,
     pub output_limit: usize,
     pub spill_dir: PathBuf,
     pub cancel: CancellationToken,
+    pub prompt: Option<Arc<dyn UserPrompt>>,
 }
 
 #[derive(Debug, Clone, Default)]

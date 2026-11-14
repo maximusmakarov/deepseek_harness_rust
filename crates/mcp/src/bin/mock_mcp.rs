@@ -44,6 +44,10 @@ fn main() {
                             "required": ["text"],
                             "properties": {"text": {"type": "string"}}
                         }
+                    }, {
+                        "name": "elicit",
+                        "description": "Ask the client via elicitation",
+                        "inputSchema": {"type": "object", "properties": {}}
                     }]
                 }
             }),
@@ -85,17 +89,22 @@ fn main() {
                 }
             }),
             "tools/call" => {
-                let text = value["params"]["arguments"]["text"].as_str().unwrap_or("");
-                let output = if text == "sample" {
+                if value["params"]["name"].as_str() == Some("elicit") {
                     send(
                         &mut stdout,
                         &json!({
                             "jsonrpc": "2.0",
-                            "id": 900,
-                            "method": "sampling/createMessage",
+                            "id": 901,
+                            "method": "elicitation/create",
                             "params": {
-                                "messages": [{"role": "user", "content": {"type": "text", "text": "sample this"}}],
-                                "maxTokens": 32
+                                "message": "Pick a value",
+                                "requestedSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "answer": {"type": "string", "title": "Answer"}
+                                    },
+                                    "required": ["answer"]
+                                }
                             }
                         }),
                     );
@@ -105,22 +114,60 @@ fn main() {
                     } else {
                         None
                     };
-                    let sampled = response
+                    let action = response
                         .as_ref()
-                        .and_then(|value| value["result"]["content"]["text"].as_str())
-                        .unwrap_or("no-response");
-                    format!("sampled: {sampled}")
+                        .and_then(|value| value["result"]["action"].as_str())
+                        .unwrap_or("none");
+                    let answer = response
+                        .as_ref()
+                        .and_then(|value| value["result"]["content"]["answer"].as_str())
+                        .unwrap_or("");
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{"type": "text", "text": format!("{action}:{answer}")}],
+                            "isError": false
+                        }
+                    })
                 } else {
-                    format!("echo: {text}")
-                };
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [{"type": "text", "text": output}],
-                        "isError": false
-                    }
-                })
+                    let text = value["params"]["arguments"]["text"].as_str().unwrap_or("");
+                    let output = if text == "sample" {
+                        send(
+                            &mut stdout,
+                            &json!({
+                                "jsonrpc": "2.0",
+                                "id": 900,
+                                "method": "sampling/createMessage",
+                                "params": {
+                                    "messages": [{"role": "user", "content": {"type": "text", "text": "sample this"}}],
+                                    "maxTokens": 32
+                                }
+                            }),
+                        );
+                        let mut nested = String::new();
+                        let response = if reader.read_line(&mut nested).unwrap_or(0) > 0 {
+                            serde_json::from_str::<Value>(nested.trim()).ok()
+                        } else {
+                            None
+                        };
+                        let sampled = response
+                            .as_ref()
+                            .and_then(|value| value["result"]["content"]["text"].as_str())
+                            .unwrap_or("no-response");
+                        format!("sampled: {sampled}")
+                    } else {
+                        format!("echo: {text}")
+                    };
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [{"type": "text", "text": output}],
+                            "isError": false
+                        }
+                    })
+                }
             }
             _ => json!({
                 "jsonrpc": "2.0",

@@ -12,7 +12,7 @@
 | Сессии | JSONL, resume, fork/rewind/title/search, LLM-заголовки, FTS5, импорт DSH v4 | ✅ |
 | Промпт/AGENTS/skills/compaction | deterministic, discovery, compaction | ✅ |
 | Инструменты | read/write/edit/apply_patch/glob/grep/bash/todo/ask_user/present | ✅ |
-| MCP | stdio/HTTP tools/resources/prompts/sampling (GET-SSE) | ✅ |
+| MCP | stdio/HTTP tools/resources/prompts/sampling (GET-SSE), stdio elicitation | ✅ |
 | Web | `web_fetch` SSRF, Brave search | ✅ |
 | Jobs | background, output, kill | ✅ |
 | Субагенты/workflows/teams | spawn, DAG, durable board | ✅ |

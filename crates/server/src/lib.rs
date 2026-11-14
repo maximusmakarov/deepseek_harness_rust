@@ -25,7 +25,7 @@ use dshr_agent::{
 use dshr_core::DshrError;
 use dshr_llm::{LlmProvider, Usage};
 use dshr_session_jsonl::SessionStore;
-use dshr_tools::{ToolOutcome, ToolRegistry};
+use dshr_tools::{ToolOutcome, ToolRegistry, UserPrompt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast, oneshot};
@@ -157,6 +157,32 @@ struct BroadcastObserver {
     counter: Arc<AtomicU64>,
 }
 
+struct HttpPrompt {
+    tx: broadcast::Sender<ServerEvent>,
+    questions: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    counter: Arc<AtomicU64>,
+}
+
+#[async_trait]
+impl dshr_tools::UserPrompt for HttpPrompt {
+    async fn ask(&self, question: &str, options: &[String]) -> Option<String> {
+        let id = format!("q_{}", self.counter.fetch_add(1, Ordering::SeqCst));
+        let (respond, answer) = oneshot::channel();
+        self.questions.lock().await.insert(id.clone(), respond);
+        let _ = self.tx.send(ServerEvent::Question {
+            id: id.clone(),
+            question: question.to_owned(),
+            options: options.to_vec(),
+        });
+        let answer = tokio::time::timeout(Duration::from_secs(300), answer)
+            .await
+            .ok()
+            .and_then(Result::ok);
+        self.questions.lock().await.remove(&id);
+        answer
+    }
+}
+
 #[async_trait]
 impl AgentObserver for BroadcastObserver {
     async fn on_text(&self, text: &str) {
@@ -181,20 +207,21 @@ impl AgentObserver for BroadcastObserver {
     }
 
     async fn on_question(&self, question: &str, options: &[String]) -> Option<String> {
-        let id = format!("q_{}", self.counter.fetch_add(1, Ordering::SeqCst));
-        let (respond, answer) = oneshot::channel();
-        self.questions.lock().await.insert(id.clone(), respond);
-        let _ = self.tx.send(ServerEvent::Question {
-            id: id.clone(),
-            question: question.to_owned(),
-            options: options.to_vec(),
-        });
-        let answer = tokio::time::timeout(Duration::from_secs(300), answer)
-            .await
-            .ok()
-            .and_then(Result::ok);
-        self.questions.lock().await.remove(&id);
-        answer
+        HttpPrompt {
+            tx: self.tx.clone(),
+            questions: Arc::clone(&self.questions),
+            counter: Arc::clone(&self.counter),
+        }
+        .ask(question, options)
+        .await
+    }
+
+    fn prompt(&self) -> Option<Arc<dyn dshr_tools::UserPrompt>> {
+        Some(Arc::new(HttpPrompt {
+            tx: self.tx.clone(),
+            questions: Arc::clone(&self.questions),
+            counter: Arc::clone(&self.counter),
+        }))
     }
 }
 

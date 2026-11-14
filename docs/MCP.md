@@ -57,7 +57,7 @@ HTTP sampling работает через GET-SSE вне клиентского 
 
 ## Границы
 
-- Нет elicitation.
+- Elicitation: stdio-серверы могут вызвать `elicitation/create`; вопрос уходит в активный интерфейс (TUI-модалка / Web-диалог), ответ возвращается как `accept`, отмена — `decline`. Поддержаны строковые поля (в т.ч. `enum`); HTTP elicitation пока не обрабатывается.
 - OAuth: client-credentials при подключении, затем `refresh_token` по истечении `expires_in` (запас 30 с) и однократный retry после `401`. Если сервер вернул новый `refresh_token`, он сохраняется; `scope` передаётся в обоих grant-ах.
 - GET-SSE используется для HTTP sampling; прочие server-notifications игнорируются.
 - Prompts поддерживаются для stdio и HTTP.

@@ -494,6 +494,7 @@ mod tests {
             output_limit: 10_000,
             spill_dir: dir.join("spills"),
             cancel: CancellationToken::new(),
+            prompt: None,
         }
     }
 

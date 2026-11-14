@@ -40,6 +40,7 @@ async fn opens_document_and_reads_diagnostics_and_hover() {
         output_limit: 10_000,
         spill_dir: dir.path().join("spills"),
         cancel: CancellationToken::new(),
+        prompt: None,
     };
     let outcome = tool
         .execute(&ctx, json!({"path": "main.rs"}))
