@@ -70,7 +70,7 @@ React-слоты клиентских плагинов (сейчас мост, A
 ## Проверка (14.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 283 passed + 3 ignored; desktop 21 passed (итого 304).
+- `cargo test --workspace`: 300 passed + 3 ignored; desktop 21 passed (итого 321).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
