@@ -292,14 +292,75 @@ ctx.slots.register(
   `/v1/plugins/{name}/asset/{capability}/…` (TTL 1 час), модульный граф грузится
   relative-импортами по этому пути, CSP разрешает только этот origin.
 
+### Свой UI-стек внутри слота (`dsh.client.runtime`)
+
+React из шелла плагину не выдаётся (шелл — Leptos, ADR-003/ADR-013 §5), поэтому
+внутри слота используйте одно из двух:
+
+- **ванильный DOM** — `render(element, props)` получает контейнер, дальше
+  `innerHTML`/`createElement`/шаблоны;
+- **свой UI-стек, собранный в бандл** — Preact, Lit, Solid, Vue, Svelte или
+  **React**: iframe ничего не навязывает, если библиотека вшита в сам бандл.
+
+Устаревшие бандлы, собранные под reference-таблицу модулей (`require("react")`,
+`__ModuleLoader__.load({id, factory})`), могут принести свою модульную таблицу
+одним classic-скриптом `dsh.client.runtime`:
+
+```json
+{
+  "dsh": { "client": {
+    "platform": "web",
+    "entry": "client.js",
+    "runtime": "runtime.js"
+  } }
+}
+```
+
+`runtime.js` выполняется **до** бандла в том же sandboxed-документе и может
+опубликовать `window.__DSHR_MODULES__`; `require(specifier)` в бандле резолвит id
+из этой таблицы, неизвестный id падает с явной ошибкой. Для React это выглядит так:
+
+```js
+// runtime.js: плагин несёт React 18 UMD + свой мини-шим jsx-runtime
+window.__DSHR_MODULES__ = {
+  react: window.React,
+  "react-dom/client": window.ReactDOM,
+  "react/jsx-runtime": { jsx: (type, props, key) => React.createElement(type, { ...props, key }) },
+};
+// client.js: module-table бандл
+window.__ModuleLoader__.load({ id: "@acme/react", factory(require) {
+  const React = require("react");
+  const { createRoot } = require("react-dom/client");
+  return { inject: ["slots"], apply(ctx) {
+    ctx.slots.register({ name: "panel", id: "react" }, (el) => {
+      createRoot(el).render(React.createElement("h1", null, "hello from React"));
+    });
+  } };
+} });
+```
+
+Правила runtime: package-relative путь (конфайнмент как у бандла), classic-скрипт
+(не ESM), ≤ 8 МиБ, содержимое с `</script>` отклоняется (400), CSP остаётся
+network-free, отдельной подписи у runtime нет (часть пакета плагина). Каждый
+фрейм грузит runtime заново — это цена изоляции. Проверено на React 18.3.1:
+рендер, `useState`-интерактивность и `ctx.onTheme` работают (раунд 77).
+
+Чего runtime **не** даёт: общей модульной таблицы шелла, design-system пакетов
+`@deepseek-ai/dsh-client-ui-*`, React-контекста шелла, композиции между плагинами
+и SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope). Путь к
+полной React-совместимости (тиры B/C) описан в
+[ADR-040](adr/040-react-client-half.md).
+
 Маршруты:
 
 - `GET /v1/plugins/clients` — список половин (`name`, `package`, `platform`,
-  `entry`, `bundle`, `immediately`, `inject`) и ошибки разбора;
+  `entry`, `bundle`, `immediately`, `inject`, `runtime`) и ошибки разбора;
 - `GET /v1/plugins/{name}/host?token=…&theme=light|dark[&frame=…&mode=registry|slot&slot=…&id=…&context=…]`
   — host-страница для `<iframe sandbox="allow-scripts">`; токен нужен только для
   её выдачи. `frame` — непрозрачный токен шелла (эхо в сообщениях), `mode=slot` +
-  `slot`/`id`/`context` — рендер одной регистрации; невалидные значения → 400;
+  `slot`/`id`/`context` — рендер одной регистрации; невалидные значения → 400.
+  Если у половины есть `dsh.client.runtime`, его исходник встраивается в страницу
+  перед бандлом;
 - `GET /v1/plugins/{name}/asset/{capability}/{path}` — файлы пакета по capability
   (без bearer-токена; путь канонизируется и не выходит за пакет; ≤ 8 МиБ);
 - `GET /v1/plugins/{name}/client.js?token=…` — бандл отдельным файлом для отладки;
@@ -362,5 +423,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами и host-действиями; React-компоненты и `ownerProps`/hooks-семантика слотов не поддерживаются.
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами, host-действиями и экспериментальным `dsh.client.runtime` (плагин приносит свой UI-стек, включая React); общей таблицы модулей шелла, design-system и `ownerProps`/hooks-семантики слотов нет — это тиры B/C из [ADR-040](adr/040-react-client-half.md).
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

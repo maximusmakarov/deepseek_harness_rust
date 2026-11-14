@@ -21,7 +21,7 @@
 | Office | docx/xlsx/pptx read/create | ✅ |
 | CUA/browser | Chrome navigate/screenshot/click/type/eval | ✅ |
 | WASM-плагины | wasmi core + wasmtime component/WIT, fuel, 64 MiB, sha256, Ed25519 | ✅ |
-| npm/Cordis-плагины | sidecar (системный Node) + `plugin npm add/remove/update`; настоящий `cordis` при наличии пакета; hot reload (watcher + `/v1/plugins/reload`), capability-гранты `fs`; клиентская половина: eager registry-кадр на половину + iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) → 17 регионов, протокол v1.2; React-компоненты не поддерживаются | ⚠️ частично |
+| npm/Cordis-плагины | sidecar (системный Node) + `plugin npm add/remove/update`; настоящий `cordis` при наличии пакета; hot reload (watcher + `/v1/plugins/reload`), capability-гранты `fs`; клиентская половина: eager registry-кадр на половину + iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) → 17 регионов, протокол v1.2; экспериментальный `dsh.client.runtime` — плагин приносит свою модульную таблицу/UI-стек, включая React; общей таблицы модулей шелла и React-компонентов нет (тиры B/C [ADR-040](adr/040-react-client-half.md)) | ⚠️ частично |
 | OTel | OTLP/HTTP traces | ✅ |
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; fail-closed по умолчанию, AppContainer — opt-in (`DSHR_WINDOWS_SANDBOX`), CI-шаг `continue-on-error` | ⏸ deferred |

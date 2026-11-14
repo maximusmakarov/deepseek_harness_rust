@@ -144,7 +144,7 @@
 
 Решение — [ADR-013](adr/013-cordis-compat.md). Отдельная фаза: WASM-тир и песочница не ждут JS-рантайма.
 
-**Статус:** частично: sidecar-рантайм (системный Node, настоящий `cordis` при наличии пакета), hot reload, capability-гранты и клиентская половина (eager registry + iframe на слот, 17 регионов, полный словарь DSH 0.2.2-rc.2) — сделаны; runtime pack, `@dshr/cordis-compat@1`, npm-резолвер/CAS и conformance-набор — нет.
+**Статус:** частично: sidecar-рантайм (системный Node, настоящий `cordis` при наличии пакета), hot reload, capability-гранты и клиентская половина (eager registry + iframe на слот, 17 регионов, полный словарь DSH 0.2.2-rc.2, экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/React; тиры B/C — [ADR-040](adr/040-react-client-half.md)) — сделаны; runtime pack, `@dshr/cordis-compat@1`, npm-резолвер/CAS и conformance-набор — нет.
 
 | № | Задача | ИД | DoD |
 |---|---|---|---|
@@ -184,7 +184,7 @@
 
 ## M7 — Паритет (эпики, 84–145 ИД)
 
-**Статус:** срез 14.11.2026 — M0–M7 закрыты (346 тестов, +3 ignored); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar + hot reload + клиентская половина с региональным монтажом слотов (Replica 98.1/100, must 13/13); Windows отложен. DoD-гейты M7 — см. ниже.
+**Статус:** срез 14.11.2026 — M0–M7 закрыты (353 теста, +3 ignored); Leptos + Tauri + PWA + WIT; P2 Cordis — sidecar + hot reload + клиентская половина с региональным монтажом слотов и экспериментальным `dsh.client.runtime` (Replica 98.1/100, must 13/13; полная React-совместимость — решение по ADR-040, тир B/C); Windows отложен. DoD-гейты M7 — см. ниже.
 
 | Эпик | Содержание | ИД |
 |---|---|---|

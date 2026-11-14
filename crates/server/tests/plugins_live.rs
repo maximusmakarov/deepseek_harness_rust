@@ -470,6 +470,151 @@ async fn rejects_invalid_host_frame_queries() {
     );
 }
 
+fn write_runtime_client_half(dir: &Path) {
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"name":"@acme/react","dsh":{"client":{"platform":"web","entry":"client.js","runtime":"runtime/modules.js"}}}"#,
+    )
+    .expect("manifest");
+    std::fs::write(
+        dir.join("client.js"),
+        r#"
+window.__ModuleLoader__.load({
+  id: "@acme/react",
+  factory(require) {
+    const framework = require("framework");
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register({ name: "panel", id: "react-panel", title: "React" }, (element) => {
+          framework.mount(element);
+        });
+      },
+    };
+  },
+});
+"#,
+    )
+    .expect("client");
+    std::fs::create_dir_all(dir.join("runtime")).expect("runtime dir");
+    std::fs::write(
+        dir.join("runtime/modules.js"),
+        r#"window.__DSHR_MODULES__ = { framework: { mount: function (element) { element.textContent = "runtime works"; } } };"#,
+    )
+    .expect("runtime");
+}
+
+#[tokio::test]
+async fn serves_the_plugin_runtime_before_the_bundle() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_runtime_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let (status, body) = call(&app, "GET", "/v1/plugins/clients", Some(TOKEN), Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["clients"][0]["runtime"], "runtime/modules.js",
+        "{body}"
+    );
+
+    let (status, _, bytes) = raw(
+        &app,
+        "/v1/plugins/demo/host?token=test-token&theme=dark",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let page = String::from_utf8(bytes).expect("utf8");
+    assert!(page.contains("dshr plugin runtime"), "{page}");
+    assert!(
+        page.contains("window.__DSHR_MODULES__ = { framework"),
+        "{page}"
+    );
+    assert!(
+        page.contains("Object.prototype.hasOwnProperty.call(modules, specifier)"),
+        "{page}"
+    );
+    let runtime_at = page.find("dshr plugin runtime").expect("runtime marker");
+    let bundle_at = page.find("const url = ").expect("bundle loader");
+    assert!(runtime_at < bundle_at, "runtime must run before the bundle");
+}
+
+#[tokio::test]
+async fn rejects_a_runtime_that_closes_the_script_tag() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_runtime_client_half(dir.path());
+    std::fs::write(
+        dir.path().join("runtime/modules.js"),
+        r#"window.__DSHR_MODULES__ = {}; </script><script>window.pwned = 1;</script>"#,
+    )
+    .expect("hostile runtime");
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/v1/plugins/demo/host?token=test-token",
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("unescaped </script>"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn rejects_an_oversized_plugin_runtime() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_runtime_client_half(dir.path());
+    std::fs::write(
+        dir.path().join("runtime/modules.js"),
+        vec![b'x'; 8 * 1024 * 1024 + 1],
+    )
+    .expect("oversized runtime");
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/v1/plugins/demo/host?token=test-token",
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("larger than 8 MiB"),
+        "{body}"
+    );
+}
+
 #[tokio::test]
 async fn multi_file_client_bundle_uses_capability_assets() {
     if !node_available() {

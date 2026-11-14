@@ -70,6 +70,14 @@ pub struct ClientHalf {
     pub entry: String,
     /// How to deliver the bundle into the frame.
     pub bundle: BundleMode,
+    /// Optional plugin-provided runtime script (`dsh.client.runtime`), executed
+    /// before the bundle. It is the plugin's own module table: it may publish
+    /// `window.__DSHR_MODULES__` so bundles built against the reference
+    /// `__ModuleLoader__`/`require` contract can resolve e.g. a bundled React.
+    pub runtime: Option<String>,
+    /// Absolute, canonicalized runtime path (confined to the package).
+    #[serde(skip)]
+    pub runtime_path: Option<PathBuf>,
     /// Absolute, canonicalized bundle path.
     #[serde(skip)]
     pub path: PathBuf,
@@ -202,8 +210,61 @@ pub fn discover_client_half(spec: &CordisPluginSpec) -> Result<ClientHalf, Clien
         }
     };
 
+    // `dsh.client.runtime` is a classic script shipped with the half. It runs
+    // before the bundle in the same sandboxed document and is the plugin's own
+    // module table (a bundled React, a mini framework, ...). Path rules are the
+    // same as for the bundle: package-relative, existing, confined to the package.
+    let runtime = match client.get("runtime") {
+        None => None,
+        Some(value) => {
+            let declared = value.as_str().ok_or_else(|| {
+                ClientHalfError::Invalid(
+                    name.clone(),
+                    "dsh.client.runtime must be a package-relative string".into(),
+                )
+            })?;
+            let relative = Path::new(declared);
+            if declared.is_empty()
+                || relative.is_absolute()
+                || relative.components().any(|part| {
+                    matches!(
+                        part,
+                        std::path::Component::ParentDir | std::path::Component::RootDir
+                    )
+                })
+            {
+                return Err(ClientHalfError::Invalid(
+                    name.clone(),
+                    format!("client runtime '{declared}' must be package-relative"),
+                ));
+            }
+            let path = directory.join(relative);
+            let canonical = std::fs::canonicalize(&path).map_err(|error| {
+                ClientHalfError::Io(
+                    name.clone(),
+                    format!("client runtime {}: {error}", path.display()),
+                )
+            })?;
+            if !canonical.starts_with(&canonical_root) {
+                return Err(ClientHalfError::Invalid(
+                    name.clone(),
+                    format!("client runtime '{declared}' escapes the plugin package"),
+                ));
+            }
+            if !canonical.is_file() {
+                return Err(ClientHalfError::Invalid(
+                    name.clone(),
+                    format!("client runtime '{declared}' is not a file"),
+                ));
+            }
+            Some((declared.trim_start_matches("./").to_owned(), canonical))
+        }
+    };
+
     Ok(ClientHalf {
         name,
+        runtime: runtime.as_ref().map(|(relative, _)| relative.clone()),
+        runtime_path: runtime.map(|(_, path)| path),
         package: manifest
             .get("name")
             .and_then(serde_json::Value::as_str)
@@ -344,6 +405,41 @@ mod tests {
     }
 
     #[test]
+    fn resolves_the_plugin_runtime_script() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let spec = package(
+            dir.path(),
+            r#"{"name":"demo","dsh":{"client":{"platform":"web","entry":"client.js","runtime":"runtime/modules.js"}}}"#,
+            &[
+                ("client.js", "export default 1;"),
+                ("runtime/modules.js", "window.__DSHR_MODULES__ = {};"),
+            ],
+        );
+        let half = discover_client_half(&spec).expect("client half");
+        assert_eq!(half.runtime.as_deref(), Some("runtime/modules.js"));
+        let runtime = half.runtime_path.as_ref().expect("runtime path");
+        assert!(runtime.ends_with("runtime/modules.js"), "{runtime:?}");
+        assert!(runtime.is_absolute(), "{runtime:?}");
+    }
+
+    #[test]
+    fn rejects_a_runtime_outside_the_package() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = tempfile::tempdir().expect("outside");
+        std::fs::write(outside.path().join("modules.js"), "window.x = 1;").expect("outside");
+        let spec = package(
+            dir.path(),
+            r#"{"name":"demo","dsh":{"client":{"platform":"web","entry":"client.js","runtime":"../modules.js"}}}"#,
+            &[("client.js", "export default 1;")],
+        );
+        let error = discover_client_half(&spec).expect_err("traversal rejected");
+        assert!(
+            matches!(error, ClientHalfError::Invalid(_, ref message) if message.contains("package-relative")),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn falls_back_to_the_client_export() {
         let dir = tempfile::tempdir().expect("tempdir");
         let spec = package(
@@ -422,7 +518,12 @@ mod tests {
 ///
 /// `spec` becomes `window.__DSHR_FRAME__`, the bridge's v1.2 frame config.
 #[must_use]
-pub fn host_page(half: &ClientHalf, bundle: &[u8], spec: &FrameSpec) -> String {
+pub fn host_page(
+    half: &ClientHalf,
+    bundle: &[u8],
+    spec: &FrameSpec,
+    runtime: Option<&[u8]>,
+) -> String {
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(bundle);
     page(
@@ -432,6 +533,7 @@ pub fn host_page(half: &ClientHalf, bundle: &[u8], spec: &FrameSpec) -> String {
             "URL.createObjectURL(new Blob([Uint8Array.from(atob(\"{encoded}\"), (char) => char.charCodeAt(0))], {{ type: \"text/javascript\" }}))"
         ),
         true,
+        runtime,
     )
 }
 
@@ -441,7 +543,12 @@ pub fn host_page(half: &ClientHalf, bundle: &[u8], spec: &FrameSpec) -> String {
 /// relative imports and dynamic chunks resolve against that URL; the CSP for
 /// this page allows scripts from that origin only, and no other network.
 #[must_use]
-pub fn host_page_assets(half: &ClientHalf, asset_base: &str, spec: &FrameSpec) -> String {
+pub fn host_page_assets(
+    half: &ClientHalf,
+    asset_base: &str,
+    spec: &FrameSpec,
+    runtime: Option<&[u8]>,
+) -> String {
     let base = js_string(asset_base);
     let entry = js_string(&half.entry);
     page(
@@ -449,6 +556,7 @@ pub fn host_page_assets(half: &ClientHalf, asset_base: &str, spec: &FrameSpec) -
         spec,
         &format!("({base} + \"/\" + encodeURI({entry}).replace(/^\\.\\//, \"\"))"),
         false,
+        runtime,
     )
 }
 
@@ -465,7 +573,13 @@ struct FrameConfig<'a> {
     theme: &'a str,
 }
 
-fn page(half: &ClientHalf, spec: &FrameSpec, url_expression: &str, revoke: bool) -> String {
+fn page(
+    half: &ClientHalf,
+    spec: &FrameSpec,
+    url_expression: &str,
+    revoke: bool,
+    runtime: Option<&[u8]>,
+) -> String {
     let name = js_string(&half.name);
     let theme_value = if spec.theme == "light" {
         "light"
@@ -492,6 +606,15 @@ fn page(half: &ClientHalf, spec: &FrameSpec, url_expression: &str, revoke: bool)
         })
         .unwrap_or_default(),
     );
+    // The plugin's own runtime script runs before the bundle. It is raw JS from
+    // the plugin package; callers reject a payload containing `</script>` so it
+    // cannot escape the script element.
+    let runtime_script = runtime.map_or_else(String::new, |source| {
+        format!(
+            "<script>\n/* dshr plugin runtime (dsh.client.runtime): may publish window.__DSHR_MODULES__ */\n{}\n</script>\n",
+            String::from_utf8_lossy(source)
+        )
+    });
     format!(
         r#"<!doctype html>
 <html lang="en" data-theme={theme}>
@@ -514,14 +637,23 @@ fn page(half: &ClientHalf, spec: &FrameSpec, url_expression: &str, revoke: bool)
 <script>
 {BRIDGE_JS}
 </script>
+{runtime_script}
 <script type="module">
 const url = {url_expression};
 
-// `require` stand-in for bundles built against the reference module table:
-// React and other host modules are not available (ADR-013 §5), so a request
-// for them fails loudly instead of returning undefined.
+// `require` stand-in for bundles built against the reference module table.
+// The plugin's own runtime (`dsh.client.runtime`) may publish modules here, so a
+// half can ship a bundled React/mini-framework and resolve it by id; a request
+// for a module the half did not ship fails loudly instead of returning undefined.
 function requireShim(specifier) {{
-  throw new Error("module '" + specifier + "' is not available in the dshr client bridge");
+  const modules = window.__DSHR_MODULES__;
+  if (modules && Object.prototype.hasOwnProperty.call(modules, specifier)) {{
+    return modules[specifier];
+  }}
+  throw new Error(
+    "module '" + specifier + "' is not available in the dshr client bridge"
+      + (modules ? "" : " (declare dsh.client.runtime to ship your own module table)")
+  );
 }}
 
 function activateModule(module) {{
@@ -585,6 +717,8 @@ mod host_page_tests {
             inject: Vec::new(),
             entry: "dist/client.js".into(),
             bundle: BundleMode::Inline,
+            runtime: None,
+            runtime_path: None,
             path: PathBuf::from("/tmp/client.js"),
             directory: PathBuf::from("/tmp"),
         }
@@ -604,6 +738,7 @@ mod host_page_tests {
             &half("de\"mo<script>"),
             b"export default 1;",
             &registry("light"),
+            None,
         );
         assert!(page.contains("dshr-client")); // bridge protocol namespace
         assert!(page.contains("data-theme=\"light\""), "{page}");
@@ -617,8 +752,36 @@ mod host_page_tests {
     }
 
     #[test]
+    fn host_page_injects_the_plugin_runtime_before_the_bundle() {
+        let page = host_page(
+            &half("demo"),
+            b"export default 1;",
+            &registry("dark"),
+            Some(b"window.__DSHR_MODULES__ = { framework: {} };"),
+        );
+        assert!(page.contains("dshr plugin runtime"), "{page}");
+        let runtime_at = page.find("dshr plugin runtime").expect("runtime marker");
+        let bundle_at = page.find("const url = ").expect("bundle loader");
+        assert!(runtime_at < bundle_at, "runtime must run before the bundle");
+        assert!(
+            page.contains("Object.prototype.hasOwnProperty.call(modules, specifier)"),
+            "{page}"
+        );
+    }
+
+    #[test]
+    fn host_page_without_a_runtime_keeps_the_module_table_error() {
+        let page = host_page(&half("demo"), b"", &FrameSpec::default(), None);
+        assert!(!page.contains("dshr plugin runtime"), "{page}");
+        assert!(
+            page.contains("declare dsh.client.runtime to ship your own module table"),
+            "{page}"
+        );
+    }
+
+    #[test]
     fn host_page_embeds_the_registry_config() {
-        let page = host_page(&half("demo"), b"export default 1;", &registry("dark"));
+        let page = host_page(&half("demo"), b"export default 1;", &registry("dark"), None);
         assert!(page.contains("window.__DSHR_FRAME__ = "), "{page}");
         assert!(page.contains("\"plugin\":\"demo\""), "{page}");
         assert!(page.contains("\"frame\":\"registry:demo\""), "{page}");
@@ -632,7 +795,7 @@ mod host_page_tests {
         assert!(page.contains("__frameActivated"), "{page}");
         // A default spec is a registry frame in dark mode: the pre-v1.2 API had
         // only a theme, so the old call sites map onto these defaults.
-        let default_page = host_page(&half("demo"), b"", &FrameSpec::default());
+        let default_page = host_page(&half("demo"), b"", &FrameSpec::default(), None);
         assert!(
             default_page.contains("\"mode\":\"registry\""),
             "{default_page}"
@@ -653,7 +816,7 @@ mod host_page_tests {
             context: r#"{"index":0}"#.into(),
             theme: "dark".into(),
         };
-        let page = host_page(&half("demo"), b"export default 1;", &spec);
+        let page = host_page(&half("demo"), b"export default 1;", &spec, None);
         assert!(page.contains("\"mode\":\"slot\""), "{page}");
         assert!(
             page.contains("\"frame\":\"slot:demo:demo-panel:0\""),
@@ -675,7 +838,7 @@ mod host_page_tests {
             context: r#"{"html":"</script>"}"#.into(),
             theme: "light".into(),
         };
-        let page = host_page(&half("demo"), b"", &spec);
+        let page = host_page(&half("demo"), b"", &spec, None);
         // Every config value survives serialization without closing the script.
         assert!(!page.contains("x</script>"), "{page}");
         assert!(!page.contains(r#"{"html":"</script>"}"#), "{page}");
@@ -718,7 +881,12 @@ mod host_page_tests {
     fn asset_host_page_imports_the_capability_url() {
         let mut half = half("demo");
         half.bundle = BundleMode::Assets;
-        let page = host_page_assets(&half, "/v1/plugins/demo/asset/cap123", &registry("dark"));
+        let page = host_page_assets(
+            &half,
+            "/v1/plugins/demo/asset/cap123",
+            &registry("dark"),
+            None,
+        );
         assert!(page.contains("/v1/plugins/demo/asset/cap123"), "{page}");
         assert!(page.contains("encodeURI(\"dist/client.js\")"), "{page}");
         assert!(!page.contains("atob("), "{page}");

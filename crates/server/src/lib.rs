@@ -1304,6 +1304,42 @@ async fn plugin_client_host(
             Json(json!({ "error": format!("plugin '{name}' has no client half") })),
         )
     })?;
+    // Optional plugin-provided runtime script (`dsh.client.runtime`): raw JS that
+    // runs before the bundle and may publish `window.__DSHR_MODULES__`. The host
+    // page injects it as a classic script, so a `</script>` in it would escape the
+    // element and execute outside the sandboxed frame contract.
+    let runtime = match half.runtime_path.as_ref() {
+        Some(path) => {
+            let metadata = tokio::fs::metadata(path).await.map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "failed to read the plugin runtime" })),
+                )
+            })?;
+            if metadata.len() as usize > ASSET_MAX_BYTES {
+                return Err((
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    Json(json!({ "error": "the plugin runtime is larger than 8 MiB" })),
+                ));
+            }
+            let bytes = tokio::fs::read(path).await.map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "failed to read the plugin runtime" })),
+                )
+            })?;
+            if contains_script_close(&bytes) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({
+                        "error": "the plugin runtime contains an unescaped </script>"
+                    })),
+                ));
+            }
+            Some(bytes)
+        }
+        None => None,
+    };
     let (page, csp) = match half.bundle {
         dshr_cordis::client::BundleMode::Inline => {
             let bundle = tokio::fs::read(&half.path).await.map_err(|_| {
@@ -1313,7 +1349,7 @@ async fn plugin_client_host(
                 )
             })?;
             (
-                dshr_cordis::client::host_page(&half, &bundle, &spec),
+                dshr_cordis::client::host_page(&half, &bundle, &spec, runtime.as_deref()),
                 CLIENT_HOST_CSP.to_owned(),
             )
         }
@@ -1325,7 +1361,7 @@ async fn plugin_client_host(
             );
             let origin = request_origin(&headers);
             (
-                dshr_cordis::client::host_page_assets(&half, &base, &spec),
+                dshr_cordis::client::host_page_assets(&half, &base, &spec, runtime.as_deref()),
                 asset_host_csp(&origin),
             )
         }
@@ -1348,6 +1384,19 @@ async fn plugin_client_host(
 /// The inline host page runs with an opaque origin and must stay network-free:
 /// the bundle arrives base64-inlined and executes from a blob URL.
 const CLIENT_HOST_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+/// Case-insensitive search for a closing script tag in plugin-provided JS. The
+/// runtime is injected as a raw classic script, so it must not be able to close
+/// the element and escape into the rest of the host page.
+fn contains_script_close(bytes: &[u8]) -> bool {
+    const NEEDLE: &[u8] = b"</script";
+    bytes.windows(NEEDLE.len()).any(|window| {
+        window
+            .iter()
+            .zip(NEEDLE)
+            .all(|(left, right)| left.eq_ignore_ascii_case(right))
+    })
+}
 
 /// Capability TTL: long enough to open a panel, short enough to be useless if
 /// it leaks into a log.

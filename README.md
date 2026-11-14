@@ -1,6 +1,6 @@
 # Улучшенная Rust-реализация концепции DeepSeek Harness — генеральный план
 
-**Статус:** план v5.5 · 14.11.2026 · **M0–M7 закрыты; Leptos + Tauri; WIT; Cordis — sidecar, hot reload, клиентская половина с региональным монтажом слотов**
+**Статус:** план v5.5 · 14.11.2026 · **M0–M7 закрыты; Leptos + Tauri; WIT; Cordis — sidecar, hot reload, клиентская половина с региональным монтажом слотов и экспериментальным `dsh.client.runtime`**
 **Рабочее имя проекта:** `dshr` (крейты `dshr-*`, бинарь `dshr`; имя рабочее — см. [LIMITATIONS §6](docs/LIMITATIONS.md#6-юридические-и-брендовые-ограничения))
 **Референс:** DeepSeek Harness `0.2.2-rc.2` (Desktop/macOS) + исходники DSH Desktop [`anywhere-labs/dsh-desktop@233b76c`](reference/REFERENCE.md) (MIT)
 **Проверено:** живой DeepSeek-провайдер — [docs/PROVIDER-VERIFICATION.md](docs/PROVIDER-VERIFICATION.md) (12.11.2026)
@@ -12,7 +12,7 @@
 
 M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees, schedules, LSP. Песочница работает на macOS, Linux и Windows.
 
-- **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…024.
+- **Ядро:** workspace `core`/`config`/`cli`, слои конфигурации, `dshr doctor`, CI на macOS/Ubuntu/Windows, ADR-001…040.
 - **LLM:** DeepSeek Anthropic Messages и OpenAI-совместимый адаптеры, SSE-декодер, retry/backoff, отмена, кассеты и replay, живой smoke.
 - **Сессии:** append-only JSONL, восстановление после оборванного хвоста, `derive_messages()`, resume, fork/rewind/title/search; опциональный FTS5-индекс.
 - **Контекст:** детерминированный промпт, `AGENTS.md`, skills, compaction с событием журнала.
@@ -23,7 +23,7 @@ M0–M6 (ядро) завершены; M7 — workflows, agent teams, worktrees,
 - **Песочница:** macOS Seatbelt, Linux Landlock + seccomp; Windows — fail-closed (AppContainer experimental через `DSHR_WINDOWS_SANDBOX`).
 - **Интерфейсы:** TUI, HTTP/SSE + Web UI, ACP v1 stdio.
 
-346 тестов (+3 ignored), desktop — 21; живой tool-loop DeepSeek проверен. M7 продолжается: Windows sandbox, notarization, conformance-набор Cordis. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
+353 теста (+3 ignored), desktop — 21; живой tool-loop DeepSeek проверен. M7 продолжается: Windows sandbox, notarization, conformance-набор Cordis. План — [docs/PLAN.md](docs/PLAN.md), задачи — [docs/ROADMAP.md](docs/ROADMAP.md), границы — [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
 ---
 
@@ -38,7 +38,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 - **Один статический бинарь** вместо Electron + Node + pnpm; нет обязательного GUI.
 - **TUI и headless — равноправные поверхности**, Web/Desktop — опция.
 - **WASM-плагины** с capability-моделью для недоверенного и переносимого кода.
-- **Совместимость с npm/Cordis-плагинами DSH** ([ADR-013](docs/adr/013-cordis-compat.md)): настоящий `cordis` в sidecar-рантайме, его `fs`/`net`/`exec` — через capability-шину, hot reload; клиентская половина — eager registry-кадр + отдельный iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) разложен по 17 регионам шелла, незнакомое имя — fallback в панель. React-компоненты не поддерживаются.
+- **Совместимость с npm/Cordis-плагинами DSH** ([ADR-013](docs/adr/013-cordis-compat.md)): настоящий `cordis` в sidecar-рантайме, его `fs`/`net`/`exec` — через capability-шину, hot reload; клиентская половина — eager registry-кадр + отдельный iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) разложен по 17 регионам шелла, незнакомое имя — fallback в панель. Экспериментальный `dsh.client.runtime` позволяет половине принести свою модульную таблицу/UI-стек, включая React (React-компоненты как контракт шелла пока не поддерживаются; путь к полной совместимости — [ADR-040](docs/adr/040-react-client-half.md), Proposed, тиры B/C).
 - **Нативная песочница** и event-sourced журнал — часть ядра, а не обёртки.
 
 ```text
@@ -103,7 +103,7 @@ DSH — это **не модель**, а обвязка вокруг модел�
 | [docs/LSP.md](docs/LSP.md) | Конфиг LSP, инструменты, ограничения | Для навигации по коду |
 | [docs/TECH-DEBT.md](docs/TECH-DEBT.md) | Реестр техдолга и приоритеты | Для планирования |
 | [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Честные ограничения: что могу, чего не могу, что нужно от пользователя | Перед принятием решения |
-| [docs/adr/](docs/adr/README.md) | Architecture Decision Records 001–012 | При изменении контрактов |
+| [docs/adr/](docs/adr/README.md) | Architecture Decision Records 001–040 | При изменении контрактов |
 
 ---
 
@@ -238,7 +238,7 @@ crates/desktop        Tauri v2 desktop shell over dshr serve
 crates/cordis         JS/npm plugin sidecar (Cordis prototype)
 crates/cli            run, tui, prompt, sessions, doctor, config show
 .github/workflows     fmt, clippy, nextest, deny, coverage
-docs/adr              001–039
+docs/adr              001–040
 ```
 
 ## 9. Что дальше
@@ -246,7 +246,7 @@ docs/adr              001–039
 **Осталось:**
 1. Windows sandbox (persistent helper), сеть Windows.
 2. Tauri: трей, автообновление, notarization (бандл `.app` уже собирается).
-3. Полный Cordis: runtime pack и шим `@dshr/cordis-compat@1`, кэш грантов, conformance-набор реальных плагинов (HMR, аудит и клиентская половина с региональным монтажом слотов уже есть).
+3. Полный Cordis: runtime pack и шим `@dshr/cordis-compat@1`, кэш грантов, conformance-набор реальных плагинов (HMR, аудит, региональный монтаж слотов и экспериментальный `dsh.client.runtime` уже есть); полная React-совместимость — решение по [ADR-040](docs/adr/040-react-client-half.md) (тиры B/C, D не рекомендуется).
 4. ghcr-бутылки Homebrew (сборка уже детерминирована и воспроизводима).
 
 Критерии выхода — [docs/PLAN.md §5](docs/PLAN.md#5-фазы), задачи — [docs/ROADMAP.md](docs/ROADMAP.md).

@@ -17,10 +17,11 @@ Multi-file bundle delivery with relative imports,loading,should,yes,yes,capabili
 Content-driven panel height,layout,should,yes,yes,resize message clamps 24-640px
 Eager activation at startup,lifecycle,should,yes,yes,dsh.client.immediately keeps a hidden frame mounted
 Activation ordering by inject,lifecycle,should,yes,yes,eager mounts and panel open walk inject dependencies; cycles are guarded
-Bundles built for the reference module table,loading,should,yes,partial,__ModuleLoader__ shim runs factory/apply; React is unavailable
+Bundles built for the reference module table,loading,should,yes,partial,__ModuleLoader__ shim runs factory/apply; the host module table is unavailable — React works only if the half ships dsh.client.runtime
 Hot reload an open panel after a plugin reload,lifecycle,should,yes,yes,the shell bumps the frame version; the panel reloads its bundle
-External runtime imports (dsh.client.external),loading,could,yes,skip,no shared browser module table in the iframe bridge (ADR-013 §5)
+External runtime imports (dsh.client.external),loading,could,yes,skip,no shared browser module table in the iframe bridge (ADR-013 §5); a half can ship modules itself via dsh.client.runtime
 Slot ordering hint,slots,could,yes,yes,order field respected by the shell tabs
 Open a panel directly by link,ui,could,no,yes,dshr addition: ?token=...&plugin=<name>
+Plugin-shipped runtime/module table (bring your own React),loading,could,no,yes,dshr addition: dsh.client.runtime classic script runs before the bundle and publishes window.__DSHR_MODULES__; module-table bundles resolve require from it (verified with React 18.3.1)
 React component model,slots,must,yes,skip,ADR-013 chooses an iframe bridge over React compatibility
 Inject arbitrary DOM into the shell,slots,must,yes,skip,conflicts with the bridge isolation decision

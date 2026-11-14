@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with nine throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with ten throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -426,6 +426,58 @@ export default function activate(ctx) {
 # One registration per shell region (plus an unknown name that must fall back
 # to the panel stage). Every render prints the region it was mounted into so the
 # smoke test can verify placement from inside the sandboxed frame.
+FRAMEWORK_MANIFEST = {
+    "name": "@smoke/framework",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js", "runtime": "runtime/framework.js"}},
+}
+
+FRAMEWORK_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "framework", description: "framework", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+FRAMEWORK_RUNTIME = """
+// A plugin-shipped module table (`dsh.client.runtime`). The half brings its own
+// mini framework instead of relying on modules from the shell; a real plugin
+// bundles React into this file the same way (verified manually with the React
+// 18.3.1 UMD build).
+window.__DSHR_MODULES__ = {
+  mini: {
+    mount: function (element, text) {
+      element.innerHTML = "";
+      const title = document.createElement("h3");
+      title.id = "mini-framework";
+      title.textContent = "mini framework: " + text;
+      element.appendChild(title);
+    },
+  },
+};
+"""
+
+FRAMEWORK_CLIENT = """
+window.__ModuleLoader__.load({
+  id: "@smoke/framework",
+  factory(require) {
+    const mini = require("mini");
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register(
+          { name: "panel", id: "framework-panel", title: "Framework panel", order: 60 },
+          (element, props) => mini.mount(element, props.theme),
+        );
+        ctx.onTheme((theme) => { document.body.dataset.pluginTheme = theme; });
+      },
+    };
+  },
+});
+"""
+
 REGIONS_MANIFEST = {
     "name": "@smoke/regions",
     "version": "1.0.0",
@@ -552,6 +604,7 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("demo7", ORDERED_MANIFEST, ORDERED_PLUGIN, ORDERED_CLIENT),
         ("demo8", DSH_MANIFEST, DEMO_PLUGIN, DSH_CLIENT),
         ("regions", REGIONS_MANIFEST, REGIONS_PLUGIN, REGIONS_CLIENT),
+        ("framework", FRAMEWORK_MANIFEST, FRAMEWORK_PLUGIN, FRAMEWORK_CLIENT),
     ]
     for name, manifest, plugin, client in entries:
         directory = workspace / name
@@ -566,6 +619,10 @@ def write_fixtures(home: Path, workspace: Path) -> None:
             chunk = directory / "lib" / "panel.js"
             chunk.parent.mkdir(parents=True, exist_ok=True)
             chunk.write_text(ASSETS_CHUNK, encoding="utf-8")
+        if name == "framework":
+            runtime = directory / "runtime" / "framework.js"
+            runtime.parent.mkdir(parents=True, exist_ok=True)
+            runtime.write_text(FRAMEWORK_RUNTIME, encoding="utf-8")
         profile += [
             f"    - name: {name}",
             f"      entry: {directory}",
@@ -910,7 +967,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 9, names)
+        check("lists every configured client half", len(clients) == 10, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -918,6 +975,26 @@ def run(args: argparse.Namespace) -> int:
             "eager half is marked immediately and demo7 injects demo6",
             any(client["name"] == "demo2" and client["immediately"] for client in clients)
             and any(client["name"] == "demo7" and client["inject"] == ["demo6"] for client in clients),
+        )
+        framework_half = next((client for client in clients if client["name"] == "framework"), None)
+        check(
+            "plugin-shipped runtime is discovered with the half",
+            framework_half is not None and framework_half.get("runtime") == "runtime/framework.js",
+            framework_half,
+        )
+        runtime_page = urllib.request.urlopen(
+            urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/plugins/framework/host?token={TOKEN}",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+            ),
+            timeout=10,
+        ).read().decode()
+        runtime_at = runtime_page.find("dshr plugin runtime")
+        bundle_at = runtime_page.find("const url = ")
+        check(
+            "host page runs the plugin runtime before the bundle",
+            runtime_at >= 0 and bundle_at > runtime_at and "mini framework" in runtime_page,
+            (runtime_at, bundle_at, len(runtime_page)),
         )
 
         # A deterministic transcript: create a session over REST and replay one
@@ -943,7 +1020,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 9)
+        wait_registry_ready(debug_port, 10)
 
         # Eager registry ----------------------------------------------------
         registry = shell.eval(
@@ -955,7 +1032,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 9
+            len(registry) == 10
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1267,7 +1344,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 9)
+        wait_registry_ready(debug_port, 10)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1349,6 +1426,35 @@ def run(args: argparse.Namespace) -> int:
             24 <= height_px <= 640 and bool(footer_height) and footer_height != "auto",
             (height, footer_height),
         )
+
+        # Plugin-shipped module table: a bundle built for the reference module
+        # table resolves its own framework through require and renders it.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=framework"},
+        )
+        wait_until(
+            lambda: shell.eval("document.getElementById('plugin-stage')?.className === 'plugin-stage open'"),
+            timeout=LOAD_TIMEOUT,
+            label="framework panel opens",
+        )
+        framework_text = wait_frame_text(debug_port, "mini framework", "framework", "panel")
+        check(
+            "a plugin-shipped module table resolves through require",
+            "mini framework: " in framework_text,
+            framework_text,
+        )
+        # Back to the regions panel for the action round-trips below.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=regions"},
+        )
+        wait_until(
+            lambda: shell.eval("document.getElementById('plugin-stage')?.className === 'plugin-stage open'"),
+            timeout=LOAD_TIMEOUT,
+            label="regions panel reopens",
+        )
+        wait_registry_ready(debug_port, 10)
 
         # ctx.action round-trips from a panel frame -------------------------
         def panel_eval(expression: str, await_promise: bool = False):
@@ -1491,7 +1597,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 9)
+        wait_registry_ready(debug_port, 10)
 
         def surviving_frames() -> int:
             count = 0
@@ -1528,7 +1634,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 9)
+            wait_registry_ready(debug_port, 10)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

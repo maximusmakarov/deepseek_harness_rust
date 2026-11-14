@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–76)
+# Журнал раундов паритета (1–77)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 346 root-тестов
-(+3 ignored) и 21 desktop-тест = **367**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 353 root-теста
+(+3 ignored) и 21 desktop-тест = **374**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -173,25 +173,58 @@ release-бинарь воспроизводим.
   - React-компоненты, `ownerProps`/hooks/chain/hoc-семантика слотов и
     произвольная инъекция в DOM шелла по-прежнему вне scope.
 
+- 77: экспериментальный enabler React в клиентской половине —
+  `dsh.client.runtime`: `package.json` половины может объявить один
+  package-relative classic-скрипт; host-страница встраивает его в sandboxed-документ
+  и исполняет **до** бандла, половина публикует `window.__DSHR_MODULES__`, а
+  module-table бандлы (`__ModuleLoader__.load({id, factory})`) резолвят
+  `require(specifier)` из этой таблицы (неизвестный id — явная ошибка с
+  подсказкой про `dsh.client.runtime`). Валидация: путь confined к пакету,
+  ≤ 8 МиБ, содержимое с `</script>` отклоняется (400), CSP остаётся network-free,
+  отдельной подписи у runtime нет.
+  - Код: `crates/cordis/src/client.rs` (`ClientHalf.runtime`/`runtime_path`,
+    `host_page`/`host_page_assets` принимают байты runtime),
+    `crates/server/src/lib.rs` (`plugin_client_host` читает и валидирует runtime,
+    `contains_script_close`).
+  - React 18.3.1 PoC проверен вручную (в репозиторий не коммитился): React UMD
+    в `runtime.js` (143 197 байт) + module-table бандл — рендер в slot-iframe,
+    `useState` (клик 0→1), `ctx.onTheme` (тема light) работают.
+  - Проверки: cordis lib 21 (+4), server `plugins_live` 9 (+3), smoke — 48/48
+    (+3: runtime discovery, host-page runtime-before-bundle, module-table
+    require render); workspace 353 passed + 3 ignored (desktop 21, итого 374),
+    web-e2e 16/16.
+  - Границы: это enabler, а не полная React-совместимость — общей модульной
+    таблицы шелла, design-system и SlotMap-семантики по-прежнему нет;
+    [ADR-040](adr/040-react-client-half.md) (Proposed) фиксирует тиры A → B → C
+    (D не рекомендуется), решение по B/C — за владельцем.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–76 закрыли
-визуальный diff в Web UI, экран настроек провайдера и региональный монтаж
-слотов клиентской половины.
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–77 закрыли
+визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
+слотов клиентской половины и enabler `dsh.client.runtime` (плагин приносит
+свой UI-стек, включая React, внутрь слота).
 
 Открыто и не заблокировано:
 
 - Общая серверная база отзывов plugin market (сейчас home-scoped файл).
+- Экспериментальный контракт `dsh.client.runtime` (classic script, без ESM и
+  отдельной подписи, дублирование runtime в каждом кадре) может поменяться до
+  тира B по [ADR-040](adr/040-react-client-half.md).
+
+Ожидает решения (ADR-040 Proposed, тиры B/C):
+
+- **Полная React-совместимость** — enabler есть (раунд 77): половина приносит
+  собственный React/module table. Чего по-прежнему нет: общей модульной таблицы
+  шелла, design-system пакетов `@deepseek-ai/dsh-client-ui-*`, React-контекста
+  шелла, композиции между плагинами и SlotMap-семантики (`ownerProps`,
+  framework-hooks, cardinality/scope). Выбор тира B (host-таблица модулей) или
+  C (React-остров в Leptos) — за владельцем; D не рекомендуется.
 
 Заблокировано внешним условием:
 
-- **React-компоненты клиентских плагинов** — React-компоненты (`render` строит
-  DOM сам), `ownerProps`/hooks/chain/hoc-семантика слотов DSH и произвольная
-  инъекция в DOM шелла остаются вне scope по [ADR-013](adr/013-cordis-compat.md) §5
-  (Leptos-шелл, изоляция в iframe). Региональный монтаж слотов и полный словарь
-  имён DSH 0.2.2-rc.2 реализованы в раунде 76 (Replica 98.1/100).
 - **Windows sandbox/сеть** — нужен реальный Windows-хост; CI-шаг есть, локально
   только компиляция.
 - **Notarization** — нужны Apple Developer ID, сертификат и app-specific password.

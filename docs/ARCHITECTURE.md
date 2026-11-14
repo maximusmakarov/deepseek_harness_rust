@@ -512,7 +512,7 @@ world tool-plugin {
 - `cordis-sidecar` (по умолчанию): процесс-рантайм из runtime pack, общение по JSON-RPC, живёт в песочнице. `cordis-embedded` (опция): V8/`deno_core` в отдельном изоляте, «один бинарь» ценой размера и старта.
 - Builtins: `path`/`url`/`events`/`util`/`buffer` — чистый JS; `fs` → `ctx.fs`; `child_process` → exec + approvals; `net` → deny by default; `process` → фильтрованный env; `crypto` → host; нативные `.node`-аддоны не грузятся.
 - `@dshr/cordis-compat@1`: сервисы `ctx.*` поверх host-RPC, привязка к API DSH `0.2.x`, матрица поддержки и conformance-набор из реальных плагинов.
-- Client-половина: бандл рендерится в изолированном iframe и общается с Leptos-шеллом через типизированный `postMessage`-мост (протокол v1.2: токен фрейма, `region`, slot-режим, `context`). Eager registry-кадр на каждую половину публикует регистрации, отдельный `mode=slot` iframe на регистрацию монтируется в регион шелла, в который отображён ключ DSH-слота: полный словарь DSH 0.2.2-rc.2 (116 ключей) плюс legacy `panel`/`message.action` разложены по 17 регионам, незнакомое имя — fallback в панель. React-компоненты не поддерживаются.
+- Client-половина: бандл рендерится в изолированном iframe и общается с Leptos-шеллом через типизированный `postMessage`-мост (протокол v1.2: токен фрейма, `region`, slot-режим, `context`). Eager registry-кадр на каждую половину публикует регистрации, отдельный `mode=slot` iframe на регистрацию монтируется в регион шелла, в который отображён ключ DSH-слота: полный словарь DSH 0.2.2-rc.2 (116 ключей) плюс legacy `panel`/`message.action` разложены по 17 регионам, незнакомое имя — fallback в панель. Половина может объявить один package-relative classic-скрипт `dsh.client.runtime`: host-страница исполняет его до бандла в том же sandboxed-документе, скрипт публикует `window.__DSHR_MODULES__`, и module-table бандлы резолвят `require(specifier)` из этой таблицы (путь для legacy-бандлов и «своего» React). Это enabler, а не React-совместимость: общей модульной таблицы шелла, design-system и SlotMap-семантики нет — тиры B/C [ADR-040](adr/040-react-client-half.md).
 
 ### 13.3. Sidecar
 
@@ -552,7 +552,7 @@ world tool-plugin {
 
 - Не грузим нативные `.so`/`.dylib` (ABI Rust нестабилен, безопасность нулевая).
 - Не даём плагинам ambient authority: только через host-функции — включая Cordis-тир, где `fs`/`net`/`exec` опосредованы, а не отданы как в Node.
-- Не обещаем React-компонентов клиентских UI-плагинов DSH: регионы и полный словарь имён слотов поддержаны iframe-мостом, React-совместимости шелла нет.
+- Не обещаем React-компонентов клиентских UI-плагинов DSH: регионы и полный словарь имён слотов поддержаны iframe-мостом, React-совместимости шелла нет. С раунда 77 половина может принести свой React через `dsh.client.runtime` (module table в том же iframe), но общая таблица модулей, design-system и SlotMap-семантика остаются предметом [ADR-040](adr/040-react-client-half.md) (тиры B/C; D не рекомендуется).
 
 ---
 
