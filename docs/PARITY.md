@@ -10,7 +10,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Сценарий оригинала | dshr | Статус |
 |---|---|---|
 | Первый запуск, профиль по умолчанию, настройка | авто-создание home/README/desktop-profile + нативный provider setup (маршрут/модель/ключ, `desktop.env 0600`); wizard'а бандлов нет | ✅ |
-| Запуск с папкой (`dsh-desktop <folder>`, drag-and-drop) | `dshr-desktop <folder>` задаёт cwd сервера; drag-and-drop нет | ⚠️ |
+| Запуск с папкой (`dsh-desktop <folder>`, drag-and-drop) | аргумент, сохранённая `desktop-folder` и drag-and-drop папки на окно (рестарт с новым cwd) | ✅ |
 | Профили: список в трее, переключение с рестартом, last-known-good | CLI `--profile`/`DSH_PROFILE`; трей: список, New profile…, переключение пишет `desktop-profile` и перезапускает shell | ✅ |
 | Профиль как композиция бандлов/зависимостей/патчей | config-слои + Cordis-sidecar; композиции бандлов нет | ⚠️ |
 | Режимы окна (compatibility/extended/enhanced), материалы macOS | Compatibility/Enhanced/Extended (overlay title bar) и Material (macOS vibrancy) через трей; Linux-режимы и кастомный titlebar нет | ⚠️ |

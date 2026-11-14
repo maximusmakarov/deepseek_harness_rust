@@ -30,6 +30,9 @@ shell) и Quit. Окно: трей Window → Compatibility/Enhanced/Extended и
 прозрачность). Extended — overlay title bar со сдвинутыми traffic lights.
 Настройки хранятся в `<home>/desktop-window.json`; смена перезапускает shell.
 
+Папка: аргумент `<folder>`, сохранённая `<home>/desktop-folder` или
+drag-and-drop папки на окно (перезапуск сервера с новым cwd).
+
 Трей **Network**: Local only / LAN (0.0.0.0, с предупреждением о токене) /
 Set port… (0 = случайный). Настройки — `<home>/desktop-network.json`; смена
 перезапускает shell.

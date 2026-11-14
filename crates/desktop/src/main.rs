@@ -64,6 +64,7 @@ fn main() {
             let home = home_dir();
             let first_run = ensure_home(&home);
             let profile = current_profile(&home);
+            let folder = folder.clone().or_else(|| load_desktop_folder(&home));
             let provider = match ensure_provider(&home, true) {
                 Ok(provider) => provider,
                 Err(error) => {
@@ -120,6 +121,19 @@ fn main() {
                 }
             }
             let window = builder.build()?;
+            let handle = app.handle().clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) =
+                    event
+                    && let Some(path) = paths.iter().find(|path| path.is_dir())
+                {
+                    let home = home_dir();
+                    if save_desktop_folder(&home, Some(path)).is_ok() {
+                        stop_server(&handle);
+                        handle.restart();
+                    }
+                }
+            });
             #[cfg(target_os = "macos")]
             if window_settings.material {
                 use window_vibrancy::{NSVisualEffectMaterial, apply_vibrancy};
@@ -627,6 +641,28 @@ fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".dshr"))
         .unwrap_or_else(|| PathBuf::from(".dshr"))
+}
+
+fn desktop_folder_path(home: &Path) -> PathBuf {
+    home.join("desktop-folder")
+}
+
+fn load_desktop_folder(home: &Path) -> Option<PathBuf> {
+    let value = std::fs::read_to_string(desktop_folder_path(home)).ok()?;
+    let path = PathBuf::from(value.trim());
+    path.is_dir().then_some(path)
+}
+
+fn save_desktop_folder(home: &Path, folder: Option<&Path>) -> Result<(), String> {
+    match folder {
+        Some(path) => std::fs::write(desktop_folder_path(home), format!("{}\n", path.display()))
+            .map_err(|error| error.to_string()),
+        None => match std::fs::remove_file(desktop_folder_path(home)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        },
+    }
 }
 
 fn last_good_path(home: &Path) -> PathBuf {
@@ -1548,6 +1584,21 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn saves_and_loads_the_desktop_folder() {
+        let home = std::env::temp_dir().join(format!("dshr-folder-test-{}", uuid::Uuid::new_v4()));
+        let workspace = home.join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace");
+        save_desktop_folder(&home, Some(&workspace)).expect("save");
+        assert_eq!(
+            load_desktop_folder(&home).as_deref(),
+            Some(workspace.as_path())
+        );
+        save_desktop_folder(&home, None).expect("clear");
+        assert!(load_desktop_folder(&home).is_none());
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
