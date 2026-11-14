@@ -1567,3 +1567,63 @@ async fn accepts_embedded_resource_prompts() {
         .collect::<String>();
     assert!(text.contains("embedded notes"), "{text}");
 }
+
+#[tokio::test]
+async fn lists_sessions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let server = AcpServer::new(
+        Arc::new(ScriptedProvider::new("test-model", vec![])),
+        Arc::new(ToolRegistry::new()),
+        Arc::new(SessionStore::new(dir.path().join("sessions"))),
+        AcpConfig {
+            system_prompt: "test".into(),
+            mode: PermissionMode::DangerFull,
+            max_steps: 2,
+            max_tokens: 64,
+            output_limit: 10_000,
+        },
+    );
+    let (server_io, client_io) = duplex(128 * 1024);
+    let (server_read, server_write) = split(server_io);
+    let (client_read, mut client_write) = split(client_io);
+    tokio::spawn(async move { server.serve(server_read, server_write).await });
+    let mut reader = BufReader::new(client_read);
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("init");
+    let _ = read_json(&mut reader).await;
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":dir.path()}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("new");
+    let created = read_json(&mut reader).await;
+    let session_id = created["result"]["sessionId"].as_str().expect("id");
+    client_write
+        .write_all(
+            format!(
+                "{}\n",
+                json!({"jsonrpc":"2.0","id":3,"method":"session/list","params":{}})
+            )
+            .as_bytes(),
+        )
+        .await
+        .expect("list");
+    let listed = read_json(&mut reader).await;
+    let sessions = listed["result"]["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0]["sessionId"], session_id);
+    assert_eq!(sessions[0]["cwd"], dir.path().to_string_lossy().as_ref());
+}

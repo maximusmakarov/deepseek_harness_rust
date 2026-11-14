@@ -196,6 +196,41 @@ impl AcpServer {
                         .await?;
                     }
                 }
+                "session/list" => {
+                    let sessions = self
+                        .store
+                        .list()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|summary| {
+                            let cwd = self
+                                .store
+                                .open(summary.id.as_str())
+                                .map(|session| session.header.cwd)
+                                .unwrap_or_default();
+                            json!({
+                                "sessionId": summary.id.as_str(),
+                                "cwd": cwd,
+                                "title": summary.title,
+                                "updatedAt": summary.created_at,
+                                "provider": summary.provider,
+                                "model": summary.model,
+                                "turns": summary.turns
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if let Some(id) = id {
+                        send(
+                            &writer,
+                            json!({
+                                "jsonrpc": "2.0",
+                                "id": id,
+                                "result": {"sessions": sessions}
+                            }),
+                        )
+                        .await?;
+                    }
+                }
                 "session/new" => {
                     let Some(id) = id else { continue };
                     let cwd = params["cwd"]
