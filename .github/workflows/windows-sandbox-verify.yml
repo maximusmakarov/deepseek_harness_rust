@@ -1,0 +1,23 @@
+name: Windows sandbox verify
+
+on:
+  push:
+    branches: [verify/windows-sandbox]
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DSHR_WINDOWS_SANDBOX: "1"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: sandbox wrapper test
+        shell: bash
+        run: cargo test -p dshr-sandbox -- --ignored --nocapture
+      - name: runtime AppContainer test
+        shell: bash
+        run: cargo test -p dshr-cli --test windows_sandbox -- --ignored --nocapture
