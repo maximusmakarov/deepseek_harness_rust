@@ -1,8 +1,8 @@
 # Журнал раундов паритета (1–63)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 301 root-тест
-(+3 ignored) и 21 desktop-тест = **322**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 308 root-тестов
+(+3 ignored) и 21 desktop-тест = **329**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -83,6 +83,16 @@ release-бинарь воспроизводим.
   без сети, bundle base64→blob), `postMessage`-мост v1, слот `panel`,
   `ctx.action(close|reload)`; панель плагинов в Web UI со статусом и Reload,
   deep link `?token=…&plugin=…`. `3aeb461`
+- 64: мост v1.1 — референсная регистрация `{name,id,title,order}`,
+  `ctx.slots.inject`/`ctx.effect` с dispose, `onTheme`, `deactivate` без потери
+  регистраций; node-харнесс моста в `cargo test`; шелл: persistent stage с
+  несколькими iframe, вкладки слотов, resize, live-тема, `immediately`-монтаж,
+  действия compose/notify. `b8bf8ef` `19c83f3`
+- 65: capability-ассеты для многофайловых бандлов (`/asset/{capability}/…`,
+  TTL, confined, CSP по origin) и module-table шим; серверные тесты режима.
+- 66: headless smoke `scripts/plugin-smoke.py` (25 проверок: слоты, resize, тема,
+  действия, eager, многофайловый и module-table бандлы, hot reload открытой
+  панели); Replica-оценка клиентской половины 96.1/100 (must 12/12).
 
 ## Что осталось
 

@@ -183,45 +183,71 @@ serving-реестр инструментов (`ToolRegistry` — общий м�
 
 ```js
 export default function activate(ctx) {
-  ctx.slots.register({
-    slot: "panel",                 // сейчас рендерится только panel
-    id: "demo",
-    title: "Demo",
-    render(element, props) { element.textContent = `theme: ${props.theme}`; },
+  ctx.slots.register(
+    { name: "panel", id: "demo", title: "Demo", order: 10 },
+    (element, props) => { element.textContent = `theme: ${props.theme}`; },
+  );
+  ctx.effect(() => {
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
   });
+  ctx.onTheme((theme) => document.body.dataset.theme = theme);
   ctx.action("reload").then((result) => ctx.log("reload:", result.ok));
 }
 ```
 
+Форма регистрации повторяет референс: `{ name, id, title, order }` и
+`ctx.slots.inject(ownerKey, () => ctx.slots.register(...))` — регистрации группы
+снимаются вместе, а `ctx.effect(factory)` возвращает disposer и тоже принадлежит
+фрейму. Устаревшая форма `{ slot, render }` тоже принимается.
+
 Мост (`window.dshr`) в изолированном iframe:
 
-- `ctx.name`, `ctx.theme`, `ctx.protocol === 1`;
-- `ctx.slots.register({slot,id,title,render})`, `remove(id)`, `list()`;
-- `ctx.action(action, payload) -> Promise<{ok, result?, error?}>`; шелл поддерживает
-  `close` и `reload`, неизвестные действия возвращают `ok: false`;
-- `ctx.log(...)` — пишет в консоль шелла через сообщение.
+- `ctx.name`, `ctx.theme`, `ctx.protocol === 1`, `ctx.onTheme(listener)`;
+- `ctx.slots.register(entry, render)`, `inject(ownerKey, factory)`, `remove(id)`,
+  `list()`; `render(element, props)` получает контейнер слота (React не нужен);
+- `ctx.effect(factory)` — ресурсы с cleanup'ом, снимаются на `dispose`/выгрузке;
+- `ctx.action(action, payload) -> Promise<{ok, result?, error?}>`; шелл выполняет
+  `close` (закрыть панель), `reload` (перезагрузить плагин и открытую панель),
+  `compose` (`payload.text` — вставка в поле ввода), `notify`
+  (`payload.message` — статус-строка); неизвестное действие возвращает `ok: false`;
+- `ctx.log(...)` — строка в консоль шелла.
 
 Протокол `postMessage` v1: iframe → шелл `ready`, `slots`, `action`, `resize`,
 `error`, `log`; шелл → iframe `activate`, `deactivate`, `theme`, `action-result`.
 Сообщения помечены `ns: "dshr-client"` / `ns: "dshr-shell"` и `v: 1`.
 
-Изоляция и маршруты:
+Жизненный цикл панели: шелл монтирует по одному iframe на плагин и не размонтирует
+его при закрытии панели (скрывает), поэтому `immediately`-половина продолжает
+работать, а повторное открытие не перезагружает бандл. Переключение вкладок слота
+шлёт `activate`, закрытие — `deactivate` (очищает вид, но сохраняет регистрации).
+После `reload` шелл поднимает версию кадра, и открытая панель перезагружает уже
+новый бандл. Порядок активации `immediately`-половин учитывает `inject`.
 
-- `GET /v1/plugins/clients` — список клиентских половин (`name`, `package`,
-  `platform`, `entry`, `immediately`, `inject`) и ошибки разбора;
+Доставка бандла — два режима:
+
+- **inline** (по умолчанию для одного файла): бандл встроен base64 и исполняется из
+  blob-URL, CSP запрещает любые сетевые запросы, origin iframe непрозрачный;
+- **assets** (автоматически, если в бандле есть относительные `import`/`require`,
+  либо `dsh.client.bundle: "assets"`): host-страница получает одноразовый capability
+  `/v1/plugins/{name}/asset/{capability}/…` (TTL 1 час), модульный граф грузится
+  relative-импортами по этому пути, CSP разрешает только этот origin.
+
+Маршруты:
+
+- `GET /v1/plugins/clients` — список половин (`name`, `package`, `platform`,
+  `entry`, `bundle`, `immediately`, `inject`) и ошибки разбора;
 - `GET /v1/plugins/{name}/host?token=…&theme=light|dark` — host-страница для
-  `<iframe sandbox="allow-scripts">`; CSP запрещает любые сетевые запросы
-  (`default-src 'none'`, `script-src 'unsafe-inline' blob:`), бандл встроен
-  base64 и исполняется из blob-URL, поэтому origin iframe непрозрачный
-  (`allow-same-origin` не нужен) и токен не покидает шелл;
-- `GET /v1/plugins/{name}/client.js?token=…` — тот же бандл отдельным файлом для
-  отладки (`no-store`, CORS `*`);
-- deep link `/?token=…&plugin=demo` открывает панель плагина и подключается
-  автоматически.
+  `<iframe sandbox="allow-scripts">`, токен нужен только для её выдачи;
+- `GET /v1/plugins/{name}/asset/{capability}/{path}` — файлы пакета по capability
+  (без bearer-токена; путь канонизируется и не выходит за пакет; ≤ 8 МиБ);
+- `GET /v1/plugins/{name}/client.js?token=…` — бандл отдельным файлом для отладки;
+- deep link `/?token=…&plugin=demo` открывает панель и подключается автоматически.
 
-Ограничения моста: это не React-совместимость (ADR-013 §5) — произвольная
-инъекция в DOM шелла и чужие React-слоты не поддерживаются; бандл должен быть
-одним файлом (динамические чанки и внешние импорты не подгружаются).
+Ограничения: React-компоненты не поддерживаются (ADR-013 §5) — бандл должен
+экспортировать `default`/`apply`/`activate` или использовать шим
+`__ModuleLoader__.load({ id, factory })` и сам строить DOM; внешние модули
+(`dsh.client.external`) не подключаются — бандл должен быть самодостаточным.
 
 ### Установка npm-плагинов
 
@@ -271,5 +297,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — мост iframe + слот `panel`, React-слотов DSH нет.
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — мост iframe, несколько слотов, capability-ассеты и host-действия; React-слотов DSH нет.
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

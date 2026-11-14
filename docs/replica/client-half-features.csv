@@ -1,0 +1,25 @@
+feature,area,priority,original,clone,notes
+Discover dsh.client metadata in a package,discovery,must,yes,yes,read from package.json next to the plugin entry
+Resolve the ./client export (string or browser/import/default/require),discovery,must,yes,yes,falls back to dsh.client.entry
+Confine the bundle to the package,security,must,yes,yes,canonicalized and rejected on traversal
+Load the browser bundle into the running app,loading,must,yes,yes,sandboxed iframe in the Web UI
+Render a plugin contribution in a host surface,slots,must,yes,yes,panel stage with slot tabs
+Register more than one slot per plugin,slots,must,yes,yes,name/id/title/order; ordered tabs
+Switch the visible slot and deactivate the previous view,slots,must,yes,yes,activate/deactivate messages
+Dispose registrations and effects,lifecycle,must,yes,yes,"inject groups, ctx.effect, dispose on teardown"
+Inherit the host theme,theme,must,yes,yes,initial query plus live theme message
+Report plugin errors to the host,diagnostics,must,yes,yes,error message rendered in the panel
+Ask the host to perform an action,actions,must,yes,yes,ctx.action with close/reload/compose/notify
+Keep the shell DOM out of reach,security,must,yes,yes,sandbox allow-scripts and network-free CSP for inline bundles
+Single-file bundle delivery,loading,should,yes,yes,"base64 inlined, no requests from the frame"
+Multi-file bundle delivery with relative imports,loading,should,yes,yes,capability-addressed asset route
+Content-driven panel height,layout,should,yes,yes,resize message clamps 120-640px
+Eager activation at startup,lifecycle,should,yes,yes,dsh.client.immediately keeps a hidden frame mounted
+Activation ordering by inject,lifecycle,should,yes,partial,eager halves honor inject order; lazy halves activate on demand
+Bundles built for the reference module table,loading,should,yes,partial,__ModuleLoader__ shim runs factory/apply; React is unavailable
+Hot reload an open panel after a plugin reload,lifecycle,should,yes,yes,the shell bumps the frame version; the panel reloads its bundle
+External runtime imports (dsh.client.external),loading,could,yes,skip,no shared browser module table in the iframe bridge (ADR-013 §5)
+Slot ordering hint,slots,could,yes,yes,order field respected by the shell tabs
+Open a panel directly by link,ui,could,no,yes,dshr addition: ?token=...&plugin=<name>
+React component model,slots,must,yes,skip,ADR-013 chooses an iframe bridge over React compatibility
+Inject arbitrary DOM into the shell,slots,must,yes,skip,conflicts with the bridge isolation decision

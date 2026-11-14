@@ -39,7 +39,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
-| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (sandboxed iframe + `postMessage`-мост, слот `panel`); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
+| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (sandboxed iframe, несколько слотов по `name`/`order`, `inject`/`effect`-lifecycle, capability-ассеты для многофайловых бандлов, host-действия, перезагрузка открытой панели); Replica-паритет клиентской половины 96.1/100 (must 12/12); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; установка через CLI, отдельного каталога нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
@@ -70,7 +70,7 @@ React-слоты клиентских плагинов (сейчас мост, A
 ## Проверка (14.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 301 passed + 3 ignored; desktop 21 passed (итого 322).
+- `cargo test --workspace`: 308 passed + 3 ignored; desktop 21 passed (итого 329).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
@@ -81,11 +81,13 @@ React-слоты клиентских плагинов (сейчас мост, A
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
   состояние; `/v1/plugins/installed` следует за супервизором.
-- Клиентская половина: headless Chrome (CDP) открывает `/?token=…&plugin=demo`,
-  панель рендерит слот плагина внутри `iframe sandbox="allow-scripts"` (opaque
-  origin, CSP без сетевых запросов), `ctx.action("nope")` возвращает
-  `{ok:false,error:"unsupported action 'nope'"}`, `ctx.action("close")` закрывает
-  панель.
+- Клиентская половина: `python3 scripts/plugin-smoke.py` — 25 проверок в headless
+  Chrome: вкладки слотов и переключение, resize, live-тема, `ctx.action`
+  (`close`/`reload`/`compose`/`notify` и отказ для неизвестного), eager-половина
+  переживает закрытие панели, многофайловый capability-бандл и module-table бандл
+  рендерятся, открытая панель подхватывает новый бандл после reload.
+- Replica-оценка клиентской половины (`replica-diff`): 96.1/100, must 12/12 —
+  `docs/replica/client-half-parity.md`.
 
 ## Итог 60 раундов
 
