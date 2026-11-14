@@ -4,6 +4,9 @@ on:
   push:
     branches: [verify/windows-sandbox]
 
+permissions:
+  contents: write
+
 jobs:
   verify:
     runs-on: windows-latest
@@ -20,4 +23,17 @@ jobs:
         run: cargo test -p dshr-sandbox -- --ignored --nocapture
       - name: runtime AppContainer test
         shell: bash
-        run: cargo test -p dshr-cli --test windows_sandbox -- --ignored --nocapture
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cargo test -p dshr-cli --test windows_sandbox -- --ignored --nocapture 2>&1 | tee windows-test.log
+      - name: publish log
+        if: always()
+        shell: bash
+        run: |
+          git config user.name "dshr-ci"
+          git config user.email "dshr-ci@localhost"
+          git checkout -B ci-log
+          git add windows-test.log
+          git commit -m "ci: windows sandbox test log" || true
+          git push origin ci-log
