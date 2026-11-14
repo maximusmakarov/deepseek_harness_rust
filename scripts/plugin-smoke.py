@@ -515,21 +515,31 @@ def wait_for_frame_text(port: int, plugin: str, needle: str, timeout: float = 20
     return False
 
 
-def eval_stable(shell, expression: str, attempts: int = 40, delay: float = 0.25):
-    """Evaluate in the page, retrying while a navigation swaps execution contexts.
+_RAW_EVAL = DevTools.eval
 
-    `Page.navigate` destroys the current context, so an `Runtime.evaluate` that
-    races with it fails with "Inspected target navigated or closed" (Chrome
-    -32000). CI hit this on the slot-name navigation.
+
+def _resilient_eval(self, expression, await_promise=False, attempts: int = 40):
+    """Evaluate, retrying while a navigation swaps the execution context.
+
+    `Page.navigate`, `Page.reload` and a plugin frame reload all destroy the
+    current JS context, so an evaluation that races with them fails with
+    Chrome -32000 "Inspected target navigated or closed". Every call site gets
+    the retry, because any evaluation can race with a navigation.
     """
     last_error = None
     for _ in range(attempts):
         try:
-            return shell.eval(expression)
+            return _RAW_EVAL(self, expression, await_promise)
         except Exception as error:  # noqa: BLE001 - retried below
+            message = str(error)
+            if "navigated or closed" not in message and "Cannot find context" not in message:
+                raise
             last_error = error
-            time.sleep(delay)
+            time.sleep(0.25)
     raise TimeoutError(f"evaluate after navigation failed: {last_error}")
+
+
+DevTools.eval = _resilient_eval
 
 
 def wait_until(predicate, timeout: float = 60.0, interval: float = 0.2, label: str = "condition"):
@@ -637,7 +647,7 @@ def run(args: argparse.Namespace) -> int:
         check(
             "both slots are offered as tabs",
             "settings.section"
-            in str(eval_stable(shell, "document.querySelector('.plugin-tabs')?.textContent || ''")),
+            in str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''")),
         )
         height = shell.eval("document.getElementById('plugin-frame-demo').style.height")
         check("resize message sets the frame height", bool(height) and height != "auto", str(height))
@@ -794,7 +804,7 @@ def run(args: argparse.Namespace) -> int:
             await_promise=True,
         )
         check("compose action resolves", result.get("ok") is True, result)
-        prompt_value = str(eval_stable(shell, "document.querySelector('textarea')?.value || ''"))
+        prompt_value = str(shell.eval("document.querySelector('textarea')?.value || ''"))
         check("compose reaches the prompt", "hello from plugin" in prompt_value, prompt_value)
         result = actions.eval(
             "window.dshr.action('notify', {message: 'plugin says hi'})",
@@ -827,7 +837,7 @@ def run(args: argparse.Namespace) -> int:
             lambda: "message.action" in str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''")),
             label="DSH slot names render",
         )
-        dsh_tabs = str(eval_stable(shell, "document.querySelector('.plugin-tabs')?.textContent || ''"))
+        dsh_tabs = str(shell.eval("document.querySelector('.plugin-tabs')?.textContent || ''"))
         check(
             "DSH subset slot names are offered (panel/message.action/settings.action)",
             all(name in dsh_tabs for name in ("panel", "message.action", "settings.action")),
