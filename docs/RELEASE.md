@@ -55,6 +55,13 @@ scripts/render-formula.sh 0.1.0 SHA256SUMS dshr.rb   # нужны все 4 та�
 `scripts/install.sh` умеет ставить из локального каталога:
 `DSHR_RELEASE_BASE_URL=file://$PWD/dist DSHR_VERSION=0.1.0 DSHR_TARGET=... scripts/install.sh`.
 
+## Notarization (macOS)
+
+Секреты `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`, `APPLE_CERTIFICATE`,
+`APPLE_CERTIFICATE_PASSWORD`, `DSHR_CODESIGN_IDENTITY` включают импорт
+сертификата, Developer ID-подпись и `notarytool submit --wait` + staple.
+Без них `.app` подписывается ad-hoc.
+
 ## Воспроизводимость
 
 Сборка с `SOURCE_DATE_EPOCH=0`, `CARGO_INCREMENTAL=0` и

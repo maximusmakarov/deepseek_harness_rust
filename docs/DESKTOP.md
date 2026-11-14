@@ -41,6 +41,10 @@ Set port… (0 = случайный). Настройки — `<home>/desktop-net
 После успешного health профиль (не `default`) пишется в `<home>/desktop-last-good`;
 трей **Rollback profile** переключается на него и перезапускает shell.
 
+Notarization: при наличии `DSHR_CODESIGN_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`,
+`APPLE_APP_PASSWORD` (и сертификата) release подписывает Developer ID и делает
+notarytool + staple; иначе — ad-hoc подпись.
+
 Safe mode пишет маркер `<home>/desktop-safe-mode` и передаёт `--safe-mode` серверу
 (пропускает MCP/Cordis/WASM-плагины); «Restart normally» убирает маркер.
 

@@ -78,16 +78,41 @@ jobs:
     runs-on: macos-latest
     permissions:
       contents: read
+    env:
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      DSHR_CODESIGN_IDENTITY: ${{ secrets.DSHR_CODESIGN_IDENTITY }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: import signing certificate
+        if: env.APPLE_CERTIFICATE != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import "$RUNNER_TEMP/cert.p12" -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k actions build.keychain >/dev/null
+          security list-keychains -d user -s build.keychain
       - name: package app
         shell: bash
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           scripts/package-desktop.sh "$version"
+      - name: notarize
+        if: env.APPLE_ID != '' && env.DSHR_CODESIGN_IDENTITY != ''
+        shell: bash
+        run: scripts/notarize-app.sh dist/dshr.app
           ditto -c -k --keepParent dist/dshr.app "dist/dshr-$version-macos.zip"
           shasum -a 256 "dist/dshr-$version-macos.zip" > "dist/dshr-$version-macos.zip.sha256"
       - uses: actions/upload-artifact@v4

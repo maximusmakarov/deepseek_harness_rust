@@ -24,7 +24,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | при сбое старта — recovery-окно (Retry/Safe mode/Diagnostics/Config/профили/Quit); safe-mode, last-known-good + Rollback profile; управления плагинами в окне нет | ⚠️ |
 | `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`, `--export-diagnostics` (zip: логи, конфиг, system-info) | ✅ |
 | Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` (ad-hoc), 5 tar.gz, Linux/Windows desktop-архивы в release CI; installer'ов (deb/NSIS/DMG) нет | ⚠️ |
-| Автообновление/подпись/notarization | ad-hoc подпись `.app`; notarization нет | ⚠️ |
+| Автообновление/подпись/notarization | ad-hoc по умолчанию; Developer ID + notarization при наличии секретов (не прогонялось) | ⚠️ |
 
 ## Host и инструменты
 

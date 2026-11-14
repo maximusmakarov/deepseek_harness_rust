@@ -57,7 +57,12 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$app" >/dev/null
+if [ -n "${DSHR_CODESIGN_IDENTITY:-}" ]; then
+  codesign --force --deep --options runtime --timestamp \
+    --sign "$DSHR_CODESIGN_IDENTITY" "$app"
+else
+  codesign --force --deep --sign - "$app" >/dev/null
+fi
 plutil -lint "$app/Contents/Info.plist" >/dev/null
 codesign --verify --deep --strict "$app"
 echo "$app"
