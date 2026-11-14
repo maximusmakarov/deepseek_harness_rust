@@ -44,6 +44,7 @@ fn state(dir: &std::path::Path) -> AppState {
             profile: "default".into(),
             cordis_plugins: vec![("demo".into(), true)],
             plugins: None,
+            wasm: None,
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),
@@ -265,6 +266,7 @@ async fn rate_limits_api_requests() {
         profile: "default".into(),
         cordis_plugins: Vec::new(),
         plugins: None,
+        wasm: None,
     };
     let app = router(AppState::new(
         config,

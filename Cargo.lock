@@ -1567,6 +1567,7 @@ dependencies = [
  "dshr-session",
  "dshr-session-jsonl",
  "dshr-tools",
+ "dshr-wasm",
  "futures-util",
  "reqwest 0.12.28",
  "serde",

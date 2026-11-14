@@ -93,12 +93,14 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
     crate::mcp_setup::register(&mut tools, &config, Some(Arc::clone(&provider))).await;
     dshr_office::register_tools(&mut tools);
     dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
-    crate::wasm_setup::register(
-        &mut tools,
+    let wasm = crate::wasm_setup::manager(
+        tools.clone(),
         loader.home(),
         std::path::Path::new(&cwd),
         &config.plugins,
     )?;
+    wasm.sync().await;
+    wasm.spawn_watch(std::time::Duration::from_secs(2));
     crate::lsp_setup::register(&mut tools, &config, cwd.clone());
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {
@@ -196,6 +198,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
                 .map(|plugin| (plugin.name.clone(), plugin.enabled))
                 .collect(),
             plugins: manager,
+            wasm: Some(wasm),
         },
         provider,
         serving,

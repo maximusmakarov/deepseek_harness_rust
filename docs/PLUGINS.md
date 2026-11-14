@@ -81,6 +81,12 @@ dshr plugin verify ~/.dshr/plugins/echo.yaml --key <hex public key>
 списке ключей отклоняются. Приватный ключ — 32-байтная hex-строка, `keygen` пишет
 файл с правами `0600` на Unix.
 
+## WASM hot reload
+
+`WasmManager` следит за `<home>/plugins` и `.dshr/plugins` (fingerprint
+манифестов/`.wasm`), перерегистрирует `wasm__*` инструменты при изменении;
+`POST /v1/plugins/reload` синхронизирует WASM и Cordis, `wasm_tools` в ответе.
+
 ## Cordis grants
 
 `plugins.cordis[].grants.read/write` расширяют доступ `ctx.fs` за пределы

@@ -11,6 +11,9 @@
 //! Both ABIs exchange JSON and run without host imports.
 
 use std::path::{Path, PathBuf};
+
+mod manager;
+pub use manager::WasmManager;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -571,7 +574,7 @@ pub fn discover(dirs: &[PathBuf], policy: &SignaturePolicy) -> Vec<Arc<WasmPlugi
 }
 
 pub fn register_tools(
-    registry: &mut dshr_tools::ToolRegistry,
+    registry: &dshr_tools::ToolRegistry,
     dirs: &[PathBuf],
     policy: &SignaturePolicy,
 ) {
@@ -579,12 +582,21 @@ pub fn register_tools(
         match plugin.tools() {
             Ok(tools) => {
                 for definition in tools {
-                    registry.register_arc(Arc::new(WasmTool::new(Arc::clone(&plugin), definition)));
+                    register_plugin_tools(registry, Arc::clone(&plugin), definition);
                 }
             }
             Err(error) => tracing::warn!(plugin = plugin.name(), %error, "wasm tools skipped"),
         }
     }
+}
+
+/// Registers one tool definition for an already loaded plugin.
+pub fn register_plugin_tools(
+    registry: &dshr_tools::ToolRegistry,
+    plugin: Arc<WasmPlugin>,
+    definition: ToolDef,
+) {
+    registry.register_arc(Arc::new(WasmTool::new(plugin, definition)));
 }
 
 #[cfg(test)]

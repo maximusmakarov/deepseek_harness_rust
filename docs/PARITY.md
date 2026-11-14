@@ -39,7 +39,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
-| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (sandboxed iframe + `postMessage`-мост, слот `panel`); WASM: без hot reload | ✅ |
+| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (sandboxed iframe + `postMessage`-мост, слот `panel`); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; установка через CLI, отдельного каталога нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
@@ -64,13 +64,13 @@ recovery-окно с профилями/плагинами, first-run home. Ос
 с секретами Apple.
 P1: композиция профилей из бандлов, полный plugin market/catalog, GUI-менеджер плагинов,
 верификация Windows sandbox на реальном Windows.
-P2: ghcr-хостинг бутылок, прогон brew/desktop CI на теге, WASM hot reload,
+P2: ghcr-хостинг бутылок, прогон brew/desktop CI на теге,
 React-слоты клиентских плагинов (сейчас мост, ADR-013 §5), приватные terminal shim'ы.
 
 ## Проверка (14.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 300 passed + 3 ignored; desktop 21 passed (итого 321).
+- `cargo test --workspace`: 301 passed + 3 ignored; desktop 21 passed (итого 322).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,

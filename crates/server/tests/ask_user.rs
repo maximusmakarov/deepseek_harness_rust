@@ -61,6 +61,7 @@ fn state(dir: &std::path::Path) -> AppState {
             profile: "default".into(),
             cordis_plugins: Vec::new(),
             plugins: None,
+            wasm: None,
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),

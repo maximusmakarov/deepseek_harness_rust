@@ -1,8 +1,8 @@
 # Журнал раундов паритета (1–63)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 300 root-тестов
-(+3 ignored) и 21 desktop-тест = **321**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 301 root-тест
+(+3 ignored) и 21 desktop-тест = **322**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -67,6 +67,7 @@ release-бинарь воспроизводим.
 - GHCR: OCI-publisher бутылок (`scripts/publish-bottle-ghcr.py`), job
   `bottles-ghcr`, формула `dshr-ghcr.rb`; push проверен против mock-регистра.
 - Market: локальные отзывы + агрегаты ★/count (`/v1/plugins/review(s)`).
+- WASM: hot reload (fingerprint watcher + `/v1/plugins/reload`).
 - Windows: runtime-тест AppContainer (запись внутри/снаружи workspace) добавлен
   в CI; реальный Windows-хост по-прежнему недоступен.
 - 61: `ToolRegistry` стал общим мутируемым handle'ом (Arc+RwLock, generation,

@@ -56,6 +56,8 @@ pub struct ServerConfig {
     pub cordis_plugins: Vec<(String, bool)>,
     /// Live plugin supervisor; `None` in tests and one-shot embeddings.
     pub plugins: Option<Arc<dshr_cordis::CordisManager>>,
+    /// WASM plugin hot-reload manager.
+    pub wasm: Option<Arc<dshr_wasm::WasmManager>>,
 }
 
 #[derive(Clone)]
@@ -798,44 +800,58 @@ async fn reload_plugins(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     authorize(&state, &headers, None)
         .map_err(|status| (status, Json(json!({"error": "unauthorized"}))))?;
-    let Some(manager) = state.config.plugins.as_ref() else {
+    if state.config.plugins.is_none() && state.config.wasm.is_none() {
         return Err((
             StatusCode::NOT_IMPLEMENTED,
             Json(json!({"error": "no plugin supervisor is attached to this server"})),
         ));
-    };
-    let errors = match body.name {
-        Some(name) => {
-            if !valid_plugin_name(&name) {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "invalid plugin name"})),
-                ));
-            }
-            match manager.reload(&name).await {
-                Ok(()) => Vec::new(),
-                Err(dshr_cordis::CordisError::NotConfigured(_)) => {
+    }
+    let errors = if let Some(manager) = state.config.plugins.as_ref() {
+        match body.name.clone() {
+            Some(name) => {
+                if !valid_plugin_name(&name) {
                     return Err((
-                        StatusCode::NOT_FOUND,
-                        Json(json!({"error": format!("plugin '{name}' is not configured")})),
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({"error": "invalid plugin name"})),
                     ));
                 }
-                Err(error) => vec![json!({"plugin": name, "error": error.to_string()})],
+                match manager.reload(&name).await {
+                    Ok(()) => Vec::new(),
+                    Err(dshr_cordis::CordisError::NotConfigured(_)) => {
+                        return Err((
+                            StatusCode::NOT_FOUND,
+                            Json(json!({"error": format!("plugin '{name}' is not configured")})),
+                        ));
+                    }
+                    Err(error) => vec![json!({"plugin": name, "error": error.to_string()})],
+                }
             }
+            None => manager
+                .reload_all()
+                .await
+                .into_iter()
+                .map(|(plugin, error)| json!({"plugin": plugin, "error": error}))
+                .collect(),
         }
-        None => manager
-            .reload_all()
-            .await
-            .into_iter()
-            .map(|(plugin, error)| json!({"plugin": plugin, "error": error}))
-            .collect(),
+    } else {
+        Vec::new()
+    };
+    let wasm_tools = match state.config.wasm.as_ref() {
+        Some(wasm) => wasm.sync().await,
+        None => 0,
     };
     let status = if errors.is_empty() {
         StatusCode::OK
     } else {
         StatusCode::BAD_GATEWAY
     };
-    let payload = json!({"plugins": manager.statuses(), "errors": errors});
+    let statuses = state
+        .config
+        .plugins
+        .as_ref()
+        .map(|manager| manager.statuses())
+        .unwrap_or_default();
+    let payload = json!({"plugins": statuses, "errors": errors, "wasm_tools": wasm_tools});
     if status == StatusCode::OK {
         Ok(Json(payload))
     } else {

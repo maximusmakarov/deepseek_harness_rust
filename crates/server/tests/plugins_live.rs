@@ -117,6 +117,7 @@ async fn state(dir: &Path) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::Cor
             profile: "default".into(),
             cordis_plugins: vec![("demo".into(), true)],
             plugins: Some(Arc::clone(&manager)),
+            wasm: None,
         },
         provider,
         Arc::clone(&registry),

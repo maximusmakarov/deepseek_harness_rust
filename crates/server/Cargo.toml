@@ -18,6 +18,7 @@ dshr-llm.workspace = true
 dshr-session.workspace = true
 dshr-session-jsonl.workspace = true
 dshr-tools.workspace = true
+dshr-wasm.workspace = true
 futures-util.workspace = true
 reqwest.workspace = true
 serde.workspace = true

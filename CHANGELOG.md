@@ -10,7 +10,7 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
-- Plugins: Cordis hot reload (supervisor, file/config watcher, `/v1/plugins/reload`)
+- Plugins: WASM hot reload (fingerprint watcher, shared registry); Cordis hot reload (supervisor, file/config watcher, `/v1/plugins/reload`)
   and the client half (`dsh.client` served into a sandboxed iframe with a
   `postMessage` bridge and a Web UI panel).
 
