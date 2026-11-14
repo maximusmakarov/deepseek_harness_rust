@@ -1,8 +1,8 @@
 # Журнал раундов паритета (1–63)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 308 root-тестов
-(+3 ignored) и 21 desktop-тест = **329**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 335 root-тестов
+(+3 ignored) и 21 desktop-тест = **356**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -108,3 +108,14 @@ release-бинарь воспроизводим.
 - Windows sandbox на реальном Windows — CI-шаг есть, локальной проверки нет.
 
 Подробная матрица и блокеры: [PARITY.md](PARITY.md).
+
+## Формализация и каталог тестов (14.11.2026)
+
+- `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,
+  `ApprovalGate` safety+liveness), 5 конфигов TLC; `./formal/run_tlc.sh` →
+  «all models checked». Абстракции и результаты: `docs/formal/README.md`.
+- `docs/testing/test-cases.md` — каталог ~120 кейсов с ID, уровнями, привязкой к
+  инвариантам и статусами; baseline `cargo llvm-cov`: 72.9% строк, 66.9% функций.
+- Деривированные тесты: атомарность `register_all` под читателями, symlink-escape
+  в ассетах, восстановление после падения sidecar, CSP-инъекция через `Host`,
+  scope/TTL capability.

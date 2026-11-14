@@ -69,7 +69,7 @@ P2: прогон brew/desktop CI на теге, React-слоты клиентс�
 ## Проверка (14.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 308 passed + 3 ignored; desktop 21 passed (итого 329).
+- `cargo test --workspace`: 335 passed + 3 ignored; desktop 21 passed (итого 356).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
@@ -89,6 +89,12 @@ P2: прогон brew/desktop CI на теге, React-слоты клиентс�
   рендерятся, открытая панель подхватывает новый бандл после reload.
 - Replica-оценка клиентской половины (`replica-diff`): 98.0/100, must 12/12 —
   `docs/replica/client-half-parity.md`.
+- Формализация: `./formal/run_tlc.sh` — 3 модели / 5 конфигов TLC без нарушений
+  (`CordisSupervisor` safety+liveness, `ClientAssets`, `ApprovalGate` safety+liveness);
+  абстракции и результаты — `docs/formal/README.md`.
+- Каталог тест-кейсов `docs/testing/test-cases.md`: ~120 кейсов с ID, уровнями (U/I/E/T),
+  привязкой к инвариантам и статусами; baseline покрытия
+  `cargo llvm-cov --workspace --summary-only` — 72.9% строк, 66.9% функций.
 
 ## Итог 60 раундов
 
