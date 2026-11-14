@@ -62,6 +62,21 @@ struct PackageHit {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+struct ModelConfigResponse {
+    #[serde(default)]
+    provider: String,
+    #[serde(default)]
+    active_provider: String,
+    model: String,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    routes: Vec<String>,
+    #[serde(default)]
+    note: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 struct PackagesResponse {
     packages: Vec<PackageHit>,
 }
@@ -733,6 +748,60 @@ fn App() -> impl IntoView {
                 .map(|_| "light".to_owned())
         })
         .unwrap_or_else(|| "dark".to_owned());
+    let settings_open = RwSignal::new(false);
+    let settings_provider = RwSignal::new(String::new());
+    let settings_model = RwSignal::new(String::new());
+    let settings_base_url = RwSignal::new(String::new());
+    let settings_routes = RwSignal::new(Vec::<String>::new());
+    let settings_status = RwSignal::new(String::new());
+    let load_settings = move || {
+        let value = token.get_untracked();
+        settings_status.set("loading…".into());
+        spawn_local(async move {
+            match get_json::<ModelConfigResponse>("/v1/config/model", &value).await {
+                Ok(config) => {
+                    // The editable route is the one from the config layer; fall
+                    // back to the first known route when the live process runs
+                    // something else (for example the replay provider).
+                    let provider = if config.provider.is_empty() {
+                        config.routes.first().cloned().unwrap_or_default()
+                    } else {
+                        config.provider
+                    };
+                    settings_provider.set(provider);
+                    settings_model.set(config.model);
+                    settings_base_url.set(config.base_url.unwrap_or_default());
+                    settings_routes.set(config.routes);
+                    settings_status.set(format!(
+                        "active: {} · {}",
+                        config.active_provider, config.note
+                    ));
+                }
+                Err(error) => settings_status.set(format!("error: {error}")),
+            }
+        });
+    };
+    let save_settings = move || {
+        let value = token.get_untracked();
+        let body = serde_json::json!({
+            "provider": settings_provider.get_untracked(),
+            "model": settings_model.get_untracked(),
+            "base_url": settings_base_url.get_untracked(),
+        });
+        spawn_local(async move {
+            match post_json::<Value>("/v1/config/model", &value, &body).await {
+                Ok(answer) => {
+                    let restart = answer["restart_required"].as_bool().unwrap_or(false);
+                    settings_status.set(if restart {
+                        "saved · restart `dshr serve` (или desktop), чтобы применить".into()
+                    } else {
+                        "saved".into()
+                    });
+                }
+                Err(error) => settings_status.set(format!("error: {error}")),
+            }
+        });
+    };
     let theme = RwSignal::new(initial_theme);
     let apply_theme = move |value: String| {
         if let Some(root) = web_sys::window()
@@ -1343,6 +1412,10 @@ fn App() -> impl IntoView {
             <button on:click=move |_| new_session()>"New session"</button>
             <button on:click=move |_| plugins_open.set(true)>"Plugins"</button>
             <button on:click=move |_| {
+                settings_open.set(true);
+                load_settings();
+            }>"Settings"</button>
+            <button on:click=move |_| {
                 let next = if theme.get_untracked() == "dark" { "light" } else { "dark" };
                 theme.set(next.to_owned());
                 apply_theme(next.to_owned());
@@ -1404,6 +1477,44 @@ fn App() -> impl IntoView {
                 </form>
             </section>
         </main>
+        {move || settings_open.get().then(|| view! {
+            <dialog open>
+                <h3>"Provider settings"</h3>
+                <div class="row">
+                    <label>"Route"</label>
+                    <select
+                        prop:value=move || settings_provider.get()
+                        on:change=move |event| settings_provider.set(event_target_value(&event))
+                    >
+                        {move || settings_routes.get().into_iter().map(|route| {
+                            let label = route.clone();
+                            view! { <option value=route>{label}</option> }
+                        }).collect_view()}
+                    </select>
+                </div>
+                <div class="row">
+                    <label>"Model"</label>
+                    <input
+                        prop:value=move || settings_model.get()
+                        on:input=move |event| settings_model.set(event_target_value(&event))
+                    />
+                </div>
+                <div class="row">
+                    <label>"Base URL"</label>
+                    <input
+                        placeholder="optional, https://…"
+                        prop:value=move || settings_base_url.get()
+                        on:input=move |event| settings_base_url.set(event_target_value(&event))
+                    />
+                </div>
+                <p class="tool">{move || settings_status.get()}</p>
+                <div class="row">
+                    <button on:click=move |_| save_settings()>"Save"</button>
+                    <button on:click=move |_| settings_open.set(false)>"Close"</button>
+                </div>
+                <p>"Ключи не вводятся в UI: они читаются из окружения (DEEPSEEK_API_KEY / OPENAI_API_KEY) или desktop.env."</p>
+            </dialog>
+        })}
         {move || plugins_open.get().then(|| view! {
             <dialog open>
                 <h3>"Plugins"</h3>

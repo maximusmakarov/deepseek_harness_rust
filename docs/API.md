@@ -17,7 +17,8 @@ dshr serve --bind 127.0.0.1 --port 55678
 | GET | `/v1/tools` | — | `{tools: [{name, description, input_schema}]}` |
 | GET | `/v1/plugins/search` | `?q=` | `{packages: [{name, version, description}]}` (npm registry) |
 | GET | `/v1/plugins/info` | `?name=` | npm metadata (version/description/homepage/repository) |
-| GET | `/v1/plugins/catalog` | — | `{packages: [{name, description}]}` (featured) |
+| GET | `/v1/plugins/catalog` | `?q=&category=&limit=` | `{packages: [{name, description, category, tags, verified}], total, categories}` |
+| GET | `/v1/plugins/catalog/{name}` | — | `{package, rating, reviews: {average, count}, installed}` |
 | GET | `/v1/plugins/ratings` | — | `{ratings: {name: 1..5}}` |
 | POST | `/v1/plugins/rate` | `{name, rating}` | `{ok}` (сохраняет локальную оценку) |
 | GET | `/v1/plugins/reviews` | `?name=` | `{average,count,reviews}` или `{plugins:{name:{average,count,reviews}}}` |
@@ -26,6 +27,8 @@ dshr serve --bind 127.0.0.1 --port 55678
 | GET | `/v1/plugins/installed` | — | `{plugins: [{name, enabled}]}` |
 | POST | `/v1/plugins/toggle` | `{name, enabled}` | `{ok, output}` (enable/disable) |
 | POST | `/v1/plugins/remove` | `{name}` | `{ok, output}` |
+| GET | `/v1/config/model` | — | `{provider, active_provider, model, base_url, routes, note}` |
+| POST | `/v1/config/model` | `{provider, model, base_url?}` | `{ok, restart_required, provider, model}` (пишет user-слой `config.yaml`, 0600; ключи не принимает) |
 | GET | `/v1/sessions` | — | `{sessions: SessionSummary[]}` |
 | POST | `/v1/sessions` | `{title?}` | `{session: SessionHeader}` |
 | GET | `/v1/sessions/{id}` | — | `{session, messages}` |

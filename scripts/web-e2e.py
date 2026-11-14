@@ -261,6 +261,92 @@ def run(args: argparse.Namespace) -> int:
         messages = evaluate(smoke, dt, "document.querySelector('#messages')?.textContent || ''")
         check("tool card is rendered for bash", "bash" in messages, messages)
 
+        # Provider settings: open the dialog, see the active model, save a new one.
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const button = [...document.querySelectorAll('header button')]
+                    .find(b => b.textContent.trim() === 'Settings');
+                if (!button) return false;
+                button.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('dialog h3') && document.querySelector('dialog h3').textContent.includes('Provider settings')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="settings dialog",
+        )
+        settings_model = evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const rows = [...document.querySelectorAll('dialog .row')];
+                const row = rows.find(r => /Model/.test(r.textContent));
+                return row ? row.querySelector('input').value : '';
+            })()""",
+        )
+        check("settings shows the active model", settings_model == "deepseek-flash", settings_model)
+        settings_route = evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const row = [...document.querySelectorAll('dialog .row')]
+                    .find(r => /Route/.test(r.textContent));
+                return row ? row.querySelector('select').value : '';
+            })()""",
+        )
+        check(
+            "settings offers a persisted route",
+            settings_route in ("deepseek", "deepseek-account", "openai-compatible"),
+            settings_route,
+        )
+
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const row = [...document.querySelectorAll('dialog .row')]
+                    .find(r => /Model/.test(r.textContent));
+                const input = row.querySelector('input');
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input, 'deepseek-v4-pro');
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                [...document.querySelectorAll('dialog button')]
+                    .find(b => b.textContent.trim() === 'Save').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "document.querySelector('dialog .tool')?.textContent.includes('saved')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="settings saved",
+        )
+        settings_note = evaluate(smoke, dt, "document.querySelector('dialog .tool')?.textContent || ''")
+        check("saving asks for a restart", "restart" in settings_note, settings_note)
+        saved_config = home / "config.yaml"
+        check(
+            "the user config layer is written",
+            saved_config.exists() and "deepseek-v4-pro" in saved_config.read_text(),
+            saved_config.read_text() if saved_config.exists() else "missing",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """[...document.querySelectorAll('dialog button')]
+                .find(b => b.textContent.trim() === 'Close')?.click()""",
+        )
+
         # Second turn: `edit` must show a -old/+new preview and change the file.
         send_prompt(SECOND_PROMPT)
         smoke.wait_until(

@@ -355,6 +355,10 @@ pub fn router(state: AppState) -> Router {
         .route("/icon-512.png", get(icon_512))
         .route("/v1/health", get(health))
         .route("/v1/tools", get(list_tools))
+        .route(
+            "/v1/config/model",
+            get(get_model_config).post(set_model_config),
+        )
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/info", get(plugin_info))
         .route("/v1/plugins/catalog", get(plugin_catalog))
@@ -742,6 +746,132 @@ async fn plugin_catalog_entry(
         "rating": ratings.get(&name).copied().unwrap_or(0),
         "reviews": {"average": average, "count": count},
         "installed": installed,
+    })))
+}
+
+/// Provider routes the CLI can build; the settings screen may only pick one.
+const PROVIDER_ROUTES: [&str; 6] = [
+    "deepseek",
+    "deepseek-account",
+    "deepseek-official",
+    "openai",
+    "openai-compatible",
+    "routerai",
+];
+
+fn user_config_path(home: &std::path::Path) -> PathBuf {
+    home.join("config.yaml")
+}
+
+fn read_user_config(home: &std::path::Path) -> Value {
+    std::fs::read_to_string(user_config_path(home))
+        .ok()
+        .and_then(|text| serde_saphyr::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({}))
+}
+
+fn write_user_config(home: &std::path::Path, value: &Value) -> std::io::Result<()> {
+    std::fs::create_dir_all(home)?;
+    let path = user_config_path(home);
+    let text =
+        serde_saphyr::to_string(value).map_err(|error| std::io::Error::other(error.to_string()))?;
+    // Write through a sibling temp file so a reader never sees a partial config.
+    let temp = path.with_extension("yaml.tmp");
+    std::fs::write(&temp, text)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&temp, &path)?;
+    Ok(())
+}
+
+fn valid_model(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !value
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+}
+
+fn valid_base_url(value: &str) -> bool {
+    value.len() <= 2048
+        && (value.starts_with("https://") || value.starts_with("http://"))
+        && !value.chars().any(char::is_whitespace)
+}
+
+async fn get_model_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let config = read_user_config(&state.config.home);
+    let base_url = config["model"]["base_url"].as_str().map(str::to_owned);
+    // `provider` is the route persisted in the user layer (editable); the live
+    // process may run another one, e.g. the replay provider behind a cassette.
+    let configured = config["model"]["provider"].as_str().unwrap_or_default();
+    let provider = if PROVIDER_ROUTES.contains(&configured) {
+        configured
+    } else {
+        ""
+    };
+    Ok(Json(json!({
+        "provider": provider,
+        "active_provider": state.provider.name(),
+        "model": state.provider.model(),
+        "base_url": base_url,
+        "routes": PROVIDER_ROUTES,
+        "note": "credentials are read from the environment; a route or model change needs a restart",
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelConfigRequest {
+    provider: String,
+    model: String,
+    #[serde(default)]
+    base_url: Option<String>,
+}
+
+async fn set_model_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ModelConfigRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !PROVIDER_ROUTES.contains(&body.provider.as_str()) || !valid_model(&body.model) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if let Some(url) = body.base_url.as_deref()
+        && !url.is_empty()
+        && !valid_base_url(url)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut config = read_user_config(&state.config.home);
+    let model = config["model"].as_object_mut();
+    let model = match model {
+        Some(model) => model,
+        None => {
+            config["model"] = json!({});
+            config["model"].as_object_mut().expect("just inserted")
+        }
+    };
+    model.insert("provider".into(), json!(body.provider));
+    model.insert("name".into(), json!(body.model));
+    match body.base_url.filter(|url| !url.is_empty()) {
+        Some(url) => model.insert("base_url".into(), json!(url)),
+        None => model.remove("base_url"),
+    };
+    write_user_config(&state.config.home, &config)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({
+        "ok": true,
+        "restart_required": true,
+        "provider": config["model"]["provider"],
+        "model": config["model"]["name"],
     })))
 }
 
