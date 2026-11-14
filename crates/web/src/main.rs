@@ -100,6 +100,10 @@ struct ClientHalfInfo {
     platform: String,
     #[serde(default)]
     immediately: bool,
+    #[serde(default)]
+    bundle: String,
+    #[serde(default)]
+    inject: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -597,7 +601,19 @@ fn App() -> impl IntoView {
     let mounted_frames = RwSignal::new(Vec::<String>::new());
     let slots_by_plugin = RwSignal::new(BTreeMap::<String, Vec<ClientSlot>>::new());
     let active_slot = RwSignal::new(None::<ClientSlot>);
+    // Bumped after a plugin reload so the mounted frame fetches the new bundle.
+    let frame_versions = RwSignal::new(BTreeMap::<String, u32>::new());
+    // Frames that just (re)loaded and need their slot activated again.
+    let pending_activation = RwSignal::new(Vec::<String>::new());
     let panel_error = RwSignal::new(String::new());
+
+    let bump_frame = move |name: &str| {
+        let name = name.to_owned();
+        frame_versions.update(|versions| {
+            let version = versions.entry(name).or_insert(0);
+            *version += 1;
+        });
+    };
 
     let mount_frame = move |name: &str| {
         let name = name.to_owned();
@@ -712,7 +728,36 @@ fn App() -> impl IntoView {
                     if let Ok(list) =
                         get_json::<ClientsResponse>("/v1/plugins/clients", &value).await
                     {
-                        for half in list.clients.iter().filter(|half| half.immediately) {
+                        // `immediately` halves mount at startup, in activation
+                        // order: a half that injects another is mounted after it.
+                        let mut pending: Vec<ClientHalfInfo> = list
+                            .clients
+                            .iter()
+                            .filter(|half| half.immediately)
+                            .cloned()
+                            .collect();
+                        let mut ordered: Vec<String> = Vec::new();
+                        while !pending.is_empty() {
+                            let before = pending.len();
+                            pending.retain(|half| {
+                                let ready = half.inject.iter().all(|dependency| {
+                                    ordered.contains(dependency)
+                                        || !list
+                                            .clients
+                                            .iter()
+                                            .any(|candidate| &candidate.name == dependency)
+                                });
+                                if ready {
+                                    mount_frame(&half.name);
+                                    ordered.push(half.name.clone());
+                                }
+                                !ready
+                            });
+                            if pending.len() == before {
+                                break;
+                            }
+                        }
+                        for half in pending {
                             mount_frame(&half.name);
                         }
                         if let Some(name) = pending_panel.get_untracked()
@@ -847,6 +892,14 @@ fn App() -> impl IntoView {
             }
             let plugin = field_of(&data, "plugin");
             match field_of(&data, "type").as_str() {
+                "ready" => {
+                    // A fresh or reloaded frame needs an explicit activate.
+                    pending_activation.update(|plugins| {
+                        if !plugins.contains(&plugin) {
+                            plugins.push(plugin.clone());
+                        }
+                    });
+                }
                 "slots" => {
                     let slots = read_slots(&data);
                     slots_by_plugin.update(|map| {
@@ -859,14 +912,24 @@ fn App() -> impl IntoView {
                     if !is_active {
                         return;
                     }
+                    let needs_activation = {
+                        let pending = pending_activation.get_untracked();
+                        let needs = pending.contains(&plugin);
+                        if needs {
+                            pending_activation.update(|plugins| {
+                                plugins.retain(|candidate| candidate != &plugin);
+                            });
+                        }
+                        needs
+                    };
                     let known = active_slot
                         .get_untracked()
                         .and_then(|slot| slots.iter().find(|candidate| candidate.id == slot.id).cloned());
                     let next = known.or_else(|| slots.first().cloned());
                     if let Some(next) = next {
-                        if active_slot.get_untracked().as_ref().map(|slot| slot.id.clone())
-                            != Some(next.id.clone())
-                        {
+                        let changed = active_slot.get_untracked().as_ref().map(|slot| slot.id.clone())
+                            != Some(next.id.clone());
+                        if changed || needs_activation {
                             active_slot.set(Some(next.clone()));
                             activate_slot(&plugin, &next);
                         }
@@ -890,22 +953,47 @@ fn App() -> impl IntoView {
                 "action" => {
                     let action = field_of(&data, "action");
                     let id = field_of(&data, "id");
+                    let payload = js_sys::Reflect::get(&data, &"payload".into())
+                        .unwrap_or(wasm_bindgen::JsValue::NULL);
                     match action.as_str() {
                         "close" => {
                             post_action_result(&plugin, &id, true, "");
                             close_panel();
                         }
+                        "compose" => {
+                            let text = field_of(&payload, "text");
+                            prompt.update(|value| {
+                                if !value.is_empty() && !value.ends_with('\n') {
+                                    value.push('\n');
+                                }
+                                value.push_str(&text);
+                            });
+                            post_action_result(&plugin, &id, true, "");
+                        }
+                        "notify" => {
+                            let message = field_of(&payload, "message");
+                            status.set(if message.is_empty() {
+                                "plugin notification".into()
+                            } else {
+                                message
+                            });
+                            post_action_result(&plugin, &id, true, "");
+                        }
                         "reload" => {
                             let token_value = token.get_untracked();
                             let name = plugin.clone();
                             let reply = plugin.clone();
+                            let reloaded = plugin.clone();
                             spawn_local(async move {
                                 let body = serde_json::json!({"name": name});
                                 let result =
                                     post_json::<Value>("/v1/plugins/reload", &token_value, &body)
                                         .await;
                                 match &result {
-                                    Ok(_) => post_action_result(&reply, &id, true, ""),
+                                    Ok(_) => {
+                                        post_action_result(&reply, &id, true, "");
+                                        bump_frame(&reloaded);
+                                    }
                                     Err(error) => post_action_result(&reply, &id, false, error),
                                 }
                                 refresh_plugin_views(token_value, live_plugins, clients);
@@ -936,6 +1024,7 @@ fn App() -> impl IntoView {
     let reload_plugin = move |name: String| {
         let token_value = token.get_untracked();
         plugin_status.set(format!("reloading {name}…"));
+        let reloaded = name.clone();
         spawn_local(async move {
             let body = serde_json::json!({"name": name});
             match post_json::<Value>("/v1/plugins/reload", &token_value, &body).await {
@@ -946,6 +1035,9 @@ fn App() -> impl IntoView {
                     } else {
                         format!("reload failed: {value}")
                     });
+                    if failures == 0 {
+                        bump_frame(&reloaded);
+                    }
                 }
                 Err(error) => plugin_status.set(format!("reload error: {error}")),
             }
@@ -1327,10 +1419,11 @@ fn App() -> impl IntoView {
                         view! {
                             <li>
                                 {format!(
-                                    "{} ({} → {}) · {}",
+                                    "{} ({} → {}, {}) · {}",
                                     client.name,
                                     package,
                                     client.entry,
+                                    client.bundle,
                                     state,
                                 )}
                                 <button on:click=move |_| open_panel(open.clone())>"Open"</button>
@@ -1429,12 +1522,21 @@ fn App() -> impl IntoView {
                                 let token_value = token.get_untracked();
                                 let encoded_token = js_sys::encode_uri_component(&token_value).as_string().unwrap_or_default();
                                 let encoded_theme = js_sys::encode_uri_component(&theme.get_untracked()).as_string().unwrap_or_default();
-                                let src = format!(
+                                let src_base = format!(
                                     "/v1/plugins/{encoded_name}/host?token={encoded_token}&theme={encoded_theme}"
                                 );
                                 let frame_id = frame_id(&half.name);
                                 let active_name = half.name.clone();
+                                let version_name = half.name.clone();
                                 let label = format!("plugin panel: {}", half.name);
+                                let src = move || {
+                                    let version = frame_versions
+                                        .get()
+                                        .get(&version_name)
+                                        .copied()
+                                        .unwrap_or(0);
+                                    format!("{src_base}&v={version}")
+                                };
                                 Some(view! {
                                     <iframe
                                         id=frame_id
