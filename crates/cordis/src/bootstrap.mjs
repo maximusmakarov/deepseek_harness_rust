@@ -8,10 +8,27 @@ import { createRequire } from "node:module";
 const entry = process.argv[2];
 const root = path.resolve(process.env.DSHR_CORDIS_ROOT || process.cwd());
 const tools = new Map();
+const grants = (() => {
+  try {
+    return JSON.parse(process.env.DSHR_CORDIS_GRANTS || "{}");
+  } catch {
+    return {};
+  }
+})();
+const extraRead = (grants.read || []).map((entry) => path.resolve(root, entry));
+const extraWrite = (grants.write || []).map((entry) => path.resolve(root, entry));
 
-function confined(name) {
+function within(name, roots) {
   const absolute = path.resolve(root, name);
-  if (absolute !== root && !absolute.startsWith(root + path.sep)) {
+  if (absolute === root || absolute.startsWith(root + path.sep)) return true;
+  return roots.some(
+    (allowed) => absolute === allowed || absolute.startsWith(allowed + path.sep),
+  );
+}
+
+function confined(name, roots = []) {
+  const absolute = path.resolve(root, name);
+  if (!within(name, roots)) {
     throw new Error(`path escapes the workspace: ${name}`);
   }
   return absolute;
@@ -37,9 +54,24 @@ const ctx = {
   tool: (definition) => addTool(definition),
   log: (...args) => console.error("[cordis]", ...args),
   fs: {
-    readFile: async (name) => fs.readFile(confined(name), "utf8"),
-    writeFile: async (name, contents) => fs.writeFile(confined(name), contents),
-    readdir: async (name) => fs.readdir(confined(name)),
+    readFile: async (name) => {
+      if (!within(name, extraRead)) {
+        throw new Error(`path escapes the workspace (no read grant): ${name}`);
+      }
+      return fs.readFile(confined(name, extraRead), "utf8");
+    },
+    writeFile: async (name, contents) => {
+      if (!within(name, extraWrite)) {
+        throw new Error(`path escapes the workspace (no write grant): ${name}`);
+      }
+      return fs.writeFile(confined(name, extraWrite), contents);
+    },
+    readdir: async (name) => {
+      if (!within(name, extraRead)) {
+        throw new Error(`path escapes the workspace (no read grant): ${name}`);
+      }
+      return fs.readdir(confined(name, extraRead));
+    },
   },
   exec: () => {
     throw new Error("ctx.exec is disabled by the dshr capability bus");

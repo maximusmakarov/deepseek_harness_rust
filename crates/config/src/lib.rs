@@ -157,6 +157,18 @@ pub struct CordisPluginConfig {
     pub enabled: bool,
     /// Extra environment variables for the sidecar.
     pub env: BTreeMap<String, String>,
+    /// Extra capability grants for the sidecar.
+    #[serde(default)]
+    pub grants: CordisGrants,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct CordisGrants {
+    /// Extra directories the plugin may read (relative to the workspace).
+    pub read: Vec<PathBuf>,
+    /// Extra directories the plugin may write (relative to the workspace).
+    pub write: Vec<PathBuf>,
 }
 
 impl Default for CordisPluginConfig {
@@ -166,6 +178,7 @@ impl Default for CordisPluginConfig {
             entry: PathBuf::new(),
             enabled: true,
             env: BTreeMap::new(),
+            grants: CordisGrants::default(),
         }
     }
 }

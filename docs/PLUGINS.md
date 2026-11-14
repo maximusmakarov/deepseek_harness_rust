@@ -81,6 +81,11 @@ dshr plugin verify ~/.dshr/plugins/echo.yaml --key <hex public key>
 списке ключей отклоняются. Приватный ключ — 32-байтная hex-строка, `keygen` пишет
 файл с правами `0600` на Unix.
 
+## Cordis grants
+
+`plugins.cordis[].grants.read/write` расширяют доступ `ctx.fs` за пределы
+workspace (пути относительно корня); `ctx.exec`/`ctx.net` остаются выключены.
+
 ## Cordis audit
 
 Каждый вызов `cordis__<plugin>__<tool>` дописывает строку в

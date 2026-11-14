@@ -36,6 +36,7 @@ pub struct CordisPluginSpec {
     pub entry: PathBuf,
     pub root: PathBuf,
     pub env: BTreeMap<String, String>,
+    pub grants: dshr_config::CordisGrants,
 }
 
 /// Connects a Cordis plugin sidecar and returns tools named
@@ -61,6 +62,10 @@ pub async fn connect(
     };
     let mut env = spec.env;
     env.insert("DSHR_CORDIS_ROOT".into(), spec.root.display().to_string());
+    env.insert(
+        "DSHR_CORDIS_GRANTS".into(),
+        serde_json::to_string(&spec.grants).unwrap_or_else(|_| "{}".to_owned()),
+    );
     let server = McpServerSpec {
         name: format!("cordis-{}", spec.name),
         command: node,

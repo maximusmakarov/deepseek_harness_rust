@@ -1324,6 +1324,7 @@ name = "dshr-cordis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "dshr-config",
  "dshr-core",
  "dshr-mcp",
  "dshr-tools",

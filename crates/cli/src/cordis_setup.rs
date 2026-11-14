@@ -18,6 +18,7 @@ pub async fn register(registry: &mut ToolRegistry, config: &Config, home: &Path)
             entry: plugin.entry.clone(),
             root: root.clone(),
             env: plugin.env.clone(),
+            grants: plugin.grants.clone(),
         };
         match dshr_cordis::connect(spec, home).await {
             Ok(tools) => {
