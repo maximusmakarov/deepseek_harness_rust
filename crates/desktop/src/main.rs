@@ -210,6 +210,35 @@ fn build_tray(
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     let window_settings = load_window_settings(home);
+    let network = load_network_settings(home);
+    let network_menu = Submenu::new(app, "Network", true)?;
+    let local = MenuItem::with_id(
+        app,
+        "network:local",
+        if network.bind == "127.0.0.1" {
+            "✓ Local only"
+        } else {
+            "Local only"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let lan = MenuItem::with_id(
+        app,
+        "network:lan",
+        if network.bind == "0.0.0.0" {
+            "✓ LAN (0.0.0.0)"
+        } else {
+            "LAN (0.0.0.0)"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let set_port = MenuItem::with_id(app, "network:port", "Set port…", true, None::<&str>)?;
+    network_menu.append(&local)?;
+    network_menu.append(&lan)?;
+    network_menu.append(&set_port)?;
+
     let window_menu = Submenu::new(app, "Window", true)?;
     let mode_compat = MenuItem::with_id(
         app,
@@ -266,6 +295,7 @@ fn build_tray(
             &hide,
             &profiles,
             &window_menu,
+            &network_menu,
             &new_profile,
             &browser,
             &terminal,
@@ -413,6 +443,41 @@ fn build_tray(
                 stop_server(app);
                 app.exit(0);
             }
+            other if other.starts_with("network:") => {
+                let home = home_dir();
+                let mut settings = load_network_settings(&home);
+                match other {
+                    "network:local" => settings.bind = "127.0.0.1".to_owned(),
+                    "network:lan" => {
+                        show_error(
+                            "LAN access",
+                            "The server will bind 0.0.0.0. The bearer token is still required, but every host on the network can reach the UI.",
+                        );
+                        settings.bind = "0.0.0.0".to_owned();
+                    }
+                    "network:port" => {
+                        match prompt_text(
+                            "Local web port",
+                            "Port (0 = random)",
+                            &settings.port.to_string(),
+                        ) {
+                            Some(value) => match value.trim().parse::<u16>() {
+                                Ok(port) => settings.port = port,
+                                Err(error) => {
+                                    show_error("Local web port", &format!("invalid port: {error}"));
+                                    return;
+                                }
+                            },
+                            None => return,
+                        }
+                    }
+                    _ => return,
+                }
+                if save_network_settings(&home, &settings).is_ok() {
+                    stop_server(app);
+                    app.restart();
+                }
+            }
             other if other.starts_with("window:") => {
                 let home = home_dir();
                 let mut settings = load_window_settings(&home);
@@ -449,7 +514,8 @@ fn start_server(
     folder: Option<&Path>,
     provider: Option<&ProviderSettings>,
 ) -> Result<(u16, String, Child), Box<dyn std::error::Error>> {
-    let port = desktop_port()?;
+    let network = load_network_settings(home);
+    let port = desktop_port(&network)?;
     let token = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -483,7 +549,7 @@ fn start_server(
         profile.to_owned(),
         "serve".to_owned(),
         "--bind".to_owned(),
-        "127.0.0.1".to_owned(),
+        network.bind.clone(),
         "--port".to_owned(),
         port.to_string(),
         "--token".to_owned(),
@@ -525,10 +591,13 @@ fn stop_server(app: &AppHandle) {
     }
 }
 
-fn desktop_port() -> Result<u16, Box<dyn std::error::Error>> {
+fn desktop_port(network: &NetworkSettings) -> Result<u16, Box<dyn std::error::Error>> {
     if let Ok(value) = std::env::var("DSHR_DESKTOP_PORT") {
         let port: u16 = value.parse()?;
         return Ok(port);
+    }
+    if network.port != 0 {
+        return Ok(network.port);
     }
     Ok(free_port()?)
 }
@@ -954,6 +1023,48 @@ fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Err
     let _ = child.kill();
     let _ = child.wait();
     Ok(format!("http://127.0.0.1:{port}/?token=…"))
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct NetworkSettings {
+    #[serde(default = "default_bind")]
+    bind: String,
+    #[serde(default)]
+    port: u16,
+}
+
+fn default_bind() -> String {
+    "127.0.0.1".to_owned()
+}
+
+impl Default for NetworkSettings {
+    fn default() -> Self {
+        Self {
+            bind: default_bind(),
+            port: 0,
+        }
+    }
+}
+
+fn network_settings_path(home: &Path) -> PathBuf {
+    home.join("desktop-network.json")
+}
+
+fn load_network_settings(home: &Path) -> NetworkSettings {
+    let Ok(text) = std::fs::read_to_string(network_settings_path(home)) else {
+        return NetworkSettings::default();
+    };
+    let mut settings: NetworkSettings = serde_json::from_str(&text).unwrap_or_default();
+    if !matches!(settings.bind.as_str(), "127.0.0.1" | "0.0.0.0") {
+        settings.bind = default_bind();
+    }
+    settings
+}
+
+fn save_network_settings(home: &Path, settings: &NetworkSettings) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
+    std::fs::write(network_settings_path(home), text)
+        .map_err(|error| format!("write desktop-network.json: {error}"))
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -1416,6 +1527,27 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn saves_and_loads_network_settings() {
+        let dir = std::env::temp_dir().join(format!("dshr-network-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let settings = NetworkSettings {
+            bind: "0.0.0.0".into(),
+            port: 4317,
+        };
+        save_network_settings(&dir, &settings).expect("save");
+        let loaded = load_network_settings(&dir);
+        assert_eq!(loaded.bind, "0.0.0.0");
+        assert_eq!(loaded.port, 4317);
+        std::fs::write(
+            dir.join("desktop-network.json"),
+            r#"{"bind":"bogus","port":0}"#,
+        )
+        .expect("write");
+        assert_eq!(load_network_settings(&dir).bind, "127.0.0.1");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -14,7 +14,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Профили: список в трее, переключение с рестартом, last-known-good | CLI `--profile`/`DSH_PROFILE`; трей: список, New profile…, переключение пишет `desktop-profile` и перезапускает shell | ✅ |
 | Профиль как композиция бандлов/зависимостей/патчей | config-слои + Cordis-sidecar; композиции бандлов нет | ⚠️ |
 | Режимы окна (compatibility/extended/enhanced), материалы macOS | Compatibility/Enhanced (Overlay title bar) и Material (macOS vibrancy) через трей; extended-рамки и Linux-режимы нет | ⚠️ |
-| Локальный web-порт: random/фиксированный, LAN-подтверждение | случайный порт или `DSHR_DESKTOP_PORT`; LAN-тумблера нет | ⚠️ |
+| Локальный web-порт: random/фиксированный, LAN-подтверждение | трей Network: local/LAN с предупреждением, фиксированный/случайный порт; как в оригинале — без отдельного LAN-диалога подтверждения | ✅ |
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
 | Plugin market | UI-панель Plugins (установленные tools + поиск npm), `plugin npm search/info`, установка через `npm add`; отдельного каталога/маркета нет | ⚠️ |
 | Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` + привязка к `--profile` (profile.yaml, отдельные packages); UI-менеджера и market нет | ⚠️ |

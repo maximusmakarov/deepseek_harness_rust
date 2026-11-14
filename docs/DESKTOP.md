@@ -29,6 +29,10 @@ New profile…, Export diagnostics…, Check for updates…, Profile (списо
 shell) и Quit. Окно: трей Window → Compatibility/Enhanced и Material (macOS vibrancy, прозрачность).
 Настройки хранятся в `<home>/desktop-window.json`; смена перезапускает shell.
 
+Трей **Network**: Local only / LAN (0.0.0.0, с предупреждением о токене) /
+Set port… (0 = случайный). Настройки — `<home>/desktop-network.json`; смена
+перезапускает shell.
+
 После успешного health профиль (не `default`) пишется в `<home>/desktop-last-good`;
 трей **Rollback profile** переключается на него и перезапускает shell.
 
