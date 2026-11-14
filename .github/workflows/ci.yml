@@ -76,6 +76,12 @@ jobs:
           else
             echo "::error title=nextest::nextest.log is missing"
           fi
+      - name: windows sandbox (AppContainer)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          DSHR_WINDOWS_SANDBOX: "1"
+        run: cargo test -p dshr-sandbox -- --ignored
       - run: cargo test --workspace --doc
       - name: desktop check
         if: matrix.os == 'macos-latest'

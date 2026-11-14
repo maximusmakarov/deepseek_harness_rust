@@ -42,7 +42,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | есть; hot reload, grants/audit, client half нет | ⚠️ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; установка через CLI, отдельного каталога нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
-| Windows sandbox/network | fail-closed, AppContainer не работает | ⏸ |
+| Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI-шаг гоняет ignored-тест | ⏸ |
 | i18n ru/en | TUI/CLI частично; ошибки en | ⚠️ |
 | OTel, SDK, rate-limit, OpenAPI | есть | ✅ |
 
