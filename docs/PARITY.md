@@ -70,7 +70,7 @@ P2: ghcr-хостинг бутылок, прогон brew/desktop CI на тег
 ## Проверка (14.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 282 passed + 3 ignored; desktop 21 passed (итого 303).
+- `cargo test --workspace`: 283 passed + 3 ignored; desktop 21 passed (итого 304).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
