@@ -174,7 +174,7 @@ DEMO_CLIENT = """
 export default function activate(ctx) {
   const panel = (el) => {
     el.innerHTML = `
-      <h3>Smoke panel</h3>
+      <h3>Smoke panel v1</h3>
       <p id="slot-label">slot: panel · theme: ${ctx.theme}</p>
       <p id="action-status">action: idle</p>
       <button id="close-btn">close</button>
@@ -199,6 +199,65 @@ export default function activate(ctx) {
     return () => clearInterval(timer);
   });
 }
+"""
+
+ASSETS_MANIFEST = {
+    "name": "@smoke/assets",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+}
+
+ASSETS_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "assets", description: "assets", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+ASSETS_CLIENT = """
+import { render } from "./lib/panel.js";
+export default function activate(ctx) {
+  ctx.slots.register({ name: "panel", id: "assets-panel", title: "Assets panel" }, render);
+}
+"""
+
+ASSETS_CHUNK = """
+export function render(element) {
+  element.innerHTML = "<h3>Multi-file bundle</h3><p id='asset-status'>panel from a chunk</p>";
+}
+"""
+
+LEGACY_MANIFEST = {
+    "name": "@smoke/legacy",
+    "version": "1.0.0",
+    "main": "plugin.mjs",
+    "dsh": {"client": {"platform": "web", "entry": "client.js"}},
+}
+
+LEGACY_PLUGIN = """
+export default {
+  apply(ctx) {
+    ctx.tool({ name: "legacy", description: "legacy", inputSchema: { type: "object" }, handler: () => "ok" });
+  },
+};
+"""
+
+LEGACY_CLIENT = """
+window.__ModuleLoader__.load({
+  id: "@smoke/legacy",
+  factory(require) {
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.register({ name: "panel", id: "legacy-panel", title: "Legacy" }, (el) => {
+          el.innerHTML = "<h3>Legacy bundle</h3><p id='legacy-status'>module table bundle</p>";
+        });
+      },
+    };
+  },
+});
 """
 
 EAGER_MANIFEST = {
@@ -233,12 +292,18 @@ def write_fixtures(home: Path, workspace: Path) -> None:
     for name, manifest, plugin, client in [
         ("demo", DEMO_MANIFEST, DEMO_PLUGIN, DEMO_CLIENT),
         ("demo2", EAGER_MANIFEST, EAGER_PLUGIN, EAGER_CLIENT),
+        ("demo3", ASSETS_MANIFEST, ASSETS_PLUGIN, ASSETS_CLIENT),
+        ("demo4", LEGACY_MANIFEST, LEGACY_PLUGIN, LEGACY_CLIENT),
     ]:
         directory = workspace / name
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "package.json").write_text(json.dumps(manifest), encoding="utf-8")
         (directory / "plugin.mjs").write_text(plugin, encoding="utf-8")
         (directory / "client.js").write_text(client, encoding="utf-8")
+        if name == "demo3":
+            chunk = directory / "lib" / "panel.js"
+            chunk.parent.mkdir(parents=True, exist_ok=True)
+            chunk.write_text(ASSETS_CHUNK, encoding="utf-8")
         profile += [
             f"    - name: {name}",
             f"      entry: {directory}",
@@ -319,13 +384,38 @@ def page_target(port: int) -> str:
     return page["webSocketDebuggerUrl"]
 
 
-def frame_target(port: int, plugin: str) -> str | None:
+def frame_targets(port: int, plugin: str) -> list[str]:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list") as response:
         targets = json.load(response)
-    for target in targets:
-        if target["type"] == "iframe" and f"/plugins/{plugin}/" in target["url"]:
-            return target["webSocketDebuggerUrl"]
-    return None
+    return [
+        target["webSocketDebuggerUrl"]
+        for target in targets
+        if target["type"] == "iframe" and f"/plugins/{plugin}/" in target["url"]
+    ]
+
+
+def frame_target(port: int, plugin: str) -> str | None:
+    targets = frame_targets(port, plugin)
+    return targets[0] if targets else None
+
+
+def wait_for_frame_text(port: int, plugin: str, needle: str, timeout: float = 20.0) -> bool:
+    """Polls the plugin frame text, reconnecting when the frame reloads."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for target in frame_targets(port, plugin):
+            frame = DevTools(target)
+            try:
+                frame.call("Runtime.enable")
+                text = str(frame.eval("document.getElementById('dshr-slot-root')?.textContent"))
+            except Exception:  # noqa: BLE001 - the target may vanish mid-reload
+                text = ""
+            finally:
+                frame.close()
+            if needle in text:
+                return True
+        time.sleep(0.25)
+    return False
 
 
 def wait_until(predicate, timeout: float = 20.0, interval: float = 0.2, label: str = "condition"):
@@ -372,12 +462,12 @@ def run(args: argparse.Namespace) -> int:
     failures: list[str] = []
     checks: list[str] = []
 
-    def check(label: str, condition: bool, detail: str = "") -> None:
+    def check(label: str, condition: bool, detail: object = "") -> None:
         checks.append(label)
         if condition:
             print(f"  ok   {label}")
         else:
-            print(f"  FAIL {label}{(': ' + detail) if detail else ''}")
+            print(f"  FAIL {label}{(': ' + str(detail)) if detail else ''}")
             failures.append(label)
 
     try:
@@ -396,7 +486,10 @@ def run(args: argparse.Namespace) -> int:
         )
         with urllib.request.urlopen(request, timeout=10) as response:
             clients = json.load(response)["clients"]
-        check("lists both client halves", len(clients) == 2, str(clients))
+        check("lists every client half", len(clients) == 4, str(clients))
+        modes = {client["name"]: client["bundle"] for client in clients}
+        check("single-file halves are inlined", modes.get("demo") == "inline", modes)
+        check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
         check(
             "eager half is marked immediately",
             any(client["name"] == "demo2" and client["immediately"] for client in clients),
@@ -473,6 +566,96 @@ def run(args: argparse.Namespace) -> int:
         check("close unmounts the lazy frame", "plugin-frame-demo" not in frame_ids, str(frame_ids))
         check("eager frame stays mounted", "plugin-frame-demo2" in frame_ids, str(frame_ids))
         demo.close()
+
+        # A bundle with relative imports loads its module graph through the
+        # capability asset route and renders a chunked component.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo3"},
+        )
+        assets_ws = None
+        deadline = time.time() + 20
+        while time.time() < deadline and assets_ws is None:
+            assets_ws = frame_target(debug_port, "demo3")
+            time.sleep(0.2)
+        check("asset-mode frame is mounted", assets_ws is not None)
+        if assets_ws:
+            assets = DevTools(assets_ws)
+            assets.call("Runtime.enable")
+            wait_until(
+                lambda: "panel from a chunk" in str(assets.eval("document.getElementById('dshr-slot-root').textContent")),
+                label="multi-file chunk renders",
+            )
+            check("multi-file bundle renders a chunk", True)
+            assets.close()
+
+        # A bundle built for the reference module table runs through the
+        # __ModuleLoader__ shim and registers a slot from its apply().
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo4"},
+        )
+        legacy_ws = None
+        deadline = time.time() + 20
+        while time.time() < deadline and legacy_ws is None:
+            legacy_ws = frame_target(debug_port, "demo4")
+            time.sleep(0.2)
+        check("module-table frame is mounted", legacy_ws is not None)
+        if legacy_ws:
+            legacy = DevTools(legacy_ws)
+            legacy.call("Runtime.enable")
+            wait_until(
+                lambda: "module table bundle" in str(legacy.eval("document.getElementById('dshr-slot-root').textContent")),
+                label="module-table bundle renders",
+            )
+            check("module-table bundle activates through apply(ctx)", True)
+            legacy.close()
+
+        # Host actions: a plugin can compose into the prompt and notify.
+        shell.call(
+            "Page.navigate",
+            {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=demo"},
+        )
+        wait_until(
+            lambda: frame_target(debug_port, "demo") is not None,
+            label="demo frame after navigation",
+        )
+        actions_ws = frame_target(debug_port, "demo")
+        actions = DevTools(actions_ws)
+        actions.call("Runtime.enable")
+        wait_until(
+            lambda: "Smoke panel v1" in str(actions.eval("document.getElementById('dshr-slot-root').textContent")),
+            label="demo panel renders again",
+        )
+        result = actions.eval(
+            "window.dshr.action('compose', {text: 'hello from plugin'})",
+            await_promise=True,
+        )
+        check("compose action resolves", result.get("ok") is True, result)
+        prompt_value = str(shell.eval("document.querySelector('textarea').value"))
+        check("compose reaches the prompt", "hello from plugin" in prompt_value, prompt_value)
+        result = actions.eval(
+            "window.dshr.action('notify', {message: 'plugin says hi'})",
+            await_promise=True,
+        )
+        check("notify action resolves", result.get("ok") is True, result)
+        check(
+            "notify reaches the status bar",
+            "plugin says hi" in str(shell.eval("document.getElementById('status').textContent")),
+        )
+
+        # Editing the client bundle and asking for a reload must refresh the
+        # open panel instead of requiring a reopen.
+        (plugins / "demo" / "client.js").write_text(
+            DEMO_CLIENT.replace("Smoke panel v1", "Smoke panel v2"), encoding="utf-8"
+        )
+        result = actions.eval("window.dshr.action('reload')", await_promise=True)
+        check("reload action resolves", result.get("ok") is True, result)
+        check(
+            "an open panel picks up a new client bundle",
+            wait_for_frame_text(debug_port, "demo", "Smoke panel v2"),
+        )
+        actions.close()
         shell.close()
     finally:
         if chrome_process:
