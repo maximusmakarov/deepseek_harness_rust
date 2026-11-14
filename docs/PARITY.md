@@ -21,7 +21,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Терминал из трея с приватными shim'ами | открывает системный терминал; приватных shim'ов нет | ⚠️ |
 | Обновления: фоновая проверка, канал, installer, Linux → download page | проверка, уведомление, скачивание macOS zip с проверкой SHA256SUMS, распаковка/reveal, установка через helper (macOS); каналов/notarization нет | ⚠️ |
 | Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | при сбое старта — нативный выбор Retry/Safe mode/Diagnostics/Quit; safe-mode, last-known-good + Rollback profile; recovery-окна нет | ⚠️ |
-| `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`; экспорт диагностики — в работе | ⚠️ |
+| `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`, `--export-diagnostics` (zip: логи, конфиг, system-info) | ✅ |
 | Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` (ad-hoc), 5 tar.gz, Linux/Windows desktop-архивы в release CI; installer'ов (deb/NSIS/DMG) нет | ⚠️ |
 | Автообновление/подпись/notarization | ad-hoc подпись `.app`; notarization нет | ⚠️ |
 
@@ -34,12 +34,12 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | `apply_patch` (DSH-формат) | есть, multi-file add/update/delete/move | ✅ |
 | LLM-заголовки сессий | `run`, HTTP server и TUI генерируют заголовок провайдером (DSH-промпт), fallback — первая строка | ✅ |
 | Импорт сессий DSH v4 | `sessions import` (zstd JSONL → наша модель, title/tool calls) | ✅ |
-| `ask_user` | TUI-модалка и Web-диалог через observer; headless/ACP fail-closed | ✅ |
+| `ask_user` | TUI, Web, ACP elicitation (при capability клиента); headless fail-closed | ✅ |
 | persistent bash, diff-view | нет | ❌ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; optional methods (`session/list`, modes) нет | ⚠️ |
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | есть; hot reload, grants/audit, client half нет | ⚠️ |
-| Плагин-маркет/экосистема (fabric/market) | нет | ❌ |
+| Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; установка через CLI, отдельного каталога нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | fail-closed, AppContainer не работает | ⏸ |
 | i18n ru/en | TUI/CLI частично; ошибки en | ⚠️ |
@@ -52,16 +52,17 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Бинарные архивы 5 таргетов, SHA256SUMS, Ed25519, provenance | есть | ✅ |
 | Homebrew: бинарная формула | есть; ghcr-бутылки нет | ⚠️ |
 | Reproducible builds | архивы детерминированы; бинарь воспроизводим при том же toolchain с remap/SOURCE_DATE_EPOCH (проверено локально); cross-Linux может отличаться | ✅ |
-| Desktop в release CI | macOS `.app` zip | ✅ |
-| Windows/Linux desktop packages | нет | ❌ |
+| Desktop в release CI | macOS `.app` zip; Linux/Windows desktop-архивы добавлены в workflow (прогон на теге не выполнялся) | ⚠️ |
+| Windows/Linux desktop packages | Linux tar.gz и Windows zip собираются release-джобами; installer'ов нет, джобы не прогонялись | ⚠️ |
 
 ## Приоритеты паритета
 
-P0 (закрыто 14.11): трей и close-to-tray, профили/создание профиля, фиксированный порт,
-диагностика, `apply_patch`, `ask_user`, базовая проверка обновлений и first-run home.
-Осталось: тихая установка/замена приложения и каналы обновлений.
-P1: setup/onboarding, запуск с папкой, обновления, npm/Cordis install/update,
-плагин-маркет, elicitation, Windows sandbox.
-P2: extended/Linux window modes, recovery-окна, ghcr-бутылки.
+P0 закрыто: трей/close-to-tray, профили, фиксированный порт/LAN, диагностика,
+`apply_patch`, `ask_user` (включая ACP), обновления (проверка/скачивание/установка macOS),
+recovery-меню и first-run home. Осталось: notarization и каналы обновлений.
+P1: setup/onboarding и drag-and-drop папки, полный plugin market/catalog,
+Windows sandbox (нужен Windows-раннер), GUI plugin manager.
+P2: Linux-режимы/кастомный titlebar, recovery-окно вместо нативных диалогов,
+ghcr-бутылки, прогон desktop CI на теге.
 
 Каждый срез: код + тест/сборка + обновление этой матрицы.
