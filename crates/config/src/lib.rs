@@ -46,6 +46,9 @@ pub struct Config {
     /// Extra patch files from the profile, relative to its directory.
     #[serde(default)]
     pub patches: Vec<PathBuf>,
+    /// Bundle semantic version (for `requires: name@^1.0`).
+    #[serde(default)]
+    pub bundle_version: Option<String>,
 }
 
 impl Default for Config {
@@ -64,6 +67,7 @@ impl Default for Config {
             bundles: Vec::new(),
             requires: Vec::new(),
             patches: Vec::new(),
+            bundle_version: None,
         }
     }
 }
@@ -583,7 +587,14 @@ fn resolve_bundles(home: &Path, names: &[String]) -> Result<Vec<String>> {
             .collect();
         stack.push(name.to_owned());
         for dependency in requires {
-            visit(home, &dependency, stack, ordered)?;
+            let (dependency_name, requirement) = match dependency.split_once('@') {
+                Some((dependency_name, requirement)) => (dependency_name, Some(requirement)),
+                None => (dependency.as_str(), None),
+            };
+            if let Some(requirement) = requirement {
+                check_bundle_version(home, dependency_name, requirement)?;
+            }
+            visit(home, dependency_name, stack, ordered)?;
         }
         stack.pop();
         ordered.push(name.to_owned());
@@ -619,6 +630,31 @@ fn profile_patches(path: &Path) -> Result<Vec<PathBuf>> {
             }
         })
         .collect())
+}
+
+fn check_bundle_version(home: &Path, name: &str, requirement: &str) -> Result<()> {
+    let requirement = semver::VersionReq::parse(requirement).map_err(|error| {
+        DshrError::config(format!(
+            "bundle '{name}': invalid version requirement: {error}"
+        ))
+    })?;
+    let path = home.join("bundles").join(name).join("config.yaml");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| DshrError::config(format!("bundle '{name}': {error}")))?;
+    let value: Value = serde_saphyr::from_str(&text)
+        .map_err(|err| DshrError::config(format!("cannot parse {}: {err}", path.display())))?;
+    let version = value["bundle_version"]
+        .as_str()
+        .ok_or_else(|| DshrError::config(format!("bundle '{name}' has no bundle_version")))?;
+    let version = semver::Version::parse(version).map_err(|error| {
+        DshrError::config(format!("bundle '{name}': invalid bundle_version: {error}"))
+    })?;
+    if !requirement.matches(&version) {
+        return Err(DshrError::config(format!(
+            "bundle '{name}' version {version} does not satisfy {requirement}"
+        )));
+    }
+    Ok(())
 }
 
 fn profile_bundles(path: &Path) -> Result<Vec<String>> {
@@ -877,6 +913,34 @@ mod tests {
         let schema = json_schema();
         assert!(schema.get("properties").is_some(), "{schema}");
         assert!(schema["properties"].get("model").is_some(), "{schema}");
+    }
+
+    #[test]
+    fn bundle_versions_are_checked() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path();
+        write(
+            &home.join("bundles/core/config.yaml"),
+            "bundle_version: 1.2.0\n",
+        );
+        write(
+            &home.join("bundles/base/config.yaml"),
+            "requires: [core@^1.0]\n",
+        );
+        write(
+            &home.join("profiles/work/profile.yaml"),
+            "bundles: [base]\n",
+        );
+        ConfigLoader::new(home, "work").load().expect("compatible");
+        write(
+            &home.join("bundles/base/config.yaml"),
+            "requires: [core@^2.0]\n",
+        );
+        let error = ConfigLoader::new(home, "work")
+            .load()
+            .expect_err("incompatible")
+            .to_string();
+        assert!(error.contains("does not satisfy"), "{error}");
     }
 
     #[test]

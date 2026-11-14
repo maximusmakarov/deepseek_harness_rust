@@ -1311,6 +1311,7 @@ dependencies = [
  "dirs",
  "dshr-core",
  "schemars",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",

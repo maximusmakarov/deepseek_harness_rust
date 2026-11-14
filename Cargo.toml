@@ -87,6 +87,7 @@ wasmtime = { version = "50", default-features = false, features = ["cranelift", 
 wasmtime-wasi = { version = "50", default-features = false, features = ["p2"] }
 zstd = "0.14"
 base64 = "0.22"
+semver = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }
