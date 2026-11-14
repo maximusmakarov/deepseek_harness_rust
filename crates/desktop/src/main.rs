@@ -1397,6 +1397,28 @@ fn recovery_action(app: tauri::AppHandle, action: String) {
         "config" => {
             let _ = Command::new("open").arg(&home).spawn();
         }
+        action if action.starts_with("plugin:") => {
+            let mut parts = action.trim_start_matches("plugin:").rsplitn(2, ':');
+            let enabled = parts.next() == Some("true");
+            let name = parts.next().unwrap_or_default();
+            let profile = current_profile(&home);
+            if let Ok(binary) = find_binary() {
+                let verb = if enabled { "disable" } else { "enable" };
+                let _ = Command::new(binary)
+                    .args([
+                        "--home",
+                        home.to_str().unwrap_or_default(),
+                        "--profile",
+                        &profile,
+                        "plugin",
+                        "npm",
+                        verb,
+                        name,
+                    ])
+                    .status();
+            }
+            app.restart()
+        }
         "disable-plugins" => {
             let _ = std::fs::write(home.join("plugins-disabled"), "1\n");
             app.restart()
@@ -1430,6 +1452,15 @@ fn show_recovery_window(
 }
 
 fn recovery_html(error: &dyn std::fmt::Display, home: &Path) -> String {
+    let profile = current_profile(home);
+    recovery_html_with_plugins(error, home, &cordis_plugins(home, &profile))
+}
+
+fn recovery_html_with_plugins(
+    error: &dyn std::fmt::Display,
+    home: &Path,
+    plugins: &[(String, bool)],
+) -> String {
     let error = escape_html(&error.to_string());
     let mut profiles = String::new();
     for profile in list_profiles(home) {
@@ -1437,9 +1468,61 @@ fn recovery_html(error: &dyn std::fmt::Display, home: &Path) -> String {
             "<button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'profile:{profile}'}})\">{profile}</button>"
         ));
     }
+    let mut plugin_buttons = String::new();
+    for (name, enabled) in plugins {
+        if !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "@/_-".contains(ch))
+        {
+            continue;
+        }
+        let (verb, state) = if *enabled {
+            ("Disable", "true")
+        } else {
+            ("Enable", "false")
+        };
+        plugin_buttons.push_str(&format!(
+            "<button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'plugin:{name}:{state}'}})\">{verb} {name}</button>"
+        ));
+    }
     format!(
-        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'config'}})\">Open config folder</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'disable-plugins'}})\">Disable plugins</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'enable-plugins'}})\">Enable plugins</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button><h3>Profiles</h3>{profiles}"
+        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'config'}})\">Open config folder</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'disable-plugins'}})\">Disable plugins</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'enable-plugins'}})\">Enable plugins</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button><h3>Profiles</h3>{profiles}<h3>Cordis plugins</h3>{plugin_buttons}"
     )
+}
+
+fn cordis_plugins(home: &Path, profile: &str) -> Vec<(String, bool)> {
+    let Ok(binary) = find_binary() else {
+        return Vec::new();
+    };
+    let Ok(output) = Command::new(binary)
+        .args([
+            "--home",
+            home.to_str().unwrap_or_default(),
+            "--profile",
+            profile,
+            "plugin",
+            "npm",
+            "list",
+            "--json",
+        ])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
+        return Vec::new();
+    };
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|plugin| {
+            Some((
+                plugin["name"].as_str()?.to_owned(),
+                plugin["enabled"].as_bool().unwrap_or(true),
+            ))
+        })
+        .collect()
 }
 
 fn data_url(html: &str) -> String {
@@ -1737,6 +1820,21 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn recovery_window_lists_cordis_plugins() {
+        let home =
+            std::env::temp_dir().join(format!("dshr-recovery-plugins-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("home");
+        let html = recovery_html_with_plugins(
+            &"boom",
+            &home,
+            &[("demo".to_owned(), true), ("other".to_owned(), false)],
+        );
+        assert!(html.contains("Disable demo"), "{html}");
+        assert!(html.contains("Enable other"), "{html}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
