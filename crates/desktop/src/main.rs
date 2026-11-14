@@ -146,8 +146,9 @@ fn main() {
 
             build_tray(app, &home, &profile)?;
             let _ = window;
-            std::thread::spawn(|| {
-                if let Ok(Some(release)) = check_for_updates() {
+            let channel_home = home.clone();
+            std::thread::spawn(move || {
+                if let Ok(Some(release)) = check_for_updates(load_update_channel(&channel_home)) {
                     notify(
                         "dshr update available",
                         &format!("{} is available", release.version),
@@ -218,6 +219,33 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
+    let channel = load_update_channel(home);
+    let updates_menu = Submenu::new(app, "Updates", true)?;
+    let stable = MenuItem::with_id(
+        app,
+        "channel:stable",
+        if channel == UpdateChannel::Stable {
+            "✓ Stable"
+        } else {
+            "Stable"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let beta = MenuItem::with_id(
+        app,
+        "channel:beta",
+        if channel == UpdateChannel::Beta {
+            "✓ Beta (prereleases)"
+        } else {
+            "Beta (prereleases)"
+        },
+        true,
+        None::<&str>,
+    )?;
+    updates_menu.append(&stable)?;
+    updates_menu.append(&beta)?;
+
     let rollback = MenuItem::with_id(app, "rollback", "Rollback profile", true, None::<&str>)?;
     let install = MenuItem::with_id(
         app,
@@ -327,6 +355,7 @@ fn build_tray(
             &profiles,
             &window_menu,
             &network_menu,
+            &updates_menu,
             &new_profile,
             &browser,
             &terminal,
@@ -435,8 +464,20 @@ fn build_tray(
                     }
                 }
             }
+            "channel:stable" => {
+                let home = home_dir();
+                if save_update_channel(&home, UpdateChannel::Stable).is_ok() {
+                    notify("dshr", "Update channel: stable");
+                }
+            }
+            "channel:beta" => {
+                let home = home_dir();
+                if save_update_channel(&home, UpdateChannel::Beta).is_ok() {
+                    notify("dshr", "Update channel: beta");
+                }
+            }
             "updates" => {
-                std::thread::spawn(|| match check_for_updates() {
+                std::thread::spawn(|| match check_for_updates(load_update_channel(&home_dir())) {
                     Ok(Some(release)) => {
                         notify(
                             "dshr update available",
@@ -451,7 +492,7 @@ fn build_tray(
             "download-update" => {
                 std::thread::spawn(|| {
                     let home = home_dir();
-                    match check_for_updates() {
+                    match check_for_updates(load_update_channel(&home)) {
                         Ok(Some(release)) => match download_update(&home, &release) {
                             Ok(path) => {
                                 notify(
@@ -775,14 +816,42 @@ struct Release {
     checksums: Option<String>,
 }
 
-fn fetch_latest_release() -> Result<Release, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateChannel {
+    Stable,
+    Beta,
+}
+
+fn channel_path(home: &Path) -> PathBuf {
+    home.join("desktop-update-channel")
+}
+
+fn load_update_channel(home: &Path) -> UpdateChannel {
+    match std::fs::read_to_string(channel_path(home)) {
+        Ok(value) if value.trim() == "beta" => UpdateChannel::Beta,
+        _ => UpdateChannel::Stable,
+    }
+}
+
+fn save_update_channel(home: &Path, channel: UpdateChannel) -> Result<(), String> {
+    let value = match channel {
+        UpdateChannel::Stable => "stable",
+        UpdateChannel::Beta => "beta",
+    };
+    std::fs::write(channel_path(home), format!("{value}\n")).map_err(|error| error.to_string())
+}
+
+fn fetch_latest_release(channel: UpdateChannel) -> Result<Release, String> {
+    let url = match channel {
+        UpdateChannel::Stable => {
+            "https://api.github.com/repos/maximusmakarov/deepseek_harness_rust/releases/latest"
+        }
+        UpdateChannel::Beta => {
+            "https://api.github.com/repos/maximusmakarov/deepseek_harness_rust/releases?per_page=20"
+        }
+    };
     let output = Command::new("curl")
-        .args([
-            "-fsSL",
-            "-H",
-            "User-Agent: dshr-desktop",
-            "https://api.github.com/repos/maximusmakarov/deepseek_harness_rust/releases/latest",
-        ])
+        .args(["-fsSL", "-H", "User-Agent: dshr-desktop", url])
         .output()
         .map_err(|error| format!("curl: {error}"))?;
     if !output.status.success() {
@@ -792,7 +861,25 @@ fn fetch_latest_release() -> Result<Release, String> {
         ));
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    parse_release(&text).ok_or_else(|| "invalid release payload".to_owned())
+    match channel {
+        UpdateChannel::Stable => {
+            parse_release(&text).ok_or_else(|| "invalid release payload".to_owned())
+        }
+        UpdateChannel::Beta => {
+            parse_beta_releases(&text).ok_or_else(|| "no release with assets found".to_owned())
+        }
+    }
+}
+
+fn parse_beta_releases(text: &str) -> Option<Release> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    value.as_array()?.iter().find_map(|release| {
+        let assets = release["assets"].as_array()?;
+        if assets.is_empty() {
+            return None;
+        }
+        parse_release(&release.to_string())
+    })
 }
 
 fn parse_release(text: &str) -> Option<Release> {
@@ -993,8 +1080,8 @@ fn find_app(directory: &Path) -> Option<PathBuf> {
     None
 }
 
-fn check_for_updates() -> Result<Option<Release>, String> {
-    let release = fetch_latest_release()?;
+fn check_for_updates(channel: UpdateChannel) -> Result<Option<Release>, String> {
+    let release = fetch_latest_release(channel)?;
     if is_newer(env!("CARGO_PKG_VERSION"), &release.version) {
         Ok(Some(release))
     } else {
@@ -1584,6 +1671,20 @@ mod tests {
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
         );
         assert!(checksum_for(sums, "missing.zip").is_none());
+    }
+
+    #[test]
+    fn saves_and_loads_the_update_channel() {
+        let home = std::env::temp_dir().join(format!("dshr-channel-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("home");
+        assert_eq!(load_update_channel(&home), UpdateChannel::Stable);
+        save_update_channel(&home, UpdateChannel::Beta).expect("save");
+        assert_eq!(load_update_channel(&home), UpdateChannel::Beta);
+        let releases = r#"[{"tag_name":"v9.0.0","html_url":"u","assets":[]},
+            {"tag_name":"v9.1.0","html_url":"u","assets":[{"name":"x-macos.zip","browser_download_url":"x"}]}]"#;
+        let release = parse_beta_releases(releases).expect("release");
+        assert_eq!(release.version, "9.1.0");
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     #[test]
