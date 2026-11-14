@@ -26,7 +26,8 @@ Linux-CI; на macOS его тесты запускаются отдельным
 safe mode / Restart normally,
 New profile…, Export diagnostics…, Check for updates…, Profile (список
 `default` + `<home>/profiles/*`, переключение через `desktop-profile` и рестарт
-shell) и Quit. Окно: трей Window → Compatibility/Enhanced и Material (macOS vibrancy, прозрачность).
+shell) и Quit. Окно: трей Window → Compatibility/Enhanced/Extended и Material (macOS vibrancy,
+прозрачность). Extended — overlay title bar со сдвинутыми traffic lights.
 Настройки хранятся в `<home>/desktop-window.json`; смена перезапускает shell.
 
 Трей **Network**: Local only / LAN (0.0.0.0, с предупреждением о токене) /

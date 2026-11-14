@@ -109,6 +109,11 @@ fn main() {
                     builder = builder
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
                         .hidden_title(true);
+                } else if window_settings.mode == "extended" {
+                    builder = builder
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true)
+                        .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
                 }
                 if window_settings.material {
                     builder = builder.transparent(true);
@@ -262,6 +267,17 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
+    let mode_extended = MenuItem::with_id(
+        app,
+        "window:mode:extended",
+        if window_settings.mode == "extended" {
+            "✓ Extended"
+        } else {
+            "Extended"
+        },
+        true,
+        None::<&str>,
+    )?;
     let material = MenuItem::with_id(
         app,
         "window:material",
@@ -275,6 +291,7 @@ fn build_tray(
     )?;
     window_menu.append(&mode_compat)?;
     window_menu.append(&mode_enhanced)?;
+    window_menu.append(&mode_extended)?;
     window_menu.append(&material)?;
 
     let profiles = Submenu::new(app, "Profile", true)?;
@@ -484,6 +501,7 @@ fn build_tray(
                 match other {
                     "window:mode:compatibility" => settings.mode = "compatibility".to_owned(),
                     "window:mode:enhanced" => settings.mode = "enhanced".to_owned(),
+                    "window:mode:extended" => settings.mode = "extended".to_owned(),
                     "window:material" => settings.material = !settings.material,
                     _ => return,
                 }
@@ -1097,7 +1115,10 @@ fn load_window_settings(home: &Path) -> WindowSettings {
         return WindowSettings::default();
     };
     let mut settings: WindowSettings = serde_json::from_str(&text).unwrap_or_default();
-    if !matches!(settings.mode.as_str(), "compatibility" | "enhanced") {
+    if !matches!(
+        settings.mode.as_str(),
+        "compatibility" | "enhanced" | "extended"
+    ) {
         settings.mode = default_window_mode();
     }
     settings
@@ -1592,6 +1613,15 @@ mod tests {
         let loaded = load_window_settings(&dir);
         assert_eq!(loaded.mode, "enhanced");
         assert!(loaded.material);
+        save_window_settings(
+            &dir,
+            &WindowSettings {
+                mode: "extended".into(),
+                material: false,
+            },
+        )
+        .expect("save extended");
+        assert_eq!(load_window_settings(&dir).mode, "extended");
         std::fs::write(
             dir.join("desktop-window.json"),
             r#"{"mode":"bogus","material":false}"#,

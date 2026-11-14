@@ -13,7 +13,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Запуск с папкой (`dsh-desktop <folder>`, drag-and-drop) | `dshr-desktop <folder>` задаёт cwd сервера; drag-and-drop нет | ⚠️ |
 | Профили: список в трее, переключение с рестартом, last-known-good | CLI `--profile`/`DSH_PROFILE`; трей: список, New profile…, переключение пишет `desktop-profile` и перезапускает shell | ✅ |
 | Профиль как композиция бандлов/зависимостей/патчей | config-слои + Cordis-sidecar; композиции бандлов нет | ⚠️ |
-| Режимы окна (compatibility/extended/enhanced), материалы macOS | Compatibility/Enhanced (Overlay title bar) и Material (macOS vibrancy) через трей; extended-рамки и Linux-режимы нет | ⚠️ |
+| Режимы окна (compatibility/extended/enhanced), материалы macOS | Compatibility/Enhanced/Extended (overlay title bar) и Material (macOS vibrancy) через трей; Linux-режимы и кастомный titlebar нет | ⚠️ |
 | Локальный web-порт: random/фиксированный, LAN-подтверждение | трей Network: local/LAN с предупреждением, фиксированный/случайный порт; как в оригинале — без отдельного LAN-диалога подтверждения | ✅ |
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
 | Plugin market | UI-панель Plugins (установленные tools + поиск npm), `plugin npm search/info`, установка через `npm add`; отдельного каталога/маркета нет | ⚠️ |
