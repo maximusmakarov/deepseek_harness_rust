@@ -36,7 +36,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Импорт сессий DSH v4 | `sessions import` (zstd JSONL → наша модель, title/tool calls) | ✅ |
 | `ask_user` | TUI-модалка и Web-диалог через observer; headless/ACP fail-closed | ✅ |
 | persistent bash, diff-view | нет | ❌ |
-| MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh | stdio elicitation через prompt-интерфейс; HTTP elicitation нет | ⚠️ |
+| MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh | stdio elicitation и HTTP elicitation в POST-SSE; фоновый GET-SSE — нет | ⚠️ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; optional methods (`session/list`, modes) нет | ⚠️ |
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | есть; hot reload, grants/audit, client half нет | ⚠️ |
 | Плагин-маркет/экосистема (fabric/market) | нет | ❌ |

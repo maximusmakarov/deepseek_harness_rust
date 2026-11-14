@@ -681,7 +681,16 @@ impl McpHttpClient {
             return Err(McpError::Io(format!("HTTP {status}: {text}")));
         }
         if content_type.contains("text/event-stream") {
-            parse_sse_response(&text, id)
+            let (result, requests) = parse_sse_response_requests(&text, id)?;
+            for request in requests {
+                if request["method"].as_str() == Some("elicitation/create") {
+                    let response =
+                        elicitation_response(request["id"].clone(), request["params"].clone())
+                            .await;
+                    self.post_json(&response).await?;
+                }
+            }
+            Ok(result)
         } else {
             let value: Value = serde_json::from_str(&text)
                 .map_err(|error| McpError::Protocol(format!("invalid JSON: {error}")))?;
@@ -796,6 +805,10 @@ async fn elicitation_response(id: Value, params: Value) -> Value {
             "result": {"action": "decline"}
         });
     };
+    elicitation_with(prompt, id, params).await
+}
+
+async fn elicitation_with(prompt: Arc<dyn UserPrompt>, id: Value, params: Value) -> Value {
     let message = params["message"]
         .as_str()
         .unwrap_or("The server requests input");
@@ -930,8 +943,18 @@ fn extract_response(value: Value, id: u64) -> Result<Value, McpError> {
     Ok(value["result"].clone())
 }
 
-fn parse_sse_response(text: &str, id: u64) -> Result<Value, McpError> {
+fn parse_sse_response_requests(text: &str, id: u64) -> Result<(Value, Vec<Value>), McpError> {
+    let mut result = None;
+    let mut requests = Vec::new();
     let mut data = String::new();
+    let handle = |value: Value, result: &mut Option<Value>, requests: &mut Vec<Value>| {
+        if value["id"].as_u64() == Some(id) {
+            *result = Some(extract_response(value, id)?);
+        } else if value.get("id").is_some() && value["method"].is_string() {
+            requests.push(value);
+        }
+        Ok::<(), McpError>(())
+    };
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("data:") {
             data.push_str(rest.trim_start());
@@ -940,21 +963,17 @@ fn parse_sse_response(text: &str, id: u64) -> Result<Value, McpError> {
             let value: Value = serde_json::from_str(data.trim())
                 .map_err(|error| McpError::Protocol(format!("invalid SSE JSON: {error}")))?;
             data.clear();
-            if value["id"].as_u64() == Some(id) {
-                return extract_response(value, id);
-            }
+            handle(value, &mut result, &mut requests)?;
         }
     }
     if !data.trim().is_empty() {
         let value: Value = serde_json::from_str(data.trim())
             .map_err(|error| McpError::Protocol(format!("invalid SSE JSON: {error}")))?;
-        if value["id"].as_u64() == Some(id) {
-            return extract_response(value, id);
-        }
+        handle(value, &mut result, &mut requests)?;
     }
-    Err(McpError::Protocol(
-        "SSE response without matching id".into(),
-    ))
+    result
+        .map(|result| (result, requests))
+        .ok_or_else(|| McpError::Protocol("SSE response without matching id".into()))
 }
 
 fn parse_call_result(result: &Value) -> McpCallResult {
@@ -1485,7 +1504,16 @@ pub async fn connect_server_with_sampling(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_sse_data;
+    use super::{parse_sse_data, parse_sse_response_requests};
+
+    #[test]
+    fn collects_server_requests_from_sse() {
+        let text = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":900,\"method\":\"elicitation/create\",\"params\":{}}\n\ndata: {\"jsonrpc\":\"2.0\",\"id\":5,\"result\":{\"ok\":true}}\n\n";
+        let (result, requests) = parse_sse_response_requests(text, 5).expect("parse");
+        assert_eq!(result["ok"], true);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "elicitation/create");
+    }
 
     #[test]
     fn joins_multiline_sse_data() {
