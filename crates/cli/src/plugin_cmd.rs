@@ -91,6 +91,10 @@ pub enum NpmAction {
         /// Plugin name; all plugins when omitted
         name: Option<String>,
     },
+    /// Enable a Cordis plugin
+    Enable { name: String },
+    /// Disable a Cordis plugin without removing it
+    Disable { name: String },
     /// List configured Cordis plugins
     List {
         #[arg(long)]
@@ -138,6 +142,8 @@ fn npm(loader: &ConfigLoader, action: &NpmAction) -> Result<u8> {
         NpmAction::Add { spec, name } => npm_add(loader, spec, name.as_deref()),
         NpmAction::Remove { name } => npm_remove(loader, name),
         NpmAction::Update { name } => npm_update(loader, name.as_deref()),
+        NpmAction::Enable { name } => npm_set_enabled(loader, name, true),
+        NpmAction::Disable { name } => npm_set_enabled(loader, name, false),
         NpmAction::List { json } => npm_list(loader, *json),
         NpmAction::Search { query, limit, json } => npm_search(query, *limit, *json),
         NpmAction::Info { name, json } => npm_info(name, *json),
@@ -352,6 +358,30 @@ fn npm_remove(loader: &ConfigLoader, name: &str) -> Result<u8> {
     }
     println!("{}", current().plugin_removed(name));
     Ok(0)
+}
+
+fn npm_set_enabled(loader: &ConfigLoader, name: &str, enabled: bool) -> Result<u8> {
+    let mut root = load_raw(loader)?;
+    if !set_cordis_enabled(&mut root, name, enabled)? {
+        return Err(DshrError::not_found(format!(
+            "Cordis plugin '{name}' not found"
+        )));
+    }
+    save_raw(loader, &root)?;
+    println!("{name}: enabled={enabled}");
+    Ok(0)
+}
+
+fn set_cordis_enabled(root: &mut Value, name: &str, enabled: bool) -> Result<bool> {
+    let plugins = cordis_mut(root)?;
+    let mut found = false;
+    for plugin in plugins.iter_mut() {
+        if plugin["name"].as_str() == Some(name) {
+            plugin["enabled"] = json!(enabled);
+            found = true;
+        }
+    }
+    Ok(found)
 }
 
 fn npm_update(loader: &ConfigLoader, name: Option<&str>) -> Result<u8> {
@@ -713,6 +743,19 @@ mod tests {
             install_dir(&work, "demo"),
             dir.join("cordis/packages/work/demo")
         );
+    }
+
+    #[test]
+    fn enables_and_disables_cordis_plugins() {
+        let mut root = json!({"plugins": {"cordis": [
+            {"name": "a", "entry": "/a", "enabled": true},
+            {"name": "b", "entry": "/b", "enabled": true}
+        ]}});
+        assert!(set_cordis_enabled(&mut root, "a", false).expect("disable"));
+        assert_eq!(root["plugins"]["cordis"][0]["enabled"], false);
+        assert_eq!(root["plugins"]["cordis"][1]["enabled"], true);
+        assert!(set_cordis_enabled(&mut root, "b", false).expect("disable b"));
+        assert!(!set_cordis_enabled(&mut root, "missing", true).expect("missing"));
     }
 
     #[test]

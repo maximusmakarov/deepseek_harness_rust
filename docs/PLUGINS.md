@@ -125,6 +125,13 @@ dshr plugin npm remove name
 dshr plugin npm list
 ```
 
+Управление установленными Cordis-плагинами без удаления:
+
+```sh
+dshr plugin npm disable <name>
+dshr plugin npm enable <name>
+```
+
 Поиск по реестру npm и метаданные:
 
 ```sh

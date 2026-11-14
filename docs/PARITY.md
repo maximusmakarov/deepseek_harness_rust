@@ -18,7 +18,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
 | Web UI: тема | light/dark через кнопку Theme, localStorage и `?theme=light` | ✅ |
 | Plugin market | UI-панель Plugins (установленные tools + поиск npm), `plugin npm search/info`, установка через `npm add`; отдельного каталога/маркета нет | ⚠️ |
-| Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list` + привязка к `--profile` (profile.yaml, отдельные packages); UI-менеджера и market нет | ⚠️ |
+| Плагины: `dsh plugin --profile add/remove/update`, рестарт | `dshr plugin npm add/remove/update/list/enable/disable` + привязка к `--profile`; UI-менеджера и market нет | ⚠️ |
 | Терминал из трея с приватными shim'ами | открывает системный терминал; приватных shim'ов нет | ⚠️ |
 | Обновления: фоновая проверка, канал, installer, Linux → download page | проверка, уведомление, каналы Stable/Beta, скачивание macOS zip с проверкой SHA256SUMS, распаковка/reveal, установка через helper (macOS); notarization нет | ⚠️ |
 | Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | при сбое старта — recovery-окно (Retry/Safe mode/Diagnostics/Config/Disable+Enable plugins/профили/Quit); safe-mode, last-known-good + Rollback profile; по-плагинного менеджера нет | ⚠️ |
