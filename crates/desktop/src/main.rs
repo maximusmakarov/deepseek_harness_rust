@@ -617,7 +617,7 @@ fn start_server(
     if let Some(folder) = folder {
         command.current_dir(folder);
     }
-    let safe_mode = home.join("desktop-safe-mode").is_file();
+    let safe_mode = plugins_disabled(home);
     let mut arguments = vec![
         "--home".to_owned(),
         home.display().to_string(),
@@ -685,6 +685,10 @@ fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|home| PathBuf::from(home).join(".dshr"))
         .unwrap_or_else(|| PathBuf::from(".dshr"))
+}
+
+fn plugins_disabled(home: &Path) -> bool {
+    home.join("desktop-safe-mode").is_file() || home.join("plugins-disabled").is_file()
 }
 
 fn desktop_folder_path(home: &Path) -> PathBuf {
@@ -1393,6 +1397,14 @@ fn recovery_action(app: tauri::AppHandle, action: String) {
         "config" => {
             let _ = Command::new("open").arg(&home).spawn();
         }
+        "disable-plugins" => {
+            let _ = std::fs::write(home.join("plugins-disabled"), "1\n");
+            app.restart()
+        }
+        "enable-plugins" => {
+            let _ = std::fs::remove_file(home.join("plugins-disabled"));
+            app.restart()
+        }
         action if action.starts_with("profile:") => {
             let name = action.trim_start_matches("profile:");
             let _ = std::fs::write(home.join("desktop-profile"), format!("{name}\n"));
@@ -1426,7 +1438,7 @@ fn recovery_html(error: &dyn std::fmt::Display, home: &Path) -> String {
         ));
     }
     format!(
-        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'config'}})\">Open config folder</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button><h3>Profiles</h3>{profiles}"
+        "<!doctype html><meta charset=\"utf-8\"><style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}button{{margin:6px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}pre{{white-space:pre-wrap;color:#f88}}</style><h2>dshr could not start</h2><pre>{error}</pre><p>Retry after fixing the provider/config, or start in safe mode (external plugins disabled).</p><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'retry'}})\">Retry</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'safe'}})\">Safe mode</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'diagnostics'}})\">Export diagnostics</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'config'}})\">Open config folder</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'disable-plugins'}})\">Disable plugins</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'enable-plugins'}})\">Enable plugins</button><button onclick=\"window.__TAURI__.core.invoke('recovery_action',{{action:'quit'}})\">Quit</button><h3>Profiles</h3>{profiles}"
     )
 }
 
@@ -1728,6 +1740,19 @@ mod tests {
     }
 
     #[test]
+    fn plugin_markers_disable_plugins() {
+        let home = std::env::temp_dir().join(format!("dshr-plugins-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).expect("home");
+        assert!(!plugins_disabled(&home));
+        std::fs::write(home.join("plugins-disabled"), "1\n").expect("write");
+        assert!(plugins_disabled(&home));
+        std::fs::remove_file(home.join("plugins-disabled")).expect("remove");
+        std::fs::write(home.join("desktop-safe-mode"), "1\n").expect("safe");
+        assert!(plugins_disabled(&home));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
     fn recovery_window_lists_profiles_and_escapes_errors() {
         let home =
             std::env::temp_dir().join(format!("dshr-recovery-test-{}", uuid::Uuid::new_v4()));
@@ -1739,6 +1764,10 @@ mod tests {
         assert!(html.contains("profile:work"), "{html}");
         assert!(html.contains("&lt;boom&gt;"));
         assert!(html.contains("Open config folder"));
+        assert!(html.contains("Disable plugins"));
+        std::fs::write(home.join("plugins-disabled"), "1\n").expect("marker");
+        assert!(home.join("plugins-disabled").is_file());
+        std::fs::remove_file(home.join("plugins-disabled")).expect("remove");
         let _ = std::fs::remove_dir_all(&home);
     }
 
