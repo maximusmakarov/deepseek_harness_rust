@@ -94,9 +94,18 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError>;
 }
 
+/// A tool table that can be mutated while it is being served.
+///
+/// The registry is a shared handle: `Clone` returns another handle to the same
+/// table, and every mutation is visible to all holders. This is what makes
+/// plugin hot reload possible — a supervisor swaps a plugin's tools underneath
+/// a running agent loop without rebuilding the registry or restarting sessions.
+/// Mutations take a write lock only for the duration of a map operation; tool
+/// calls clone the `Arc<dyn Tool>` and run without holding a lock.
 #[derive(Clone, Default)]
 pub struct ToolRegistry {
-    tools: BTreeMap<String, Arc<dyn Tool>>,
+    tools: Arc<std::sync::RwLock<BTreeMap<String, Arc<dyn Tool>>>>,
+    generation: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl ToolRegistry {
@@ -105,9 +114,31 @@ impl ToolRegistry {
         Self::default()
     }
 
+    fn map(&self) -> std::sync::RwLockReadGuard<'_, BTreeMap<String, Arc<dyn Tool>>> {
+        self.tools.read().unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn map_mut(&self) -> std::sync::RwLockWriteGuard<'_, BTreeMap<String, Arc<dyn Tool>>> {
+        self.tools
+            .write()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+
+    /// Monotonic counter bumped by every mutation; useful for diagnostics and
+    /// for tools that cache `definitions()`.
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn bump(&self) {
+        self.generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     #[must_use]
     pub fn with_builtin() -> Self {
-        let mut registry = Self::new();
+        let registry = Self::new();
         registry.register(crate::tools::ReadTool);
         registry.register(crate::tools::WriteTool);
         registry.register(crate::tools::EditTool);
@@ -126,43 +157,104 @@ impl ToolRegistry {
         registry
     }
 
-    pub fn register<T: Tool + 'static>(&mut self, tool: T) {
-        self.tools.insert(tool.name().to_owned(), Arc::new(tool));
+    pub fn register<T: Tool + 'static>(&self, tool: T) {
+        self.register_arc(Arc::new(tool));
     }
 
-    pub fn register_arc(&mut self, tool: Arc<dyn Tool>) {
-        self.tools.insert(tool.name().to_owned(), tool);
+    pub fn register_arc(&self, tool: Arc<dyn Tool>) {
+        let name = tool.name().to_owned();
+        self.map_mut().insert(name, tool);
+        self.bump();
+    }
+
+    /// Registers every tool, returning the names that were inserted.
+    pub fn register_all(&self, tools: impl IntoIterator<Item = Arc<dyn Tool>>) -> Vec<String> {
+        let mut names = Vec::new();
+        {
+            let mut map = self.map_mut();
+            for tool in tools {
+                names.push(tool.name().to_owned());
+                map.insert(tool.name().to_owned(), tool);
+            }
+        }
+        if !names.is_empty() {
+            self.bump();
+        }
+        names
+    }
+
+    /// Removes one tool; returns whether it was present.
+    pub fn unregister(&self, name: &str) -> bool {
+        let removed = self.map_mut().remove(name).is_some();
+        if removed {
+            self.bump();
+        }
+        removed
+    }
+
+    /// Removes every tool whose name starts with `prefix` and returns the
+    /// removed names. Plugins use this to swap a whole generation at once.
+    pub fn remove_prefix(&self, prefix: &str) -> Vec<String> {
+        let mut removed = Vec::new();
+        {
+            let mut map = self.map_mut();
+            let names: Vec<String> = map
+                .keys()
+                .filter(|name| name.starts_with(prefix))
+                .cloned()
+                .collect();
+            for name in names {
+                map.remove(&name);
+                removed.push(name);
+            }
+        }
+        if !removed.is_empty() {
+            self.bump();
+        }
+        removed
     }
 
     /// Returns a registry filtered by an allowlist and a denylist.
+    ///
+    /// The result is a new, independent table: later mutations of `self` do not
+    /// affect it, so a filtered serving registry must be the one a plugin
+    /// supervisor holds.
     #[must_use]
     pub fn filtered(&self, allowed: &[String], denied: &[String]) -> Self {
-        let mut filtered = Self::default();
-        for (name, tool) in &self.tools {
-            if !allowed.is_empty() && !allowed.iter().any(|candidate| candidate == name) {
-                continue;
+        let filtered = Self::default();
+        {
+            let mut target = filtered.map_mut();
+            for (name, tool) in self.map().iter() {
+                if !allowed.is_empty() && !allowed.iter().any(|candidate| candidate == name) {
+                    continue;
+                }
+                if denied.iter().any(|candidate| candidate == name) {
+                    continue;
+                }
+                target.insert(name.clone(), Arc::clone(tool));
             }
-            if denied.iter().any(|candidate| candidate == name) {
-                continue;
-            }
-            filtered.tools.insert(name.clone(), Arc::clone(tool));
         }
         filtered
     }
 
     #[must_use]
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        self.map().get(name).cloned()
+    }
+
+    #[must_use]
+    pub fn contains(&self, name: &str) -> bool {
+        self.map().contains_key(name)
     }
 
     #[must_use]
     pub fn names(&self) -> Vec<String> {
-        self.tools.keys().cloned().collect()
+        self.map().keys().cloned().collect()
     }
 
     #[must_use]
     pub fn definitions(&self) -> Vec<ToolDef> {
-        self.tools
+        self.map()
             .values()
             .map(|tool| ToolDef {
                 name: tool.name().to_owned(),
@@ -243,5 +335,65 @@ mod tests {
         let denied = registry.filtered(&[], &["bash".into()]);
         assert!(denied.names().iter().any(|name| name == "read"));
         assert!(!denied.names().iter().any(|name| name == "bash"));
+    }
+
+    struct NamedTool(&'static str);
+
+    #[async_trait]
+    impl Tool for NamedTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        fn description(&self) -> &'static str {
+            "test tool"
+        }
+
+        fn schema(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        async fn execute(&self, _ctx: &ToolCtx, _args: Value) -> Result<ToolOutcome, ToolError> {
+            Ok(ToolOutcome::text(self.0))
+        }
+    }
+
+    #[test]
+    fn swaps_a_plugin_generation_while_shared() {
+        let registry = ToolRegistry::new();
+        let handle = registry.clone();
+        assert_eq!(registry.generation(), 0);
+
+        let inserted = registry.register_all([
+            Arc::new(NamedTool("cordis__demo__echo")) as Arc<dyn Tool>,
+            Arc::new(NamedTool("cordis__demo__ping")),
+        ]);
+        assert_eq!(inserted.len(), 2);
+        assert!(handle.contains("cordis__demo__echo"));
+        assert_eq!(handle.generation(), 1);
+
+        let removed = registry.remove_prefix("cordis__demo__");
+        assert_eq!(
+            removed,
+            vec![
+                "cordis__demo__echo".to_owned(),
+                "cordis__demo__ping".to_owned()
+            ]
+        );
+        assert!(!handle.contains("cordis__demo__echo"));
+        assert_eq!(handle.generation(), 2);
+
+        assert!(!registry.unregister("cordis__demo__echo"));
+        assert_eq!(registry.generation(), 2);
+    }
+
+    #[test]
+    fn filtered_is_independent_from_later_mutations() {
+        let registry = ToolRegistry::new();
+        registry.register(NamedTool("cordis__demo__echo"));
+        let serving = registry.filtered(&[], &[]);
+        registry.register(NamedTool("cordis__demo__later"));
+        assert!(!serving.contains("cordis__demo__later"));
+        assert!(registry.contains("cordis__demo__later"));
     }
 }

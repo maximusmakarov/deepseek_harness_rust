@@ -40,7 +40,7 @@ fn state(dir: &std::path::Path) -> AppState {
             output_limit: 10_000,
             rate_limit_per_min: 0,
             auto_title: false,
-            home: PathBuf::from("."),
+            home: dir.to_path_buf(),
             profile: "default".into(),
             cordis_plugins: vec![("demo".into(), true)],
         },
@@ -358,6 +358,35 @@ async fn serves_leptos_assets() {
         .await
         .expect("js");
     assert_eq!(js.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn stores_reviews_and_aggregates() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    for (rating, text) in [(5u8, "great"), (3u8, "ok")] {
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/plugins/review",
+            Some("test-token"),
+            Body::from(json!({"name": "cordis", "rating": rating, "text": text}).to_string()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, body) = call(
+        &app,
+        "GET",
+        "/v1/plugins/reviews?name=cordis",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["count"], 2);
+    assert_eq!(body["average"], 4.0);
+    assert_eq!(body["reviews"][0]["text"], "great");
 }
 
 #[tokio::test]

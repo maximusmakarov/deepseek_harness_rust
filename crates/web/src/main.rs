@@ -71,6 +71,17 @@ struct InstalledPlugin {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+struct ReviewSummary {
+    average: f64,
+    count: usize,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ReviewsResponse {
+    plugins: BTreeMap<String, ReviewSummary>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 struct RatingsResponse {
     ratings: BTreeMap<String, u8>,
 }
@@ -363,6 +374,7 @@ fn App() -> impl IntoView {
     let installed_plugins = RwSignal::new(Vec::<InstalledPlugin>::new());
     let featured = RwSignal::new(Vec::<PackageHit>::new());
     let ratings = RwSignal::new(BTreeMap::<String, u8>::new());
+    let reviews = RwSignal::new(BTreeMap::<String, ReviewSummary>::new());
     let plugin_status = RwSignal::new(String::new());
     let version = RwSignal::new(String::new());
     let custom_frame = web_sys::window()
@@ -434,6 +446,11 @@ fn App() -> impl IntoView {
                         get_json::<RatingsResponse>("/v1/plugins/ratings", &value).await
                     {
                         ratings.set(data.ratings);
+                    }
+                    if let Ok(data) =
+                        get_json::<ReviewsResponse>("/v1/plugins/reviews", &value).await
+                    {
+                        reviews.set(data.plugins);
                     }
                     match get_json::<ToolsResponse>("/v1/tools", &value).await {
                         Ok(list) => tools.set(list.tools),
@@ -578,6 +595,32 @@ fn App() -> impl IntoView {
                     info["homepage"].as_str().unwrap_or("")
                 )),
                 Err(error) => plugin_status.set(format!("info error: {error}")),
+            }
+        });
+    };
+
+    let write_review = move |name: String| {
+        let rating = js_sys::eval("window.prompt('Rating 1-5', '5')")
+            .ok()
+            .and_then(|value| value.as_string())
+            .and_then(|value| value.trim().parse::<u8>().ok());
+        let Some(rating) = rating.filter(|rating| (1..=5).contains(rating)) else {
+            return;
+        };
+        let text = js_sys::eval("window.prompt('Review (optional)', '')")
+            .ok()
+            .and_then(|value| value.as_string())
+            .unwrap_or_default();
+        let token_value = token.get_untracked();
+        spawn_local(async move {
+            let body = serde_json::json!({"name": name, "rating": rating, "text": text});
+            if let Ok(request) = gloo_net::http::Request::post("/v1/plugins/review")
+                .header("Authorization", &format!("Bearer {token_value}"))
+                .header("Content-Type", "application/json")
+                .body(body.to_string())
+            {
+                let _ = request.send().await;
+                plugin_status.set("review saved".into());
             }
         });
     };
@@ -797,16 +840,27 @@ fn App() -> impl IntoView {
                     {move || featured.get().into_iter().map(|package| {
                         let install_name = package.name.clone();
                         let info_name = package.name.clone();
+                        let review_name = package.name.clone();
                         view! {
                             <li>
                                 {format!(
-                                    "{} — {} {}/5",
+                                    "{} — {} · ★{:.1} ({})",
                                     package.name,
                                     package.description,
-                                    ratings.get().get(&package.name).copied().unwrap_or(0),
+                                    reviews
+                                        .get()
+                                        .get(&package.name)
+                                        .map(|summary| summary.average)
+                                        .unwrap_or(0.0),
+                                    reviews
+                                        .get()
+                                        .get(&package.name)
+                                        .map(|summary| summary.count)
+                                        .unwrap_or(0),
                                 )}
                                 <button on:click=move |_| install_package(install_name.clone())>"Install"</button>
                                 <button on:click=move |_| show_info(info_name.clone())>"Info"</button>
+                                <button on:click=move |_| write_review(review_name.clone())>"Review"</button>
                                 {(1..=5).map(|rating| {
                                     let rate_name = package.name.clone();
                                     view! {
@@ -851,6 +905,7 @@ fn App() -> impl IntoView {
                     {move || plugin_hits.get().into_iter().map(|package| {
                         let install_name = package.name.clone();
                         let info_name = package.name.clone();
+                        let review_name = package.name.clone();
                         view! {
                             <li>
                                 {format!(

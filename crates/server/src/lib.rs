@@ -342,6 +342,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/catalog", get(plugin_catalog))
         .route("/v1/plugins/ratings", get(plugin_ratings))
         .route("/v1/plugins/rate", post(rate_plugin))
+        .route("/v1/plugins/reviews", get(plugin_reviews))
+        .route("/v1/plugins/review", post(add_review))
         .route("/v1/plugins/install", post(install_plugin))
         .route("/v1/plugins/installed", get(installed_plugins))
         .route("/v1/plugins/toggle", post(toggle_plugin))
@@ -477,6 +479,118 @@ async fn rate_plugin(
     save_rating(&state.config.home, &body.name, body.rating)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Review {
+    rating: u8,
+    text: String,
+    at: u64,
+}
+
+fn reviews_path(home: &std::path::Path) -> PathBuf {
+    home.join("plugin-reviews.json")
+}
+
+fn load_reviews(home: &std::path::Path) -> BTreeMap<String, Vec<Review>> {
+    std::fs::read_to_string(reviews_path(home))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_review(
+    home: &std::path::Path,
+    name: &str,
+    rating: u8,
+    text: &str,
+) -> std::io::Result<(f64, usize)> {
+    let mut reviews = load_reviews(home);
+    reviews.entry(name.to_owned()).or_default().push(Review {
+        rating,
+        text: text.chars().take(2000).collect(),
+        at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0),
+    });
+    let json = serde_json::to_string_pretty(&reviews)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    std::fs::write(reviews_path(home), json)?;
+    Ok(summarize(
+        reviews.get(name).map(Vec::as_slice).unwrap_or_default(),
+    ))
+}
+
+fn summarize(reviews: &[Review]) -> (f64, usize) {
+    let count = reviews.len();
+    if count == 0 {
+        return (0.0, 0);
+    }
+    let total: u32 = reviews.iter().map(|review| u32::from(review.rating)).sum();
+    (f64::from(total) / count as f64, count)
+}
+
+#[derive(Debug, Deserialize)]
+struct ReviewsQuery {
+    name: Option<String>,
+}
+
+async fn plugin_reviews(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ReviewsQuery>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let reviews = load_reviews(&state.config.home);
+    if let Some(name) = query.name {
+        if !valid_package_name(&name) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        let list = reviews.get(&name).cloned().unwrap_or_default();
+        let (average, count) = summarize(&list);
+        return Ok(Json(json!({
+            "average": average,
+            "count": count,
+            "reviews": list
+        })));
+    }
+    let mut plugins = serde_json::Map::new();
+    for (name, list) in reviews {
+        let (average, count) = summarize(&list);
+        plugins.insert(
+            name,
+            json!({"average": average, "count": count, "reviews": list}),
+        );
+    }
+    Ok(Json(json!({"plugins": plugins})))
+}
+
+#[derive(Debug, Deserialize)]
+struct AddReview {
+    name: String,
+    rating: u8,
+    #[serde(default)]
+    text: String,
+}
+
+async fn add_review(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AddReview>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_package_name(&body.name)
+        || !(1..=5).contains(&body.rating)
+        || body.text.chars().count() > 2000
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let (average, count) = save_review(&state.config.home, &body.name, body.rating, &body.text)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(
+        json!({"ok": true, "average": average, "count": count}),
+    ))
 }
 
 fn ratings_path(home: &std::path::Path) -> PathBuf {
