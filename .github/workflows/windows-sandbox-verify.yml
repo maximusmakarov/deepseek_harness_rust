@@ -24,6 +24,7 @@ jobs:
         run: |
           touch crates/cli/src/sandbox_exec/windows.rs crates/cli/tests/windows_sandbox.rs
           cargo clean -p dshr-cli
+          rm -rf target/debug/build/dshr-cli* target/debug/deps/windows_sandbox* target/debug/incremental/windows_sandbox*
       - name: sandbox wrapper test
         shell: bash
         run: cargo test -p dshr-sandbox -- --ignored --nocapture
