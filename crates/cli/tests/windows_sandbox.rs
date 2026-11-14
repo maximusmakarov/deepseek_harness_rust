@@ -8,7 +8,12 @@ fn binary() -> &'static str {
 }
 
 fn run(mode: &str, workspace: &Path, command: &str) -> std::process::Output {
+    println!(
+        "setup timeout env: {:?}",
+        std::env::var("DSHR_SANDBOX_SETUP_TIMEOUT_SECS")
+    );
     Command::new(binary())
+        .env("DSHR_SANDBOX_SETUP_TIMEOUT_SECS", "300")
         .args([
             "__sandbox-exec",
             "--mode",
