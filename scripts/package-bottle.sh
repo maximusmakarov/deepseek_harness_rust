@@ -13,6 +13,7 @@ name="dshr--$version.$tag.bottle.tar.gz"
 
 work="$(mktemp -d)"
 stage="$work/stage"
+mkdir -p "$dist"
 mkdir -p "$stage/dshr/$version/bin"
 cp "$binary" "$stage/dshr/$version/bin/dshr"
 chmod 755 "$stage/dshr/$version/bin/dshr"
@@ -61,7 +62,6 @@ with open(out, "wb") as handle:
     handle.write(header + body + footer)
 PYTHON
 
-mkdir -p "$dist"
 if command -v sha256sum >/dev/null 2>&1; then
   sha="$(sha256sum "$dist/$name" | awk '{print $1}')"
 else
