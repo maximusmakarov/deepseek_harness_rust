@@ -91,6 +91,42 @@ struct InstalledResponse {
     plugins: Vec<InstalledPlugin>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct ClientHalfInfo {
+    name: String,
+    #[serde(default)]
+    package: Option<String>,
+    entry: String,
+    platform: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct ClientsResponse {
+    #[serde(default)]
+    clients: Vec<ClientHalfInfo>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+struct LivePlugin {
+    name: String,
+    #[serde(default)]
+    enabled: bool,
+    #[serde(default)]
+    running: bool,
+    #[serde(default)]
+    generation: u64,
+    #[serde(default)]
+    tools: Vec<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+struct PluginStatusResponse {
+    #[serde(default)]
+    plugins: Vec<LivePlugin>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct NewSessionResponse {
     session: SessionHeader,
@@ -125,11 +161,25 @@ struct QuestionInfo {
 thread_local! {
     static SOURCE: RefCell<Option<(EventSource, Closure<dyn FnMut(MessageEvent)>)>> =
         const { RefCell::new(None) };
+    /// Window listener that mediates between the shell and the plugin iframe.
+    /// Kept alive for the whole page, because the frame is recreated per panel.
+    static PANEL_LISTENER: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> =
+        const { RefCell::new(None) };
 }
 
 fn main() {
     console_error_panic_hook::set_once();
     leptos::mount::mount_to_body(App);
+}
+
+/// `?plugin=<name>` deep link: open that plugin's panel once the client list
+/// arrives (and connect automatically, since the token came with the link).
+fn initial_panel() -> Option<String> {
+    web_sys::window()
+        .and_then(|window| window.location().search().ok())
+        .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
+        .and_then(|params| params.get("plugin"))
+        .filter(|name| !name.trim().is_empty())
 }
 
 fn initial_token() -> String {
@@ -203,6 +253,94 @@ async fn post_json<T: DeserializeOwned>(
         .json::<T>()
         .await
         .map_err(|error| error.to_string())
+}
+
+/// Sends a shell→plugin message to the currently mounted iframe.
+fn post_to_panel(kind: &str, slot: Option<&str>, id: Option<&str>) {
+    let Some(frame) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("plugin-frame"))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlIFrameElement>().ok())
+    else {
+        return;
+    };
+    let Some(target) = frame.content_window() else {
+        return;
+    };
+    let message = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&message, &"v".into(), &1u32.into());
+    let _ = js_sys::Reflect::set(&message, &"ns".into(), &"dshr-shell".into());
+    let _ = js_sys::Reflect::set(&message, &"type".into(), &kind.into());
+    if let Some(slot) = slot {
+        let _ = js_sys::Reflect::set(&message, &"slot".into(), &slot.into());
+    }
+    if let Some(id) = id {
+        let _ = js_sys::Reflect::set(&message, &"id".into(), &id.into());
+    }
+    let _ = target.post_message(&message.into(), "*");
+}
+
+/// Replies to `ctx.action(action, payload)` from a plugin frame.
+fn post_action_result(id: &str, ok: bool, error: &str) {
+    let Some(frame) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("plugin-frame"))
+        .and_then(|element| element.dyn_into::<web_sys::HtmlIFrameElement>().ok())
+    else {
+        return;
+    };
+    let Some(target) = frame.content_window() else {
+        return;
+    };
+    let message = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&message, &"v".into(), &1u32.into());
+    let _ = js_sys::Reflect::set(&message, &"ns".into(), &"dshr-shell".into());
+    let _ = js_sys::Reflect::set(&message, &"type".into(), &"action-result".into());
+    let _ = js_sys::Reflect::set(&message, &"id".into(), &id.into());
+    let _ = js_sys::Reflect::set(&message, &"ok".into(), &ok.into());
+    if !error.is_empty() {
+        let _ = js_sys::Reflect::set(&message, &"error".into(), &error.into());
+    }
+    let _ = target.post_message(&message.into(), "*");
+}
+
+fn field_of(value: &wasm_bindgen::JsValue, key: &str) -> String {
+    js_sys::Reflect::get(value, &key.into())
+        .ok()
+        .and_then(|value| value.as_string())
+        .unwrap_or_default()
+}
+
+/// First registered slot from a `slots` bridge message.
+fn first_slot(data: &wasm_bindgen::JsValue) -> Option<(String, String, String)> {
+    let slots = js_sys::Reflect::get(data, &"slots".into()).ok()?;
+    let slots: js_sys::Array = slots.dyn_into().ok()?;
+    let first = slots.get(0);
+    if first.is_undefined() || first.is_null() {
+        return None;
+    }
+    let slot = field_of(&first, "slot");
+    let id = field_of(&first, "id");
+    if id.is_empty() {
+        return None;
+    }
+    Some((slot, id, field_of(&first, "title")))
+}
+
+/// Refresh the live plugin views after a control action (reload/toggle/install).
+fn refresh_plugin_views(
+    token: String,
+    live: RwSignal<Vec<LivePlugin>>,
+    clients: RwSignal<Vec<ClientHalfInfo>>,
+) {
+    spawn_local(async move {
+        if let Ok(list) = get_json::<PluginStatusResponse>("/v1/plugins/status", &token).await {
+            live.set(list.plugins);
+        }
+        if let Ok(list) = get_json::<ClientsResponse>("/v1/plugins/clients", &token).await {
+            clients.set(list.clients);
+        }
+    });
 }
 
 fn text_of(content: &[Value]) -> String {
@@ -376,6 +514,13 @@ fn App() -> impl IntoView {
     let ratings = RwSignal::new(BTreeMap::<String, u8>::new());
     let reviews = RwSignal::new(BTreeMap::<String, ReviewSummary>::new());
     let plugin_status = RwSignal::new(String::new());
+    let clients = RwSignal::new(Vec::<ClientHalfInfo>::new());
+    let live_plugins = RwSignal::new(Vec::<LivePlugin>::new());
+    let initial_panel = initial_panel();
+    let panel_plugin = RwSignal::new(None::<ClientHalfInfo>);
+    let pending_panel = RwSignal::new(initial_panel.clone());
+    let panel_slot = RwSignal::new(String::new());
+    let panel_error = RwSignal::new(String::new());
     let version = RwSignal::new(String::new());
     let custom_frame = web_sys::window()
         .and_then(|window| window.location().search().ok())
@@ -452,6 +597,23 @@ fn App() -> impl IntoView {
                     {
                         reviews.set(data.plugins);
                     }
+                    if let Ok(list) =
+                        get_json::<ClientsResponse>("/v1/plugins/clients", &value).await
+                    {
+                        if let Some(name) = pending_panel.get_untracked()
+                            && let Some(half) =
+                                list.clients.iter().find(|half| half.name == name).cloned()
+                        {
+                            pending_panel.set(None);
+                            panel_plugin.set(Some(half));
+                        }
+                        clients.set(list.clients);
+                    }
+                    if let Ok(list) =
+                        get_json::<PluginStatusResponse>("/v1/plugins/status", &value).await
+                    {
+                        live_plugins.set(list.plugins);
+                    }
                     match get_json::<ToolsResponse>("/v1/tools", &value).await {
                         Ok(list) => tools.set(list.tools),
                         Err(error) => plugin_status.set(format!("tools: {error}")),
@@ -462,6 +624,12 @@ fn App() -> impl IntoView {
             }
         });
     };
+
+    // A `?plugin=` deep link carries the token too (the CLI/desktop opens it),
+    // so connect without requiring a click.
+    if initial_panel.is_some() && !token.get_untracked().trim().is_empty() {
+        Effect::new(move |_| refresh_sessions());
+    }
 
     let open_session = move |id: String| {
         let value = token.get_untracked();
@@ -554,6 +722,92 @@ fn App() -> impl IntoView {
         });
     };
 
+    // One window listener for the whole page: the plugin iframe announces its
+    // slots and errors here, and the shell activates the first slot.
+    {
+        let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
+            let data = event.data();
+            if !data.is_object() || field_of(&data, "ns") != "dshr-client" {
+                return;
+            }
+            match field_of(&data, "type").as_str() {
+                "slots" => {
+                    if let Some((slot, id, title)) = first_slot(&data) {
+                        panel_slot.set(title);
+                        post_to_panel("activate", Some(&slot), Some(&id));
+                    }
+                }
+                "error" => {
+                    let message = field_of(&data, "message");
+                    panel_error.set(if message.is_empty() {
+                        "plugin error".into()
+                    } else {
+                        message
+                    });
+                }
+                "action" => {
+                    let action = field_of(&data, "action");
+                    let id = field_of(&data, "id");
+                    match action.as_str() {
+                        "close" => {
+                            post_action_result(&id, true, "");
+                            panel_plugin.set(None);
+                        }
+                        "reload" => {
+                            let token_value = token.get_untracked();
+                            let name = panel_plugin
+                                .get_untracked()
+                                .map(|half| half.name)
+                                .unwrap_or_default();
+                            spawn_local(async move {
+                                let body = serde_json::json!({"name": name});
+                                let result =
+                                    post_json::<Value>("/v1/plugins/reload", &token_value, &body)
+                                        .await;
+                                match &result {
+                                    Ok(_) => post_action_result(&id, true, ""),
+                                    Err(error) => post_action_result(&id, false, error),
+                                }
+                                refresh_plugin_views(token_value, live_plugins, clients);
+                            });
+                        }
+                        other => {
+                            post_action_result(&id, false, &format!("unsupported action '{other}'"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        });
+        if let Some(window) = web_sys::window() {
+            let _ = window.add_event_listener_with_callback(
+                "message",
+                on_message.as_ref().unchecked_ref(),
+            );
+        }
+        PANEL_LISTENER.with(|slot| *slot.borrow_mut() = Some(on_message));
+    }
+
+    let reload_plugin = move |name: String| {
+        let token_value = token.get_untracked();
+        plugin_status.set(format!("reloading {name}…"));
+        spawn_local(async move {
+            let body = serde_json::json!({"name": name});
+            match post_json::<Value>("/v1/plugins/reload", &token_value, &body).await {
+                Ok(value) => {
+                    let failures = value["errors"].as_array().map_or(0, Vec::len);
+                    plugin_status.set(if failures == 0 {
+                        "reloaded".into()
+                    } else {
+                        format!("reload failed: {value}")
+                    });
+                }
+                Err(error) => plugin_status.set(format!("reload error: {error}")),
+            }
+            refresh_plugin_views(token_value, live_plugins, clients);
+        });
+    };
+
     let install_package = move |name: String| {
         let token_value = token.get_untracked();
         plugin_status.set(format!("installing {name}…"));
@@ -572,7 +826,8 @@ fn App() -> impl IntoView {
             };
             match result {
                 Ok(response) if response.ok() => {
-                    plugin_status.set(format!("installed {name} — restart dshr to load it"));
+                    plugin_status.set(format!("installed {name} — it will appear once the config watcher reloads"));
+                    refresh_plugin_views(token_value, live_plugins, clients);
                 }
                 Ok(response) => plugin_status.set(format!("install failed: HTTP {}", response.status())),
                 Err(error) => plugin_status.set(format!("install error: {error}")),
@@ -654,7 +909,8 @@ fn App() -> impl IntoView {
             match request {
                 Ok(request) => match request.send().await {
                     Ok(response) if response.ok() => {
-                        plugin_status.set("done — restart dshr to apply".into());
+                        plugin_status.set("done".into());
+                        refresh_plugin_views(token_value.clone(), live_plugins, clients);
                     }
                     Ok(response) => {
                         plugin_status.set(format!("failed: HTTP {}", response.status()));
@@ -894,6 +1150,50 @@ fn App() -> impl IntoView {
                         }
                     }).collect_view()}
                 </ul>
+                <h4>"Plugin panels"</h4>
+                <ul>
+                    {move || clients.get().into_iter().map(|client| {
+                        let open = client.clone();
+                        let reload_name = client.name.clone();
+                        let state = live_plugins
+                            .get()
+                            .into_iter()
+                            .find(|plugin| plugin.name == client.name)
+                            .map(|plugin| {
+                                if plugin.running {
+                                    format!(
+                                        "running · {} tool(s) · gen {}",
+                                        plugin.tools.len(),
+                                        plugin.generation,
+                                    )
+                                } else {
+                                    plugin
+                                        .error
+                                        .clone()
+                                        .unwrap_or_else(|| "stopped".into())
+                                }
+                            })
+                            .unwrap_or_else(|| "not attached".into());
+                        let package = client.package.clone().unwrap_or_default();
+                        view! {
+                            <li>
+                                {format!(
+                                    "{} ({} → {}) · {}",
+                                    client.name,
+                                    package,
+                                    client.entry,
+                                    state,
+                                )}
+                                <button on:click=move |_| {
+                                    panel_error.set(String::new());
+                                    panel_slot.set(String::new());
+                                    panel_plugin.set(Some(open.clone()));
+                                }>"Open"</button>
+                                <button on:click=move |_| reload_plugin(reload_name.clone())>"Reload"</button>
+                            </li>
+                        }
+                    }).collect_view()}
+                </ul>
                 <h4>"Installed tools"</h4>
                 <ul>
                     {move || tools.get().into_iter().map(|tool| view! {
@@ -905,7 +1205,6 @@ fn App() -> impl IntoView {
                     {move || plugin_hits.get().into_iter().map(|package| {
                         let install_name = package.name.clone();
                         let info_name = package.name.clone();
-                        let review_name = package.name.clone();
                         view! {
                             <li>
                                 {format!(
@@ -922,6 +1221,30 @@ fn App() -> impl IntoView {
                     }).collect_view()}
                 </ul>
             </dialog>
+        })}
+        {move || panel_plugin.get().map(|client| {
+            let name = client.name.clone();
+            let encoded_name = js_sys::encode_uri_component(&name).as_string().unwrap_or_default();
+            let encoded_token = js_sys::encode_uri_component(&token.get()).as_string().unwrap_or_default();
+            let encoded_theme = js_sys::encode_uri_component(&theme.get()).as_string().unwrap_or_default();
+            let src = format!(
+                "/v1/plugins/{encoded_name}/host?token={encoded_token}&theme={encoded_theme}"
+            );
+            view! {
+                <dialog open>
+                    <h3>{move || format!("{} — {}", name, panel_slot.get())}</h3>
+                    <p class="tool">{move || panel_error.get()}</p>
+                    <iframe
+                        id="plugin-frame"
+                        class="plugin-frame"
+                        sandbox="allow-scripts"
+                        src=src
+                    ></iframe>
+                    <div class="row">
+                        <button on:click=move |_| panel_plugin.set(None)>"Close"</button>
+                    </div>
+                </dialog>
+            }
         })}
         {move || question.get().map(|info| view! {
             <dialog open>
