@@ -37,6 +37,9 @@ pub struct Config {
     pub lsp: LspConfig,
     pub ui: UiConfig,
     pub plugins: PluginsConfig,
+    /// Optional bundle layers for this profile (`<home>/bundles/<name>/config.yaml`).
+    #[serde(default)]
+    pub bundles: Vec<String>,
 }
 
 impl Default for Config {
@@ -52,6 +55,7 @@ impl Default for Config {
             lsp: LspConfig::default(),
             ui: UiConfig::default(),
             plugins: PluginsConfig::default(),
+            bundles: Vec::new(),
         }
     }
 }
@@ -456,6 +460,20 @@ impl ConfigLoader {
             .map_err(|err| DshrError::config(format!("serialize defaults: {err}")))?;
 
         let profile_path = self.profile_path();
+        let bundle_names = profile_bundles(&profile_path)?;
+        for name in &bundle_names {
+            if name.is_empty() || name.contains(['/', '\\']) || name == ".." {
+                return Err(DshrError::config(format!("invalid bundle name: {name}")));
+            }
+            let path = self.home.join("bundles").join(name).join("config.yaml");
+            merge_file(
+                &mut merged,
+                &path,
+                format!("bundle:{name}"),
+                true,
+                &mut sources,
+            )?;
+        }
         merge_file(
             &mut merged,
             &profile_path,
@@ -500,6 +518,21 @@ impl ConfigLoader {
             merged,
         })
     }
+}
+
+fn profile_bundles(path: &Path) -> Result<Vec<String>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = std::fs::read_to_string(path)?;
+    let value: Value = serde_saphyr::from_str(&text)
+        .map_err(|err| DshrError::config(format!("cannot parse {}: {err}", path.display())))?;
+    Ok(value["bundles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+        .collect())
 }
 
 fn merge_file(
@@ -743,5 +776,28 @@ mod tests {
         let schema = json_schema();
         assert!(schema.get("properties").is_some(), "{schema}");
         assert!(schema["properties"].get("model").is_some(), "{schema}");
+    }
+
+    #[test]
+    fn profile_bundles_apply_before_the_profile() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path();
+        write(
+            &home.join("bundles/base/config.yaml"),
+            "model:\n  name: bundle-model\nui:\n  language: en\n",
+        );
+        write(
+            &home.join("profiles/work/profile.yaml"),
+            "bundles: [base]\nmodel:\n  name: profile-model\n",
+        );
+        let loaded = ConfigLoader::new(home, "work").load().expect("load");
+        assert_eq!(loaded.config.model.name, "profile-model");
+        assert_eq!(loaded.config.ui.language, "en");
+        assert!(
+            loaded
+                .sources
+                .iter()
+                .any(|source| source.layer == "bundle:base")
+        );
     }
 }

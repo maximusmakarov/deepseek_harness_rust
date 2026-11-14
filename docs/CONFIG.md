@@ -6,6 +6,10 @@
 model:
   provider: deepseek-account
   name: deepseek-flash
+profile-композиция: `profiles/<name>/profile.yaml` может включать
+`bundles: [base, tools]` — сначала применяются `<home>/bundles/<bundle>/config.yaml`,
+затем профиль, пользовательский конфиг и патчи.
+
 session:
   dir: ~/.dshr/sessions
   auto_title: true   # LLM-заголовок при первом prompt (run)

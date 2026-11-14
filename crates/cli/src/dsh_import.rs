@@ -188,10 +188,9 @@ pub fn import_tree(
                 stack.push(path);
             } else if path.file_name().and_then(|name| name.to_str())
                 == Some("session.v4.jsonl.zstd")
+                && import(store, &path, provider, model).is_ok()
             {
-                if import(store, &path, provider, model).is_ok() {
-                    imported += 1;
-                }
+                imported += 1;
             }
         }
     }
@@ -274,7 +273,7 @@ mod tests {
     fn imports_all_sessions_under_a_tree() {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = SessionStore::new(dir.path().join("sessions"));
-        let events = vec![
+        let events = [
             json!({"type":"session","cwd":"/tmp/a"}),
             json!({"type":"turn/start","data":{"turn":1}}),
             json!({"type":"user/message","data":{"turn":1,"content":[{"type":"text","text":"hi"}]}}),
