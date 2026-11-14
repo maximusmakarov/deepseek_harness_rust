@@ -57,6 +57,7 @@ enum UiEvent {
     ToolStart {
         name: String,
         summary: String,
+        detail: Option<String>,
     },
     ToolEnd {
         name: String,
@@ -136,6 +137,7 @@ impl AgentObserver for TuiObserver {
         let _ = self.events.send(UiEvent::ToolStart {
             name: call.name.clone(),
             summary: summarize(&call.input),
+            detail: tool_detail(&call.name, &call.input),
         });
     }
 
@@ -158,6 +160,36 @@ impl AgentObserver for TuiObserver {
         Some(std::sync::Arc::new(ChannelPrompt {
             events: self.events.clone(),
         }))
+    }
+}
+
+fn tool_detail(name: &str, input: &serde_json::Value) -> Option<String> {
+    let truncate = |value: &str, limit: usize| -> String {
+        let mut text: String = value.chars().take(limit).collect();
+        if value.chars().count() > limit {
+            text.push('…');
+        }
+        text
+    };
+    match name {
+        "edit" => Some(format!(
+            "- {}\n+ {}",
+            truncate(input["old_string"].as_str().unwrap_or(""), 400),
+            truncate(input["new_string"].as_str().unwrap_or(""), 400)
+        )),
+        "write" => Some(format!(
+            "+ {}",
+            truncate(input["content"].as_str().unwrap_or(""), 400)
+        )),
+        "apply_patch" => input["patch"].as_str().map(|patch| {
+            patch
+                .lines()
+                .take(40)
+                .map(|line| truncate(line, 200))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }),
+        _ => None,
     }
 }
 
@@ -327,9 +359,18 @@ impl App {
     fn apply(&mut self, event: UiEvent) {
         match event {
             UiEvent::Text(text) => self.stream.push_str(&text),
-            UiEvent::ToolStart { name, summary } => {
+            UiEvent::ToolStart {
+                name,
+                summary,
+                detail,
+            } => {
                 self.flush_stream();
                 self.lines.push(format!("→ {name} {summary}"));
+                if let Some(detail) = detail {
+                    for line in detail.lines() {
+                        self.lines.push(format!("  {line}"));
+                    }
+                }
             }
             UiEvent::ToolEnd { name, ok } => {
                 self.lines
@@ -763,5 +804,17 @@ mod tests {
         );
         assert!(matches!(receiver.recv().expect("command"), Command::Prompt(p) if p == "hello"));
         assert!(app.busy);
+    }
+
+    #[test]
+    fn renders_edit_diff_details() {
+        let detail = tool_detail(
+            "edit",
+            &serde_json::json!({"old_string": "old line", "new_string": "new line"}),
+        )
+        .expect("detail");
+        assert!(detail.contains("- old line"), "{detail}");
+        assert!(detail.contains("+ new line"), "{detail}");
+        assert!(tool_detail("read", &serde_json::json!({})).is_none());
     }
 }
