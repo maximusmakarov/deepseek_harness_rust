@@ -56,6 +56,11 @@ scripts/render-formula.sh 0.1.0 SHA256SUMS dshr.rb   # нужны все 4 та�
 `scripts/install.sh` умеет ставить из локального каталога:
 `DSHR_RELEASE_BASE_URL=file://$PWD/dist DSHR_VERSION=0.1.0 DSHR_TARGET=... scripts/install.sh`.
 
+## Dry-run (macOS)
+
+Локально проверены: детерминированный tar.gz + sha256, bottle-layout,
+`bottle do` (ruby -c), установка через install.sh (file://) и `dshr --version`.
+
 ## Bottles
 
 Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
