@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -234,4 +234,23 @@ Conformance-набор: 6 MIT-плагинов (4 + 2), все fixture с sha256
 набора и записаны в TECH-DEBT.
 
 Проверка: smoke 69/69 (+3), bridge harness 87, cordis 26, server plugins_live 12,
+workspace 361 passed + 3 ignored, web-e2e 16/16.
+
+## Conformance n=9 (15.11.2026, раунд 83)
+
+Ещё три реальных MIT-плагина, все — клиентские половины upstream без изменений:
+
+- `@99galaxy/dsh-plugin-market@1.2.2` — запись в сайдбаре
+  (`sidebar.panellist` → регион `sidebar.footer`), требуется только `react`;
+- `dsh-plugin-codegraph-panel@0.6.5` — панель в `settings.section`
+  (`immediately: true`), требуется только `react`;
+- `@goodandready/dsh-plugin-notify@0.4.9` — строки в `plugins.item` /
+  `plugins.row.config` (регион `plugins.detail`), требует primitives + react.
+
+Все три активируются, публикуют слоты и не оставляют ошибок; market-кадр
+монтируется в сайдбар. Conformance-набор достиг **n=9** (цель ADR-013 §6 —
+8–12 реальных плагинов); остались вне набора `@michengai/dsh-archive-manager`
+(`unsafe-eval`) и `@michengai/dsh-skills-manager` (падение инициализации).
+
+Проверка: smoke 72/72 (+3), bridge harness 87, cordis 26, server plugins_live 12,
 workspace 361 passed + 3 ignored, web-e2e 16/16.

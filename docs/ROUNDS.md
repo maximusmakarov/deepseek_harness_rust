@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–82)
+# Журнал раундов паритета (1–83)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 361 root-тест
@@ -393,11 +393,41 @@ release-бинарь воспроизводим.
     шелла и композиция между плагинами, host-маршруты DSH-плагинов, выбор версии
     React.
 
+- 83: C-lite conformance до **n=9** — цель [ADR-013](adr/013-cordis-compat.md) §6
+  (8–12 реальных плагинов) достигнута; ещё три MIT-плагина с upstream-клиентской
+  половиной без изменений ([ADR-040](adr/040-react-client-half.md),
+  [PLUGINS.md](PLUGINS.md)):
+  - `@99galaxy/dsh-plugin-market@1.2.2` (sha256 `27abb2db…`, фикстура
+    `crates/cordis/tests/fixtures/dsh-plugin-market/`) — запись в сайдбаре
+    (`sidebar.panellist` → регион `sidebar.footer`), в манифесте только `react`;
+  - `dsh-plugin-codegraph-panel@0.6.5` (sha256 `f834fadb…`, фикстура
+    `crates/cordis/tests/fixtures/dsh-plugin-codegraph-panel/`) — панель
+    `settings.section` (upstream-манифест: `immediately: true`), в фикстуре — только `react`;
+  - `@goodandready/dsh-plugin-notify@0.4.9` (sha256 `7a2843fa…`, фикстура
+    `crates/cordis/tests/fixtures/dsh-plugin-notify/`) — строки в `plugins.item`
+    и `plugins.row.config` (регион `plugins.detail`), primitives + react.
+  - Все три активируются, публикуют слоты и не оставляют ошибок; host-половины —
+    заглушки, манифест фикстуры опирается на `host_modules`. Conformance-набор:
+    9 реальных MIT-плагинов; `@michengai/dsh-archive-manager` (`'unsafe-eval'` в
+    CSP) и `@michengai/dsh-skills-manager` (падение инициализации бандла)
+    остаются вне набора.
+  - Проверки: smoke — 72/72 (+3: discovery трёх новых половин, активация трёх
+    плагинов с публикацией слотов, монтаж кадра market в регион
+    `sidebar.footer`), bridge harness 87, cordis lib 26, server `plugins_live` 12,
+    workspace 361 passed + 3 ignored (desktop 21, итого 382), web-e2e 16/16;
+    общий рантайм-артефакт не менялся — 149 442 байта.
+  - Границы: числовая цель ADR-013 §6 достигнута (n=9), но это по-прежнему
+    C-lite. C-full (полный design-system `@deepseek-ai/dsh-client-ui-*`,
+    SlotMap-семантика `ownerProps`/framework-hooks/cardinality/scope/chain/hoc,
+    React-контекст/состояние шелла и композиция между плагинами, host-маршруты
+    DSH-плагинов, выбор версии React) — решение владельца, а не незакрытая
+    C-lite-работа.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–82 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–83 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -411,7 +441,11 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
 `ctx.interval`/`ctx.timeout`) и расширил primitives шим до семи компонентов;
 раунд 82 довёл conformance до n=6 (`dsh-session-superagent@0.10.12`,
 `dsh-mnemon@0.5.46`) и подтвердил референсную поверхность слотов
-(`subscribe`/`getVersion`/`entriesOfSlot`) реальным плагином.
+(`subscribe`/`getVersion`/`entriesOfSlot`) реальным плагином; раунд 83 довёл
+conformance до **n=9** — целевой диапазон ADR-013 §6 (8–12 реальных плагинов)
+закрыт (`dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5`,
+`@goodandready/dsh-plugin-notify@0.4.9`; смонтированы сайдбар, панель настроек и
+строки plugins-страницы).
 
 Открыто и не заблокировано:
 
@@ -422,13 +456,15 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
   могут поменяться до полного тира C по [ADR-040](adr/040-react-client-half.md).
 - C-lite-ограничения: design-system шим частичный (7 компонентов: `Button`,
   `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`), `wide`
-  в host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальный
-  плагин в smoke показывает ветку ошибки данных), conformance-набор — n=6
-  (цель 8–12), SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст
-  шелла по-прежнему отсутствуют, мостовые сервисы — подмножество референсных
-  (нет проекций `sessions`, `sessionStats`), eval-based бандлы требуют
-  ослабления CSP, а `@michengai/dsh-skills-manager` падает на инициализации
-  бандла — нужен триаж.
+  в host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальные
+  data-плагины в smoke показывают ветку ошибки данных), conformance-набор — n=9
+  (цель ADR-013 §6 8–12 достигнута; остальные smoke-половины синтетические),
+  SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст шелла
+  по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (нет
+  проекций `sessions`, `sessionStats`), eval-based бандлы требуют ослабления CSP,
+  а `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
+  Дальнейшее расширение (полный design-system/SlotMap/React-контекст/host-маршруты)
+  — уже не C-lite, а C-full: решение владельца.
 
 Ожидает решения (ADR-040 Proposed, тир C/C-full):
 
@@ -438,13 +474,15 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
   раунд 81: React-контракт — типы `memo`/`forwardRef`, keyed-ids, локали
   `register`/`t()`, таймеры — и conformance n=4; раунд 82: conformance n=6
   (`dsh-session-superagent@0.10.12` — composer dock, `dsh-mnemon@0.5.46` —
-  multi-region и референсная поверхность слотов).
+  multi-region и референсная поверхность слотов); раунд 83: conformance n=9 —
+  цель ADR-013 §6 достигнута (`dsh-plugin-market@1.2.2`,
+  `dsh-plugin-codegraph-panel@0.6.5`, `@goodandready/dsh-plugin-notify@0.4.9`).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, host-маршрутов
   DSH-плагинов, выбора версии React и настоящего `@dshr/cordis-compat`-шима.
-  Выбор полного тира C (React-остров в Leptos) — за владельцем; D не
-  рекомендуется.
+  Это вопрос объёма/приоритета для владельца (C-full по ADR-040 остаётся
+  Proposed); D не рекомендуется.
 
 Заблокировано внешним условием:
 

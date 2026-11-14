@@ -132,4 +132,27 @@
   21, total 382), web-e2e 16/16; the shared runtime artifact is unchanged
   (149,442 bytes).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — and the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46`) and a partial 7-component design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and a wider conformance set (n=6 now; target 8–12) await the ADR-040 C-full decision (D not recommended). The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C-lite conformance n=9 — the ADR-013 §6 target of 8–12 real plugins
+  is reached, with three more real MIT plugins whose upstream client half is
+  unchanged (sha256 in `package.json`, host halves stubbed, the fixture
+  manifest opts into the shared runtime via `host_modules`): the vendored `@99galaxy/dsh-plugin-market@1.2.2`
+  (sha256 `27abb2db…`) registers its sidebar entry (`sidebar.panellist` → region
+  `sidebar.footer`, only `react`) and its frame mounts; the vendored
+  `dsh-plugin-codegraph-panel@0.6.5` (sha256 `f834fadb…`) publishes a
+  `settings.section` panel (`immediately: true` upstream, only `react`
+  required); and the vendored
+  `@goodandready/dsh-plugin-notify@0.4.9` (sha256 `7a2843fa…`) publishes rows in
+  `plugins.item`/`plugins.row.config` (region `plugins.detail`, primitives +
+  react). All three activate, publish slots and leave no errors; the existing
+  six fixtures stay. The smoke fixture set is now 22 configured client halves
+  (nine real, the rest synthetic). Rejected from the set and still outside n=9:
+  `@michengai/dsh-archive-manager` (`'unsafe-eval'` in the CSP, deliberately not
+  enabled) and `@michengai/dsh-skills-manager` (bundle-init failure). Evidence:
+  smoke 72/72 (+3: the three-half discovery, the three-plugin activation with
+  published slots, the market sidebar-frame mount), bridge harness 87, cordis
+  lib 26, server `plugins_live` 12, workspace 361 passed + 3 ignored (desktop
+  21, total 382), web-e2e 16/16; the shared runtime artifact is unchanged
+  (149,442 bytes). Full React compatibility stays an owner decision (ADR-040
+  C-full, still Proposed).
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`) and a partial 7-component design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

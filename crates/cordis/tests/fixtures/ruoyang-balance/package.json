@@ -19,6 +19,11 @@
   "dsh": {
     "client": {
       "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ],
       "host_modules": [
         "react"
       ]

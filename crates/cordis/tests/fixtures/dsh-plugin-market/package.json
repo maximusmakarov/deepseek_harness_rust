@@ -1,0 +1,34 @@
+{
+  "name": "dsh-plugin-market",
+  "version": "1.2.2",
+  "description": "DSH \u63d2\u4ef6\u5e02\u573a\uff1a\u4ece\u5de6\u4fa7\u680f\u6d4f\u89c8 awesome-dsh-plugin \u76ee\u5f55\u5e76\u4e00\u952e\u5b89\u88c5\u3002Browse the awesome-dsh-plugin catalog from the sidebar and install plugins. (conformance fixture)",
+  "type": "module",
+  "main": "./client/stub.mjs",
+  "exports": {
+    ".": "./client/stub.mjs",
+    "./client": "./client/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "client/client.js",
+    "client/stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "host_modules": [
+        "react"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/@99galaxy/dsh-plugin-market",
+    "upstreamVersion": "1.2.2",
+    "upstreamLicense": "MIT",
+    "clientSha256": "27abb2dba16e5e2a4f06629b56a6dc6597160d81844e7e457d6aa2c04a6a37dc",
+    "changes": "client half and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}

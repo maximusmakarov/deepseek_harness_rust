@@ -442,7 +442,7 @@ Host-state приходит от шелла сообщением `host-state` (`
 (английский словарь; шелл англоязычный). Таймеры: `ctx.interval`/`ctx.timeout`
 снимаются вместе с фреймом.
 
-**Conformance (n=6):** реальные MIT-плагины с upstream-клиентской половиной без
+**Conformance (n=9):** реальные MIT-плагины с upstream-клиентской половиной без
 изменений (в манифесте только `host_modules`):
 
 - `@kt11/dsh-deepseek-balance@0.2.1` — React-карточка в `sidebar.footer.action`,
@@ -459,13 +459,17 @@ Host-state приходит от шелла сообщением `host-state` (`
 - `dsh-session-superagent@0.10.12` — composer dock (`conversation.composer.dock`);
 - `dsh-mnemon@0.5.46` — крупный multi-region плагин; активируется и публикует
   слоты, сверяет собственные shadow-регистрации через
-  `ctx.slots.subscribe/getVersion/entriesOfSlot`.
+  `ctx.slots.subscribe/getVersion/entriesOfSlot`;
+- `@99galaxy/dsh-plugin-market@1.2.2` — запись в sidebar; использует только
+  `react`; `dsh-plugin-codegraph-panel@0.6.5` — панель в `settings.section`;
+  `@goodandready/dsh-plugin-notify@0.4.9` — строки в `plugins.item` /
+  `plugins.row.config`.
 
-Все шесть fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в
+Все девять fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в
 `package.json`). Известные ограничения conformance-набора:
 `@michengai/dsh-archive-manager` требует `unsafe-eval` в CSP (не включён),
 `@michengai/dsh-skills-manager` падает на инициализации бандла (`Object.assign`
-над undefined) — оба записаны в TECH-DEBT и не входят в n=6.
+над undefined) — оба записаны в TECH-DEBT и не входят в n=9.
 
 Чего не хватает и после тиров A и B: design-system пакетов
 `@deepseek-ai/dsh-client-ui-*`, React-контекста и состояния шелла, композиции между

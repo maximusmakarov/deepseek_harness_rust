@@ -8,8 +8,9 @@ Another real third-party DSH client plugin used for C-lite conformance
 - `lib/stub.mjs` replaces the host half (it needs
   DSH host services/routes). The client half under test degrades gracefully when
   its host endpoints are absent.
-- `dsh.client.host_modules` is the only manifest change: it opts into the shared
-  host runtime (and the partial primitives shim where used).
+- Upstream `dsh.client` declarations (platform/immediately/inject) are kept;
+  `host_modules` is the only addition — it opts into the shared host runtime
+  (and the partial primitives shim where used).
 
 Upstream: MIT, https://www.npmjs.com/package/dsh-genui.
 Vendored only as a test fixture, not linked into dshr.

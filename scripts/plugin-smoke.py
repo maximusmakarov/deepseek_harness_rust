@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with nineteen throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with twenty-two throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -788,6 +788,9 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("dsh-genui", "dsh-genui"),
         ("dsh-session-superagent", "dsh-session-superagent"),
         ("dsh-mnemon", "dsh-mnemon"),
+        ("dsh-plugin-market", "dsh-plugin-market"),
+        ("dsh-plugin-codegraph-panel", "dsh-plugin-codegraph-panel"),
+        ("dsh-plugin-notify", "dsh-plugin-notify"),
     ]:
         source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / fixture_name
         target = workspace / fixture_name
@@ -1136,7 +1139,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 19, names)
+        check("lists every configured client half", len(clients) == 22, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -1236,6 +1239,19 @@ def run(args: argparse.Namespace) -> int:
             all(client is not None for client in conformance_halves.values()),
             conformance_halves,
         )
+        extra_halves = {
+            name: next((client for client in clients if client["name"] == name), None)
+            for name in (
+                "dsh-plugin-market",
+                "dsh-plugin-codegraph-panel",
+                "dsh-plugin-notify",
+            )
+        }
+        check(
+            "conformance reaches nine real DSH client halves",
+            all(client is not None for client in extra_halves.values()),
+            extra_halves,
+        )
 
         # A deterministic transcript: create a session over REST and replay one
         # assistant turn, so per-message regions have rows to mount into.
@@ -1260,7 +1276,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 19)
+        wait_registry_ready(debug_port, 22)
         # Registry frames load in inject order; wait until the multi-region half
         # has published all of its startup registrations before snapshotting the
         # mounted slot frames (otherwise the snapshot races the last frame).
@@ -1286,7 +1302,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 19
+            len(registry) == 22
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1297,9 +1313,18 @@ def run(args: argparse.Namespace) -> int:
             [(item["plugin"], item["display"]) for item in registry],
         )
         order = [item["plugin"] for item in registry]
+        immediately = {
+            client["name"] for client in clients if client.get("immediately")
+        }
         check(
             "registry mount order follows inject/immediately",
-            order[:1] == ["demo2"] and order.index("demo6") < order.index("demo7"),
+            order.index("demo6") < order.index("demo7")
+            and immediately <= set(order)
+            and all(
+                order.index(name) < order.index("demo")
+                for name in immediately
+                if name in order and "demo" in order
+            ),
             order,
         )
         eager_state = json.loads(
@@ -1713,6 +1738,49 @@ def run(args: argparse.Namespace) -> int:
             mnemon_state,
         )
 
+        # Conformance n=9: three more real halves (market sidebar entry,
+        # settings-page panel, plugins-page rows) must activate and publish slots.
+        extra_states = {}
+        for plugin in (
+            "dsh-plugin-market",
+            "dsh-plugin-codegraph-panel",
+            "dsh-plugin-notify",
+        ):
+            extra_states[plugin] = json.loads(
+                str(
+                    poll_frame(
+                        debug_port,
+                        "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null, slots: window.dshr.slots.list().length})",
+                        lambda value: json.loads(str(value))["ready"] == "1",
+                        plugin=plugin,
+                        mode="registry",
+                        label=f"{plugin} registry",
+                    )
+                )
+            )
+        check(
+            "three more real plugins activate and publish slots",
+            all(
+                state["error"] is None and state["slots"] > 0
+                for state in extra_states.values()
+            ),
+            extra_states,
+        )
+        market_frame = json.loads(
+            str(
+                shell.eval(
+                    """JSON.stringify([...document.querySelectorAll(
+                        'iframe.slot-frame[data-plugin="dsh-plugin-market"]'
+                    )].map(f => ({slot: f.dataset.slot, region: f.dataset.region})))"""
+                )
+            )
+        )
+        check(
+            "the market plugin mounts its sidebar entry frame",
+            any(item["slot"] == "sidebar.panellist" for item in market_frame),
+            market_frame,
+        )
+
         shell.call(
             "Page.navigate",
             {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin=ui-kit"},
@@ -1817,7 +1885,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 19)
+        wait_registry_ready(debug_port, 22)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -1969,7 +2037,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 19)
+        wait_registry_ready(debug_port, 22)
         # React/multi-plugin loading can delay the stage's first tab selection;
         # wait for the active panel frame before driving actions through it.
         wait_until(
@@ -1984,14 +2052,25 @@ def run(args: argparse.Namespace) -> int:
 
         # ctx.action round-trips from a panel frame -------------------------
         def panel_eval(expression: str, await_promise: bool = False):
-            # The active tab can change (the registry re-publishes on reload), so
-            # resolve the frame the shell currently shows instead of caching one.
-            active = str(
-                shell.eval(
-                    """document.querySelector('#plugin-stage iframe.slot-frame')?.dataset.slot || ''"""
+            # The active tab can change (the registry re-publishes on reload) and
+            # a freshly created frame target can lag /json/list, so poll for it.
+            deadline = time.time() + FRAME_TIMEOUT
+            active = ""
+            target = None
+            while time.time() < deadline:
+                active = str(
+                    shell.eval(
+                        """document.querySelector('#plugin-stage iframe.slot-frame')?.dataset.slot || ''"""
+                    )
                 )
-            )
-            target = frame_target(debug_port, "regions", "slot", active) if active else None
+                target = (
+                    frame_target(debug_port, "regions", "slot", active)
+                    if active
+                    else None
+                )
+                if target is not None:
+                    break
+                time.sleep(0.2)
             if target is None:
                 raise RuntimeError(f"panel frame disappeared (active slot: {active!r})")
             frame = DevTools(target["webSocketDebuggerUrl"])
@@ -2123,7 +2202,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 19)
+        wait_registry_ready(debug_port, 22)
 
         def surviving_frames() -> int:
             count = 0
@@ -2160,7 +2239,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 19)
+            wait_registry_ready(debug_port, 22)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"

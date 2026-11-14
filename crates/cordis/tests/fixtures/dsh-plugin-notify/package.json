@@ -1,0 +1,40 @@
+{
+  "name": "dsh-plugin-notify",
+  "version": "0.4.9",
+  "description": "DSH plugin: audio chimes, cross-session toasts, desktop push, IM webhooks, and web push (PWA) for turn completion, errors, and approvals. (conformance fixture)",
+  "type": "module",
+  "main": "./lib/stub.mjs",
+  "exports": {
+    ".": "./lib/stub.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/client.js",
+    "lib/stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "host_modules": [
+        "react",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/@goodandready/dsh-plugin-notify",
+    "upstreamVersion": "0.4.9",
+    "upstreamLicense": "MIT",
+    "clientSha256": "7a2843faf10c12d2c8851e270c441a928e7836bf69c90bb5f4dec58f342fbb68",
+    "changes": "client half and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}

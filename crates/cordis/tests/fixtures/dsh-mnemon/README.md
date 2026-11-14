@@ -7,7 +7,8 @@ Another real third-party DSH client plugin used for C-lite conformance
   `package.json` (`dshrFixture.clientSha256`).
 - `lib/stub.mjs/stub.mjs` replaces the host half. The client half under test
   degrades gracefully when its host services/routes are absent.
-- `dsh.client.host_modules` is the only manifest change.
+- Upstream `dsh.client` declarations are kept; `host_modules` is the only
+  addition.
 
 Upstream: MIT, https://www.npmjs.com/package/dsh-mnemon.
 Vendored only as a test fixture, not linked into dshr.

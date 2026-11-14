@@ -1,0 +1,38 @@
+{
+  "name": "dsh-plugin-codegraph-panel",
+  "version": "0.6.5",
+  "description": "Settings-page panel for dsh-plugin-codegraph: a \u4ee3\u7801\u56fe\u8c31 tab that shows one workspace's index status and can rebuild it. Browser half only \u2014 every number comes from the host's /dsh-plugin-codegraph/api/* routes. (conformance fixture)",
+  "type": "module",
+  "main": "./lib/stub.mjs",
+  "exports": {
+    ".": "./lib/stub.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/client.js",
+    "lib/stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web",
+      "host_modules": [
+        "react"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/dsh-plugin-codegraph-panel",
+    "upstreamVersion": "0.6.5",
+    "upstreamLicense": "MIT",
+    "clientSha256": "f834fadbd9be05ab3875154818c2e6e6d03acf5bf5e0ffd09ae09df1778a0959",
+    "changes": "client half and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+  }
+}

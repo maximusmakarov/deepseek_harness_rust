@@ -22,7 +22,11 @@
   ],
   "dsh": {
     "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
       "platform": "web",
+      "immediately": true,
       "host_modules": [
         "react",
         "react-dom/client"
