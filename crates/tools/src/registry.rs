@@ -396,4 +396,41 @@ mod tests {
         assert!(!serving.contains("cordis__demo__later"));
         assert!(registry.contains("cordis__demo__later"));
     }
+    #[test]
+    fn concurrent_readers_never_observe_a_partial_generation() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let registry = Arc::new(ToolRegistry::new());
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader = {
+            let registry = Arc::clone(&registry);
+            let stop = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let names = registry.names();
+                    let generation: Vec<&String> = names
+                        .iter()
+                        .filter(|name| name.starts_with("gen__"))
+                        .collect();
+                    if generation.is_empty() {
+                        continue;
+                    }
+                    // The writer swaps the whole generation under one write lock:
+                    // readers see either none of it or all of it.
+                    assert_eq!(generation.len(), 3, "{names:?}");
+                }
+            })
+        };
+
+        for _ in 0..2_000 {
+            registry.register_all([
+                Arc::new(NamedTool("gen__a")) as Arc<dyn Tool>,
+                Arc::new(NamedTool("gen__b")),
+                Arc::new(NamedTool("gen__c")),
+            ]);
+            registry.remove_prefix("gen__");
+        }
+        stop.store(true, Ordering::Relaxed);
+        reader.join().expect("reader");
+    }
 }

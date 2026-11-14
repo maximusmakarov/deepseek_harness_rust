@@ -53,17 +53,20 @@ fn spec(root: &Path, name: &str) -> CordisPluginSpec {
     }
 }
 
-async fn call(registry: &ToolRegistry, name: &str) -> String {
-    let tool = registry.get(name).expect("tool registered");
-    let ctx = ToolCtx {
+fn tool_ctx() -> ToolCtx {
+    ToolCtx {
         cwd: std::env::temp_dir(),
         session_id: SessionId::new(),
         output_limit: 10_000,
         spill_dir: std::env::temp_dir().join("dshr-cordis-spills"),
         cancel: CancellationToken::new(),
         prompt: None,
-    };
-    tool.execute(&ctx, json!({}))
+    }
+}
+
+async fn call(registry: &ToolRegistry, name: &str) -> String {
+    let tool = registry.get(name).expect("tool registered");
+    tool.execute(&tool_ctx(), json!({}))
         .await
         .expect("tool call")
         .content
@@ -338,4 +341,69 @@ async fn a_broken_config_keeps_running_plugins() {
     assert!(manager.is_running("demo"));
     assert!(registry.contains(&tool));
     assert_eq!(manager.statuses()[0].error, None);
+}
+
+fn write_crashing_plugin(dir: &Path) {
+    std::fs::write(
+        dir.join("plugin.mjs"),
+        r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "echo",
+      description: "echo",
+      inputSchema: { type: "object" },
+      handler: () => "alive",
+    });
+    ctx.tool({
+      name: "die",
+      description: "kills the sidecar process",
+      inputSchema: { type: "object" },
+      handler: () => { process.exit(1); },
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+}
+
+#[tokio::test]
+async fn reload_recovers_after_the_sidecar_crashes() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping Cordis manager test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_crashing_plugin(dir.path());
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = CordisManager::new(
+        Arc::clone(&registry),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        ToolFilter::default(),
+    );
+    manager.sync(vec![spec(dir.path(), "demo")]).await;
+    let echo = format!("{TOOL_PREFIX}demo__echo");
+    assert_eq!(call(&registry, &echo).await, "alive");
+    let generation = manager.statuses()[0].generation;
+
+    // The tool kills its own node process: the request never completes, and the
+    // supervisor still believes the plugin is running (the crash window the
+    // TLA+ model records as Register-stays / phase=failed).
+    let die = registry
+        .get(&format!("{TOOL_PREFIX}demo__die"))
+        .expect("die tool");
+    let outcome =
+        tokio::time::timeout(Duration::from_secs(5), die.execute(&tool_ctx(), json!({}))).await;
+    assert!(
+        outcome.is_err() || outcome.is_ok_and(|result| result.is_err()),
+        "a call on a dead sidecar must fail or hang"
+    );
+    assert!(manager.is_running("demo"), "crash is not detected eagerly");
+
+    // Reload replaces the dead process and restores the tools.
+    manager.reload("demo").await.expect("reload after crash");
+    assert_eq!(call(&registry, &echo).await, "alive");
+    assert!(manager.statuses()[0].generation > generation);
 }

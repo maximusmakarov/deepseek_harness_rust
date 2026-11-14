@@ -639,4 +639,24 @@ mod bundle_mode_tests {
         assert!(resolve_asset(&half, "/etc/passwd").is_err());
         assert!(resolve_asset(&half, "missing.js").is_err());
     }
+    #[cfg(unix)]
+    #[test]
+    fn asset_symlink_escape_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = tempfile::tempdir().expect("outside");
+        std::fs::write(outside.path().join("secret.txt"), "secret").expect("secret");
+        package(dir.path(), MANIFEST, &[("client.js", "export default 1;")]);
+        symlink(
+            outside.path().join("secret.txt"),
+            dir.path().join("leak.js"),
+        )
+        .expect("symlink");
+        let half = discover_client_half(&spec(dir.path())).expect("half");
+        assert!(
+            resolve_asset(&half, "leak.js").is_err(),
+            "a symlink that resolves outside the package must be rejected"
+        );
+    }
 }
