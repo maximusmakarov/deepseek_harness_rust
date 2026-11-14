@@ -81,7 +81,9 @@ jobs:
         shell: bash
         env:
           DSHR_WINDOWS_SANDBOX: "1"
-        run: cargo test -p dshr-sandbox -- --ignored
+        run: |
+          cargo test -p dshr-sandbox -- --ignored
+          cargo test -p dshr-cli --test windows_sandbox -- --ignored
       - run: cargo test --workspace --doc
       - name: desktop check
         if: matrix.os == 'macos-latest'

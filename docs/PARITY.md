@@ -42,7 +42,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Плагины: WASM core/component, Ed25519, Cordis-sidecar | есть; Cordis audit-log и fs-гранты есть; hot reload и client half нет | ⚠️ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; установка через CLI, отдельного каталога нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
-| Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI-шаг гоняет ignored-тест | ⏸ |
+| Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
 | i18n ru/en | TUI/CLI частично; ошибки en | ⚠️ |
 | OTel, SDK, rate-limit, OpenAPI | есть | ✅ |
 
@@ -51,7 +51,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Пункт | dshr | Статус |
 |---|---|---|
 | Бинарные архивы 5 таргетов, SHA256SUMS, Ed25519, provenance | есть | ✅ |
-| Homebrew: бинарная формула | есть + bottle-ассеты и `bottle do` (root_url GitHub Releases); ghcr-бутылок нет | ⚠️ |
+| Homebrew: бинарная формула | binary + бутылки; `bottles-ghcr` публикует OCI в GHCR и рендерит `dshr-ghcr.rb`; push не прогонялся (нет credentials) | ⚠️ |
 | Reproducible builds | архивы детерминированы; бинарь воспроизводим при том же toolchain с remap/SOURCE_DATE_EPOCH (проверено локально); cross-Linux может отличаться | ✅ |
 | Desktop в release CI | macOS `.app` zip; Linux/Windows desktop-архивы добавлены в workflow (прогон на теге не выполнялся) | ⚠️ |
 | Windows/Linux desktop packages | Linux tar.gz и Windows zip собираются release-джобами; installer'ов нет, джобы не прогонялись | ⚠️ |

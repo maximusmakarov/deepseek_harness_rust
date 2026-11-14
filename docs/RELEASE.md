@@ -65,6 +65,12 @@ scripts/render-formula.sh 0.1.0 SHA256SUMS dshr.rb   # нужны все 4 та�
 ## Bottles
 
 Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
+для macOS/Linux; job `bottles-ghcr` публикует их в GHCR как OCI-индекс
+(`ghcr.io/<owner>/<repo>/dshr:<ver>`), а `dist/dshr-ghcr.rb` содержит
+`root_url https://ghcr.io/v2/<owner>/<repo>`. Требуются `packages: write`
+и `GITHUB_TOKEN`; локально проверен dry-run OCI-layout (без push).
+
+Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
 для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на
 GitHub Releases, не GHCR; pour проверяется при следующем теге.
 

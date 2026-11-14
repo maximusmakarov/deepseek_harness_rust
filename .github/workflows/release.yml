@@ -202,6 +202,38 @@ jobs:
           path: dist/*.zip*
           if-no-files-found: error
 
+  bottles-ghcr:
+    name: bottles (ghcr)
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: push OCI bottles
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          shopt -s nullglob
+          for bottle in dist/*.bottle.tar.gz; do
+            name="$(basename "$bottle")"
+            tag="${name#dshr--$version.}"
+            tag="${tag%.bottle.tar.gz}"
+            python3 scripts/publish-bottle-ghcr.py --version "$version" --tag "$tag" \
+              --bottle "$bottle" --owner "$owner" --repo "$repo" --push
+          done
+
   publish:
     name: publish release
     needs: [build, desktop, desktop-linux, desktop-windows]
@@ -247,6 +279,8 @@ jobs:
           if [ -s dist/BOTTLES ]; then
             BOTTLES_FILE=dist/BOTTLES scripts/render-formula.sh \
               "$version" dist/SHA256SUMS dist/dshr.rb
+            BOTTLES_FILE=dist/BOTTLES BOTTLE_ROOT_URL="https://ghcr.io/v2/${GITHUB_REPOSITORY_OWNER,,}/${GITHUB_REPOSITORY#*/}" \
+              scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr-ghcr.rb
           else
             scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr.rb
           fi
@@ -261,4 +295,5 @@ jobs:
             dist/SHA256SUMS.sig
             dist/SHA256SUMS.pub
             dist/dshr.rb
+            dist/dshr-ghcr.rb
           fail_on_unmatched_files: false

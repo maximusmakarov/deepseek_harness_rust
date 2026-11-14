@@ -13,6 +13,7 @@ out="${3:-$root/dist/dshr.rb}"
 bottles_file="${BOTTLES_FILE:-}"
 
 python3 - "$version" "$sums" "$template" "$out" "$bottles_file" <<'PYTHON'
+import os
 import sys
 
 version, sums_path, template_path, out_path, bottles_path = sys.argv[1:6]
@@ -37,9 +38,13 @@ if bottles_path:
     except FileNotFoundError:
         entries = []
     if entries:
+        root_url = os.environ.get(
+            "BOTTLE_ROOT_URL",
+            f"https://github.com/maximusmakarov/deepseek_harness_rust/releases/download/v{version}",
+        )
         bottle_block = (
             "  bottle do\n"
-            f'    root_url "https://github.com/maximusmakarov/deepseek_harness_rust/releases/download/v{version}"\n'
+            f'    root_url "{root_url}"\n'
         )
         for entry in entries:
             bottle_block += f'    sha256 {entry[0]}: "{entry[1]}"\n'
