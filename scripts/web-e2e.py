@@ -105,8 +105,11 @@ def run(args: argparse.Namespace) -> int:
     if not chrome:
         print("SKIP: chrome was not found (set CHROME)")
         return 0
-    binary = Path(args.binary)
-    if not binary.exists():
+    # Resolve before spawning: the child runs with `cwd=workspace`, so a
+    # relative `--binary target/debug/dshr` would be resolved inside that temp
+    # directory and fail with ENOENT (this broke CI once).
+    binary = Path(args.binary).resolve()
+    if not binary.is_file():
         print(f"SKIP: binary not built: {binary}")
         return 0
 
