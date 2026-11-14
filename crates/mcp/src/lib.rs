@@ -120,6 +120,12 @@ pub enum McpBackend {
 }
 
 impl McpBackend {
+    pub async fn set_prompt(&self, prompt: Option<Arc<dyn UserPrompt>>) {
+        if let Self::Http(client) = self {
+            *client.prompt.lock().await = prompt;
+        }
+    }
+
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<McpCallResult, McpError> {
         match self {
             Self::Stdio(client) => client.lock().await.call_tool(name, arguments).await,
@@ -420,6 +426,7 @@ pub struct McpHttpClient {
     next_id: AtomicU64,
     sampling: Option<Arc<dyn LlmProvider>>,
     oauth: Option<Arc<OAuthState>>,
+    prompt: Mutex<Option<Arc<dyn UserPrompt>>>,
 }
 
 const OAUTH_SKEW: Duration = Duration::from_secs(30);
@@ -502,12 +509,13 @@ impl McpHttpClient {
             next_id: AtomicU64::new(1),
             sampling,
             oauth,
+            prompt: Mutex::new(None),
         };
         let this = Arc::new(this);
         this.initialize().await?;
-        if this.sampling.is_some() {
-            tokio::spawn(start_http_sse_listener(Arc::clone(&this)));
-        }
+        // The GET stream carries server-initiated requests (sampling,
+        // elicitation) regardless of whether sampling is configured.
+        tokio::spawn(start_http_sse_listener(Arc::clone(&this)));
         Ok(this)
     }
 
@@ -907,14 +915,31 @@ async fn handle_sse_event(client: &Arc<McpHttpClient>, event: &str) {
     let Ok(value) = serde_json::from_str::<Value>(&data) else {
         return;
     };
-    if value["method"].as_str() != Some("sampling/createMessage") || value.get("id").is_none() {
-        return;
-    }
-    let Some(provider) = &client.sampling else {
+    let Some(id) = value.get("id").cloned() else {
         return;
     };
-    let response = sampling_response(provider, value["id"].clone(), value["params"].clone()).await;
-    let _ = client.post_json(&response).await;
+    match value["method"].as_str().unwrap_or_default() {
+        "sampling/createMessage" => {
+            let Some(provider) = &client.sampling else {
+                return;
+            };
+            let response = sampling_response(provider, id, value["params"].clone()).await;
+            let _ = client.post_json(&response).await;
+        }
+        "elicitation/create" => {
+            let prompt = client.prompt.lock().await.clone();
+            let response = match prompt {
+                Some(prompt) => elicitation_with(prompt, id, value["params"].clone()).await,
+                None => json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": {"action": "decline"}
+                }),
+            };
+            let _ = client.post_json(&response).await;
+        }
+        _ => {}
+    }
 }
 
 fn parse_sse_data(event: &str) -> Option<String> {
@@ -1140,6 +1165,7 @@ impl Tool for McpTool {
     }
 
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
+        self.client.set_prompt(ctx.prompt.clone()).await;
         let call = async {
             self.client
                 .call_tool(&self.remote_name, args)
@@ -1147,10 +1173,12 @@ impl Tool for McpTool {
                 .map_err(|error| ToolError::Failed(error.to_string()))
         };
         let result = if let Some(prompt) = &ctx.prompt {
-            PROMPT.scope(Arc::clone(prompt), call).await?
+            PROMPT.scope(Arc::clone(prompt), call).await
         } else {
-            call.await?
+            call.await
         };
+        self.client.set_prompt(None).await;
+        let result = result?;
         Ok(ToolOutcome {
             content: result.content,
             is_error: result.is_error,
