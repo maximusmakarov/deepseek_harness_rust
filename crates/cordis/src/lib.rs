@@ -86,6 +86,7 @@ pub async fn connect(
             Arc::new(CordisTool {
                 name: format!("cordis__{}__{short}", spec.name),
                 inner: tool,
+                home: home.to_path_buf(),
             }) as Arc<dyn Tool>
         })
         .collect())
@@ -99,6 +100,34 @@ pub fn bootstrap_path(home: &Path) -> PathBuf {
 struct CordisTool {
     name: String,
     inner: Arc<dyn Tool>,
+    home: PathBuf,
+}
+
+impl CordisTool {
+    fn audit(&self, result: &Result<ToolOutcome, ToolError>) {
+        let directory = self.home.join("cordis");
+        if std::fs::create_dir_all(&directory).is_err() {
+            return;
+        }
+        let entry = serde_json::json!({
+            "time": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0),
+            "plugin": self.name.split("__").nth(1).unwrap_or(""),
+            "tool": self.inner.name(),
+            "ok": result.is_ok(),
+            "error": result.as_ref().err().map(ToString::to_string)
+        });
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(directory.join("audit.jsonl"))
+        {
+            use std::io::Write;
+            let _ = writeln!(file, "{entry}");
+        }
+    }
 }
 
 #[async_trait]
@@ -116,6 +145,65 @@ impl Tool for CordisTool {
     }
 
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
-        self.inner.execute(ctx, args).await
+        let result = self.inner.execute(ctx, args).await;
+        self.audit(&result);
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockTool;
+
+    #[async_trait]
+    impl Tool for MockTool {
+        fn name(&self) -> &'static str {
+            "echo"
+        }
+
+        fn description(&self) -> &'static str {
+            "echo"
+        }
+
+        fn schema(&self) -> Value {
+            serde_json::json!({"type": "object"})
+        }
+
+        async fn execute(&self, _ctx: &ToolCtx, _args: Value) -> Result<ToolOutcome, ToolError> {
+            Ok(ToolOutcome {
+                content: "ok".into(),
+                is_error: false,
+                files: Vec::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn writes_an_audit_entry() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path().join("home");
+        std::fs::create_dir_all(&home).expect("home");
+        let tool = CordisTool {
+            name: "cordis__demo__echo".into(),
+            inner: Arc::new(MockTool),
+            home: home.clone(),
+        };
+        let ctx = dshr_tools::ToolCtx {
+            cwd: dir.path().to_path_buf(),
+            session_id: dshr_core::SessionId::new(),
+            output_limit: 10_000,
+            spill_dir: dir.path().join("spills"),
+            cancel: tokio_util::sync::CancellationToken::new(),
+            prompt: None,
+        };
+        tool.execute(&ctx, serde_json::json!({}))
+            .await
+            .expect("tool");
+        let audit = std::fs::read_to_string(home.join("cordis/audit.jsonl")).expect("audit");
+        assert!(audit.contains("\"plugin\":\"demo\""), "{audit}");
+        assert!(audit.contains("\"tool\":\"echo\""), "{audit}");
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

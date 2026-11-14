@@ -81,6 +81,11 @@ dshr plugin verify ~/.dshr/plugins/echo.yaml --key <hex public key>
 списке ключей отклоняются. Приватный ключ — 32-байтная hex-строка, `keygen` пишет
 файл с правами `0600` на Unix.
 
+## Cordis audit
+
+Каждый вызов `cordis__<plugin>__<tool>` дописывает строку в
+`<home>/cordis/audit.jsonl` (time, plugin, tool, ok, error).
+
 ## Cordis / npm (sidecar)
 
 JS-плагины исполняются отдельным процессом `node`; bootstrap публикует их

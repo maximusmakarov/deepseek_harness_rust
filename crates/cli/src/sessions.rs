@@ -123,7 +123,10 @@ pub fn execute(loader: &ConfigLoader, args: &SessionsArgs) -> Result<u8> {
                 let count = crate::dsh_import::import_tree(&store, path, provider, model)?;
                 println!("{count}");
             } else {
-                println!("{}", crate::dsh_import::import(&store, path, provider, model)?);
+                println!(
+                    "{}",
+                    crate::dsh_import::import(&store, path, provider, model)?
+                );
             }
             Ok(0)
         }

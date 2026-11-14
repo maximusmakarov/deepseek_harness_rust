@@ -279,7 +279,11 @@ mod tests {
             json!({"type":"turn/start","data":{"turn":1}}),
             json!({"type":"user/message","data":{"turn":1,"content":[{"type":"text","text":"hi"}]}}),
         ];
-        let text = events.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+        let text = events
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
         let compressed = zstd::encode_all(text.as_bytes(), 3).expect("zstd");
         for name in ["one", "two"] {
             let session_dir = dir.path().join("root").join(name);
