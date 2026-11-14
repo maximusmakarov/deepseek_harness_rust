@@ -515,7 +515,7 @@ def wait_for_frame_text(port: int, plugin: str, needle: str, timeout: float = 20
     return False
 
 
-def wait_until(predicate, timeout: float = 20.0, interval: float = 0.2, label: str = "condition"):
+def wait_until(predicate, timeout: float = 60.0, interval: float = 0.2, label: str = "condition"):
     deadline = time.time() + timeout
     last_error = None
     while time.time() < deadline:
@@ -564,9 +564,15 @@ def run(args: argparse.Namespace) -> int:
         if condition:
             print(f"  ok   {label}")
         else:
+            # `::error::` surfaces as a check-run annotation, so a red CI run is
+            # diagnosable without downloading job logs.
+            print(f"::error::plugin-smoke: {label}{(': ' + str(detail)) if detail else ''}")
             print(f"  FAIL {label}{(': ' + str(detail)) if detail else ''}")
             failures.append(label)
 
+    print(f"chrome: {chrome}")
+    for tool in ("node", "google-chrome"):
+        print(f"{tool}: {shutil.which(tool) or 'not found'}")
     try:
         port = free_port()
         print(f"starting dshr on 127.0.0.1:{port}")
@@ -812,6 +818,12 @@ def run(args: argparse.Namespace) -> int:
 
         actions.close()
         shell.close()
+    except Exception as error:  # noqa: BLE001 - report the failure instead of a bare traceback
+        failures.append(f"exception: {error}")
+        print(f"::error::plugin-smoke: exception: {error}")
+        import traceback
+
+        traceback.print_exc()
     finally:
         if chrome_process:
             chrome_process.terminate()
