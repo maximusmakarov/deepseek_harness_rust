@@ -22,7 +22,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | Обновления: фоновая проверка, канал, installer, Linux → download page | проверка, уведомление, скачивание macOS zip с проверкой SHA256SUMS, распаковка и reveal; тихой установки/каналов нет | ⚠️ |
 | Recovery/safe mode: plugin management, rollback, switch profile, diagnostics | `--safe-mode`, Restart in safe mode, last-known-good + Rollback profile, диагностика; recovery-окон нет | ⚠️ |
 | `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`; экспорт диагностики — в работе | ⚠️ |
-| Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` (ad-hoc), 5 tar.gz; Windows/Linux installer'ов нет | ⚠️ |
+| Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` (ad-hoc), 5 tar.gz, Linux/Windows desktop-архивы в release CI; installer'ов (deb/NSIS/DMG) нет | ⚠️ |
 | Автообновление/подпись/notarization | ad-hoc подпись `.app`; notarization нет | ⚠️ |
 
 ## Host и инструменты

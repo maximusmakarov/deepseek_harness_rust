@@ -57,6 +57,12 @@ scripts/package-desktop.sh 0.1.0
 (compatibility/extended/enhanced) пока не реализованы — это следующий
 срез desktop; матрица — [PARITY.md](PARITY.md).
 
+## Linux / Windows
+
+Release workflow собирает `dshr-<version>-linux-desktop.tar.gz` и
+`dshr-<version>-windows-desktop.zip` (оба бинаря). Linux-сборка требует WebKitGTK
+(CI ставит `libwebkit2gtk-4.1-dev` и appindicator).
+
 ## PWA
 
 Web UI отдаёт PWA-манифест и иконки; установите его как отдельное приложение из браузера:
