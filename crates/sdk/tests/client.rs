@@ -26,6 +26,8 @@ async fn sdk_creates_and_runs_a_session() {
             output_limit: 10_000,
             rate_limit_per_min: 0,
             auto_title: false,
+            home: PathBuf::from("."),
+            profile: "default".into(),
         },
         Arc::new(ScriptedProvider::new(
             "test-model",

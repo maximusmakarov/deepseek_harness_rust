@@ -153,6 +153,8 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
             output_limit: config.tools.output_limit_chars,
             rate_limit_per_min: args.rate_limit,
             auto_title: config.session.auto_title,
+            home: loader.home().to_path_buf(),
+            profile: config.profile.clone(),
         },
         provider,
         Arc::new(tools),

@@ -501,6 +501,32 @@ fn App() -> impl IntoView {
         });
     };
 
+    let install_package = move |name: String| {
+        let token_value = token.get_untracked();
+        plugin_status.set(format!("installing {name}…"));
+        spawn_local(async move {
+            let body = serde_json::json!({"name": name});
+            let request = gloo_net::http::Request::post("/v1/plugins/install")
+                .header("Authorization", &format!("Bearer {token_value}"))
+                .header("Content-Type", "application/json")
+                .body(body.to_string());
+            let result = match request {
+                Ok(request) => request.send().await,
+                Err(error) => {
+                    plugin_status.set(format!("install error: {error}"));
+                    return;
+                }
+            };
+            match result {
+                Ok(response) if response.ok() => {
+                    plugin_status.set(format!("installed {name} — restart dshr to load it"));
+                }
+                Ok(response) => plugin_status.set(format!("install failed: HTTP {}", response.status())),
+                Err(error) => plugin_status.set(format!("install error: {error}")),
+            }
+        });
+    };
+
     let search_plugins = move || {
         let query = plugin_query.get_untracked();
         if query.trim().is_empty() {
@@ -678,14 +704,20 @@ fn App() -> impl IntoView {
                 </ul>
                 <h4>"npm packages"</h4>
                 <ul>
-                    {move || plugin_hits.get().into_iter().map(|package| view! {
-                        <li>{format!(
-                            "{}@{} — {} · dshr plugin npm add {}",
-                            package.name,
-                            package.version,
-                            package.description,
-                            package.name,
-                        )}</li>
+                    {move || plugin_hits.get().into_iter().map(|package| {
+                        let install_name = package.name.clone();
+                        view! {
+                            <li>
+                                {format!(
+                                    "{}@{} — {} · dshr plugin npm add {}",
+                                    package.name,
+                                    package.version,
+                                    package.description,
+                                    package.name,
+                                )}
+                                <button on:click=move |_| install_package(install_name.clone())>"Install"</button>
+                            </li>
+                        }
                     }).collect_view()}
                 </ul>
             </dialog>

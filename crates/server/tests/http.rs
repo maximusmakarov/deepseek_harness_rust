@@ -40,6 +40,8 @@ fn state(dir: &std::path::Path) -> AppState {
             output_limit: 10_000,
             rate_limit_per_min: 0,
             auto_title: false,
+            home: PathBuf::from("."),
+            profile: "default".into(),
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),
@@ -257,6 +259,8 @@ async fn rate_limits_api_requests() {
         output_limit: 10_000,
         rate_limit_per_min: 1,
         auto_title: false,
+        home: PathBuf::from("."),
+        profile: "default".into(),
     };
     let app = router(AppState::new(
         config,
@@ -352,6 +356,21 @@ async fn serves_leptos_assets() {
         .await
         .expect("js");
     assert_eq!(js.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn rejects_invalid_plugin_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/plugins/install",
+        Some("test-token"),
+        Body::from(json!({"name": "bad name!"}).to_string()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

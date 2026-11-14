@@ -47,6 +47,10 @@ pub struct ServerConfig {
     pub rate_limit_per_min: u32,
     /// Generate an LLM title for a session on its first turn.
     pub auto_title: bool,
+    /// Home directory used by plugin install endpoints.
+    pub home: PathBuf,
+    /// Active profile used by plugin install endpoints.
+    pub profile: String,
 }
 
 #[derive(Clone)]
@@ -331,6 +335,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/health", get(health))
         .route("/v1/tools", get(list_tools))
         .route("/v1/plugins/search", get(search_plugins))
+        .route("/v1/plugins/install", post(install_plugin))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{id}", get(get_session))
         .route("/v1/sessions/{id}/turns", post(start_turn))
@@ -431,6 +436,62 @@ async fn search_plugins(
         })
         .collect();
     Ok(Json(json!({"packages": objects})))
+}
+
+#[derive(Debug, Deserialize)]
+struct InstallPlugin {
+    name: String,
+}
+
+async fn install_plugin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<InstallPlugin>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !valid_package_name(&body.name) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let executable = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let command = tokio::process::Command::new(executable)
+        .args([
+            "--home",
+            &state.config.home.display().to_string(),
+            "--profile",
+            &state.config.profile,
+            "plugin",
+            "npm",
+            "add",
+            &body.name,
+        ])
+        .output();
+    let output = tokio::time::timeout(Duration::from_secs(180), command)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    Ok(Json(json!({
+        "ok": output.status.success(),
+        "output": text.chars().take(4000).collect::<String>()
+    })))
+}
+
+fn valid_package_name(name: &str) -> bool {
+    let name = name.strip_prefix('@').unwrap_or(name);
+    let (scope, package) = name.split_once('/').unwrap_or(("", name));
+    let valid = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 100
+            && value
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    };
+    if name.contains('/') {
+        valid(scope) && valid(package)
+    } else {
+        valid(package)
+    }
 }
 
 fn percent_encode(value: &str) -> String {

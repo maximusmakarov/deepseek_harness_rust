@@ -57,6 +57,8 @@ fn state(dir: &std::path::Path) -> AppState {
             output_limit: 10_000,
             rate_limit_per_min: 0,
             auto_title: false,
+            home: PathBuf::from("."),
+            profile: "default".into(),
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),
