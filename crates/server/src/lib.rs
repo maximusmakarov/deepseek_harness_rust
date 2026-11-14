@@ -1013,15 +1013,29 @@ fn grant_assets(state: &AppState, plugin: &str) -> String {
 /// `http://<host>` of the request, used for the asset-mode CSP so the frame can
 /// load its module graph from this server only.
 fn request_origin(headers: &HeaderMap) -> String {
-    let scheme = headers
+    let scheme = match headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("http");
+    {
+        Some("https") => "https",
+        _ => "http",
+    };
+    // The Host header is attacker-controlled and ends up inside the CSP, so a
+    // strict charset is enforced; anything else falls back to loopback.
     let host = headers
         .get(header::HOST)
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("127.0.0.1");
-    format!("{scheme}://{host}")
+        .unwrap_or_default();
+    let valid = !host.is_empty()
+        && host.len() <= 253
+        && host
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | ':' | '[' | ']'));
+    if valid {
+        format!("{scheme}://{host}")
+    } else {
+        format!("{scheme}://127.0.0.1")
+    }
 }
 
 fn asset_host_csp(origin: &str) -> String {
@@ -1030,6 +1044,21 @@ fn asset_host_csp(origin: &str) -> String {
          img-src {origin} data: blob:; font-src {origin}; connect-src {origin}; \
          media-src {origin}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
     )
+}
+
+fn capability_granted(state: &AppState, plugin: &str, capability: &str) -> bool {
+    if capability.len() != 32 || !capability.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return false;
+    }
+    let mut grants = state
+        .assets
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let now = Instant::now();
+    grants.retain(|_, grant| grant.expires > now);
+    grants
+        .get(capability)
+        .is_some_and(|grant| grant.plugin == plugin)
 }
 
 fn asset_content_type(path: &std::path::Path) -> &'static str {
@@ -1062,21 +1091,7 @@ async fn plugin_client_asset(
     State(state): State<AppState>,
     Path((name, capability, path)): Path<(String, String, String)>,
 ) -> Result<Response, StatusCode> {
-    if capability.len() != 32 || !capability.chars().all(|ch| ch.is_ascii_hexdigit()) {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    let granted = {
-        let mut grants = state
-            .assets
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let now = Instant::now();
-        grants.retain(|_, grant| grant.expires > now);
-        grants
-            .get(&capability)
-            .is_some_and(|grant| grant.plugin == name)
-    };
-    if !granted {
+    if !capability_granted(&state, &name, &capability) {
         return Err(StatusCode::FORBIDDEN);
     }
     let manager = state.config.plugins.as_ref().ok_or(StatusCode::NOT_FOUND)?;
@@ -1642,5 +1657,83 @@ mod tests {
             .send("a.rs".to_owned())
             .expect("answer");
         assert_eq!(pending.await.expect("task"), Some("a.rs".to_owned()));
+    }
+    fn capability_state() -> AppState {
+        let dir =
+            std::env::temp_dir().join(format!("dshr-server-cap-{}", uuid::Uuid::new_v4().simple()));
+        let provider = Arc::new(dshr_llm_mock::ScriptedProvider::new("test", Vec::new()));
+        AppState::new(
+            ServerConfig {
+                bind: "127.0.0.1:0".parse().expect("addr"),
+                token: "token".into(),
+                workspace: dir.clone(),
+                mode: PermissionMode::WorkspaceWrite,
+                system_prompt: String::new(),
+                max_steps: 1,
+                max_tokens: 16,
+                output_limit: 1024,
+                rate_limit_per_min: 0,
+                auto_title: false,
+                home: dir.clone(),
+                profile: "default".into(),
+                cordis_plugins: Vec::new(),
+                plugins: None,
+                wasm: None,
+            },
+            provider,
+            Arc::new(ToolRegistry::new()),
+            Arc::new(SessionStore::new(dir.join("sessions"))),
+        )
+    }
+
+    #[test]
+    fn capability_is_scoped_to_one_plugin_and_expires() {
+        let state = capability_state();
+        let capability = grant_assets(&state, "demo");
+
+        assert!(capability_granted(&state, "demo", &capability));
+        // Scope: another plugin cannot use the capability.
+        assert!(!capability_granted(&state, "other", &capability));
+        // Malformed and unknown capabilities fail closed.
+        assert!(!capability_granted(&state, "demo", "short"));
+        assert!(!capability_granted(&state, "demo", &"0".repeat(32)));
+
+        // Expiry: a grant in the past is rejected and pruned.
+        {
+            let mut grants = state.assets.lock().expect("assets");
+            grants.get_mut(&capability).expect("grant").expires =
+                Instant::now() - Duration::from_secs(1);
+        }
+        assert!(!capability_granted(&state, "demo", &capability));
+        assert!(state.assets.lock().expect("assets").is_empty());
+    }
+
+    #[test]
+    fn host_header_cannot_inject_into_the_asset_csp() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::HOST,
+            axum::http::HeaderValue::from_static("evil.test; script-src *"),
+        );
+        let origin = request_origin(&headers);
+        assert_eq!(origin, "http://127.0.0.1");
+        let csp = asset_host_csp(&origin);
+        assert!(!csp.contains("script-src *"), "{csp}");
+        assert!(
+            csp.contains("script-src 'unsafe-inline' http://127.0.0.1"),
+            "{csp}"
+        );
+
+        // A normal host is kept, and only http/https schemes are honoured.
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::HOST,
+            axum::http::HeaderValue::from_static("127.0.0.1:8080"),
+        );
+        headers.insert(
+            "x-forwarded-proto",
+            axum::http::HeaderValue::from_static("javascript"),
+        );
+        assert_eq!(request_origin(&headers), "http://127.0.0.1:8080");
     }
 }

@@ -381,3 +381,31 @@ async fn multi_file_client_bundle_uses_capability_assets() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn hostile_host_header_cannot_inject_the_asset_csp() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_asset_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/plugins/demo/host?token=test-token&theme=dark")
+        .header("host", "evil.test; script-src *")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let csp = response.headers()[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .expect("csp")
+        .to_owned();
+    assert!(csp.contains("http://127.0.0.1"), "{csp}");
+    assert!(!csp.contains("script-src *"), "{csp}");
+}
