@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–60)
+# Журнал раундов паритета (1–63)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 283 root-теста
-(+3 ignored) и 21 desktop-тест = **304**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 299 root-тестов
+(+3 ignored) и 21 desktop-тест = **320**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -69,12 +69,26 @@ release-бинарь воспроизводим.
 - Market: локальные отзывы + агрегаты ★/count (`/v1/plugins/review(s)`).
 - Windows: runtime-тест AppContainer (запись внутри/снаружи workspace) добавлен
   в CI; реальный Windows-хост по-прежнему недоступен.
+- 61: `ToolRegistry` стал общим мутируемым handle'ом (Arc+RwLock, generation,
+  `unregister`/`remove_prefix`/`register_all`), `dshr_cordis::CordisManager`
+  владеет sidecar'ами и синхронизирует их с конфигом; watcher по mtime
+  (пакеты плагинов + profile/user config), broadcast-события, `sync()`
+  add/remove/restart. `a86b91b`
+- 62: `GET /v1/plugins/status`, `POST /v1/plugins/reload`, live
+  `/v1/plugins/installed`, клиентские маршруты; `dshr serve` собирает
+  serving-реестр и супервизор (с тем же allow/deny), watcher включён по
+  умолчанию (`--no-watch-plugins` отключает). `09d7d79`
+- 63: клиентская половина `dsh.client` — sandboxed iframe (opaque origin, CSP
+  без сети, bundle base64→blob), `postMessage`-мост v1, слот `panel`,
+  `ctx.action(close|reload)`; панель плагинов в Web UI со статусом и Reload,
+  deep link `?token=…&plugin=…`. `3aeb461`
 
 ## Что осталось
 
-- Cordis hot reload и client half — крупная архитектурная работа.
+- React-слоты клиентских плагинов: сейчас мост iframe и один слот `panel`
+  (ADR-013 §5), полного набора DSH-слотов нет.
+- WASM hot reload (Cordis hot reload есть).
 - GHCR-хостинг бутылок — нет tap/учётных данных (сейчас GitHub Releases).
 - Windows sandbox на реальном Windows — CI-шаг есть, локальной проверки нет.
-- Отзывы/агрегаты рейтингов market.
 
 Подробная матрица и блокеры: [PARITY.md](PARITY.md).

@@ -122,8 +122,100 @@ export default {
 Инструменты получают имена `cordis__<plugin>__<tool>`. Capability-шина:
 `ctx.fs` ограничен workspace-корнем, `ctx.exec` и `ctx.net` бросают ошибку;
 наследования env нет, переменные задаются явно. `DSHR_NODE` переопределяет бинарь
-node, `DSHR_CORDIS_ROOT` — корень (ставится автоматически). Горячей замены,
-кэша грантов и клиентской UI-половины пока нет.
+node, `DSHR_CORDIS_ROOT` — корень (ставится автоматически). Кэша грантов нет:
+каждый запуск sidecar получает гранты заново из конфига.
+
+## Cordis hot reload
+
+Набор плагинов — это живое множество, а не снимок на старте. `dshr serve`
+поднимает `dshr_cordis::CordisManager`: он владеет sidecar-процессами и держит
+serving-реестр инструментов (`ToolRegistry` — общий мутируемый handle) в
+соответствии с конфигом. Перезагрузка = остановить sidecar (снять его инструменты
+из реестра, процесс завершается после in-flight вызовов) и запустить новый
+процесс с новой генерацией.
+
+Триггеры:
+
+- **Файловый watcher** (по умолчанию включён в `serve`, интервал 750 мс): обходит
+  каталог пакета плагина (пропускает `node_modules`, `.git`, `target`) и сравнивает
+  mtime/размер; правка кода плагина перезагружает только его. Так же следятся
+  `profiles/<profile>/profile.yaml` и `<home>/config.yaml`.
+- **Конфиг**: `plugin npm add/remove/enable/disable` (в том числе из Web UI) меняют
+  конфиг, watcher делает reconcile — новые плагины стартуют, удалённые
+  останавливаются, изменённые (entry/env/grants) перезапускаются, без рестарта
+  harness.
+- **HTTP/UI**: `POST /v1/plugins/reload` `{ "name": "demo" }` или `{}` для всех;
+  кнопка Reload в панели Plugins.
+
+Статус: `GET /v1/plugins/status` — `name`, `enabled`, `running`, `generation`,
+`tools`, `started_at`, `error`. Ошибка старта запоминается в статусе и
+перепопытка происходит при следующем изменении или Reload. Отключить watcher:
+`dshr serve --no-watch-plugins`.
+
+Семантика, которую надо учитывать в плагине: перезагрузка — это новый процесс,
+поэтому in-memory состояние плагина сбрасывается; инструменты, которые уже
+исполняются, доигрывают на старом процессе. Инструменты сверх
+`tools.allowed`/`tools.denied` не регистрируются (фильтр применяется и к
+динамическим регистрациям).
+
+## Клиентская половина (dsh.client)
+
+Метаданные совместимы с DSH: `dsh.client` в `package.json` плюс `./client`-экспорт.
+
+```json
+{
+  "name": "@acme/demo",
+  "main": "index.mjs",
+  "dsh": { "client": { "platform": "web", "entry": "client.js", "immediately": false, "inject": [] } },
+  "exports": { "./client": "./client.js" }
+}
+```
+
+`entry` (или `exports["./client"]`, ключи `browser`/`import`/`default`/`require`)
+должен указывать на файл внутри пакета; `platform` поддерживается только `web`.
+Клиентский бандл — ES-модуль, который при активации получает мост:
+
+```js
+export default function activate(ctx) {
+  ctx.slots.register({
+    slot: "panel",                 // сейчас рендерится только panel
+    id: "demo",
+    title: "Demo",
+    render(element, props) { element.textContent = `theme: ${props.theme}`; },
+  });
+  ctx.action("reload").then((result) => ctx.log("reload:", result.ok));
+}
+```
+
+Мост (`window.dshr`) в изолированном iframe:
+
+- `ctx.name`, `ctx.theme`, `ctx.protocol === 1`;
+- `ctx.slots.register({slot,id,title,render})`, `remove(id)`, `list()`;
+- `ctx.action(action, payload) -> Promise<{ok, result?, error?}>`; шелл поддерживает
+  `close` и `reload`, неизвестные действия возвращают `ok: false`;
+- `ctx.log(...)` — пишет в консоль шелла через сообщение.
+
+Протокол `postMessage` v1: iframe → шелл `ready`, `slots`, `action`, `resize`,
+`error`, `log`; шелл → iframe `activate`, `deactivate`, `theme`, `action-result`.
+Сообщения помечены `ns: "dshr-client"` / `ns: "dshr-shell"` и `v: 1`.
+
+Изоляция и маршруты:
+
+- `GET /v1/plugins/clients` — список клиентских половин (`name`, `package`,
+  `platform`, `entry`, `immediately`, `inject`) и ошибки разбора;
+- `GET /v1/plugins/{name}/host?token=…&theme=light|dark` — host-страница для
+  `<iframe sandbox="allow-scripts">`; CSP запрещает любые сетевые запросы
+  (`default-src 'none'`, `script-src 'unsafe-inline' blob:`), бандл встроен
+  base64 и исполняется из blob-URL, поэтому origin iframe непрозрачный
+  (`allow-same-origin` не нужен) и токен не покидает шелл;
+- `GET /v1/plugins/{name}/client.js?token=…` — тот же бандл отдельным файлом для
+  отладки (`no-store`, CORS `*`);
+- deep link `/?token=…&plugin=demo` открывает панель плагина и подключается
+  автоматически.
+
+Ограничения моста: это не React-совместимость (ADR-013 §5) — произвольная
+инъекция в DOM шелла и чужие React-слоты не поддерживаются; бандл должен быть
+одним файлом (динамические чанки и внешние импорты не подгружаются).
 
 ### Установка npm-плагинов
 
@@ -172,5 +264,6 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 ## Ограничения
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
-- Нет hot reload и capability-grants; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
+- WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — мост iframe + слот `panel`, React-слотов DSH нет.
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.
