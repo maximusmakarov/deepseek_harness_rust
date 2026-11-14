@@ -480,6 +480,21 @@ impl ConfigLoader {
                 &mut sources,
             )?;
         }
+        for name in &ordered {
+            let directory = self.home.join("bundles").join(name);
+            for (index, patch) in profile_patches(&directory.join("config.yaml"))?
+                .iter()
+                .enumerate()
+            {
+                merge_file(
+                    &mut merged,
+                    patch,
+                    format!("bundle-patch:{name}:{index}"),
+                    true,
+                    &mut sources,
+                )?;
+            }
+        }
         merge_file(
             &mut merged,
             &profile_path,
@@ -862,6 +877,39 @@ mod tests {
         let schema = json_schema();
         assert!(schema.get("properties").is_some(), "{schema}");
         assert!(schema["properties"].get("model").is_some(), "{schema}");
+    }
+
+    #[test]
+    fn bundle_patches_apply_before_the_profile() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let home = dir.path();
+        write(
+            &home.join("bundles/base/config.yaml"),
+            "patches: [override.yaml]\nmodel:\n  name: bundle-model\n",
+        );
+        write(
+            &home.join("bundles/base/override.yaml"),
+            "model:\n  name: bundle-patched\n",
+        );
+        write(
+            &home.join("profiles/work/profile.yaml"),
+            "bundles: [base]\n",
+        );
+        let loaded = ConfigLoader::new(home, "work").load().expect("load");
+        assert_eq!(loaded.config.model.name, "bundle-patched");
+        assert!(
+            loaded
+                .sources
+                .iter()
+                .any(|source| source.layer == "bundle-patch:base:0")
+        );
+
+        write(
+            &home.join("profiles/work/profile.yaml"),
+            "bundles: [base]\nmodel:\n  name: profile-model\n",
+        );
+        let loaded = ConfigLoader::new(home, "work").load().expect("load");
+        assert_eq!(loaded.config.model.name, "profile-model");
     }
 
     #[test]

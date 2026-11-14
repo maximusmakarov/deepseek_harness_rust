@@ -8,8 +8,8 @@ model:
   name: deepseek-flash
 profile-композиция: `profiles/<name>/profile.yaml` может включать
 `bundles: [base, tools]` — сначала применяются `<home>/bundles/<bundle>/config.yaml`
-(с учётом `requires: [...]`, циклы запрещены), затем `patches: [file.yaml]`
-профиля (после user config),
+(с учётом `requires: [...]`, циклы запрещены), bundle-патчи `patches: [file.yaml]` (до профиля), затем `patches` профиля
+(после user config),
 затем профиль, пользовательский конфиг и патчи.
 
 session:
