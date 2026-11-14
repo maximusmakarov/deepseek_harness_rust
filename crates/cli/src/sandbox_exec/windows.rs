@@ -16,7 +16,7 @@ pub fn execute(
     let timeout = std::env::var("DSHR_SANDBOX_SETUP_TIMEOUT_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(60);
+        .unwrap_or(300);
     let workspace = workspace.to_path_buf();
     let mode = mode.to_owned();
     crate::sandbox_exec::run_with_timeout(std::time::Duration::from_secs(timeout), move || {
