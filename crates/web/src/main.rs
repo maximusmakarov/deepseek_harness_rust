@@ -98,6 +98,8 @@ struct ClientHalfInfo {
     package: Option<String>,
     entry: String,
     platform: String,
+    #[serde(default)]
+    immediately: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -255,13 +257,39 @@ async fn post_json<T: DeserializeOwned>(
         .map_err(|error| error.to_string())
 }
 
-/// Sends a shell→plugin message to the currently mounted iframe.
-fn post_to_panel(kind: &str, slot: Option<&str>, id: Option<&str>) {
-    let Some(frame) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id("plugin-frame"))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlIFrameElement>().ok())
-    else {
+/// One slot registered by a plugin half.
+#[derive(Clone, Debug, PartialEq)]
+struct ClientSlot {
+    name: String,
+    id: String,
+    title: String,
+    order: i64,
+}
+
+/// DOM id of a plugin's iframe (`@scope/pkg` is not a valid id fragment).
+fn frame_id(plugin: &str) -> String {
+    let mut id = String::from("plugin-frame-");
+    for ch in plugin.chars() {
+        if ch.is_ascii_alphanumeric() {
+            id.push(ch);
+        } else {
+            id.push('-');
+        }
+    }
+    id
+}
+
+fn frame_for(plugin: &str) -> Option<web_sys::HtmlIFrameElement> {
+    web_sys::window()?
+        .document()?
+        .get_element_by_id(&frame_id(plugin))?
+        .dyn_into::<web_sys::HtmlIFrameElement>()
+        .ok()
+}
+
+/// Sends a shell→plugin message to the iframe of `plugin`.
+fn post_to_frame(plugin: &str, kind: &str, fields: &[(&str, &str)]) {
+    let Some(frame) = frame_for(plugin) else {
         return;
     };
     let Some(target) = frame.content_window() else {
@@ -271,22 +299,31 @@ fn post_to_panel(kind: &str, slot: Option<&str>, id: Option<&str>) {
     let _ = js_sys::Reflect::set(&message, &"v".into(), &1u32.into());
     let _ = js_sys::Reflect::set(&message, &"ns".into(), &"dshr-shell".into());
     let _ = js_sys::Reflect::set(&message, &"type".into(), &kind.into());
-    if let Some(slot) = slot {
-        let _ = js_sys::Reflect::set(&message, &"slot".into(), &slot.into());
-    }
-    if let Some(id) = id {
-        let _ = js_sys::Reflect::set(&message, &"id".into(), &id.into());
+    for (key, value) in fields {
+        let _ = js_sys::Reflect::set(&message, &(*key).into(), &(*value).into());
     }
     let _ = target.post_message(&message.into(), "*");
 }
 
+fn activate_slot(plugin: &str, slot: &ClientSlot) {
+    post_to_frame(
+        plugin,
+        "activate",
+        &[("slot", &slot.name), ("name", &slot.name), ("id", &slot.id)],
+    );
+}
+
+fn deactivate_panel(plugin: &str) {
+    post_to_frame(plugin, "deactivate", &[]);
+}
+
+fn push_theme(plugin: &str, theme: &str) {
+    post_to_frame(plugin, "theme", &[("theme", theme)]);
+}
+
 /// Replies to `ctx.action(action, payload)` from a plugin frame.
-fn post_action_result(id: &str, ok: bool, error: &str) {
-    let Some(frame) = web_sys::window()
-        .and_then(|window| window.document())
-        .and_then(|document| document.get_element_by_id("plugin-frame"))
-        .and_then(|element| element.dyn_into::<web_sys::HtmlIFrameElement>().ok())
-    else {
+fn post_action_result(plugin: &str, id: &str, ok: bool, error: &str) {
+    let Some(frame) = frame_for(plugin) else {
         return;
     };
     let Some(target) = frame.content_window() else {
@@ -304,6 +341,16 @@ fn post_action_result(id: &str, ok: bool, error: &str) {
     let _ = target.post_message(&message.into(), "*");
 }
 
+/// Applies the height a plugin asked for, within sane bounds for the panel.
+fn apply_frame_height(plugin: &str, height: f64) {
+    let Some(frame) = frame_for(plugin) else {
+        return;
+    };
+    let height = height.clamp(120.0, 640.0);
+    let element: &web_sys::HtmlElement = frame.as_ref();
+    let _ = element.style().set_property("height", &format!("{height}px"));
+}
+
 fn field_of(value: &wasm_bindgen::JsValue, key: &str) -> String {
     js_sys::Reflect::get(value, &key.into())
         .ok()
@@ -311,20 +358,45 @@ fn field_of(value: &wasm_bindgen::JsValue, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// First registered slot from a `slots` bridge message.
-fn first_slot(data: &wasm_bindgen::JsValue) -> Option<(String, String, String)> {
-    let slots = js_sys::Reflect::get(data, &"slots".into()).ok()?;
-    let slots: js_sys::Array = slots.dyn_into().ok()?;
-    let first = slots.get(0);
-    if first.is_undefined() || first.is_null() {
-        return None;
-    }
-    let slot = field_of(&first, "slot");
-    let id = field_of(&first, "id");
-    if id.is_empty() {
-        return None;
-    }
-    Some((slot, id, field_of(&first, "title")))
+fn number_of(value: &wasm_bindgen::JsValue, key: &str) -> f64 {
+    js_sys::Reflect::get(value, &key.into())
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.0)
+}
+
+/// Slots announced by a `slots` bridge message, ordered like the bridge does.
+fn read_slots(data: &wasm_bindgen::JsValue) -> Vec<ClientSlot> {
+    let Ok(slots) = js_sys::Reflect::get(data, &"slots".into()) else {
+        return Vec::new();
+    };
+    let Ok(slots) = slots.dyn_into::<js_sys::Array>() else {
+        return Vec::new();
+    };
+    let mut out: Vec<ClientSlot> = slots
+        .iter()
+        .filter_map(|value| {
+            let id = field_of(&value, "id");
+            if id.is_empty() {
+                return None;
+            }
+            let name = field_of(&value, "name");
+            let name = if name.is_empty() {
+                field_of(&value, "slot")
+            } else {
+                name
+            };
+            let title = field_of(&value, "title");
+            Some(ClientSlot {
+                name: if name.is_empty() { "panel".into() } else { name },
+                id: id.clone(),
+                title: if title.is_empty() { id } else { title },
+                order: number_of(&value, "order") as i64,
+            })
+        })
+        .collect();
+    out.sort_by(|left, right| left.order.cmp(&right.order).then(left.id.cmp(&right.id)));
+    out
 }
 
 /// Refresh the live plugin views after a control action (reload/toggle/install).
@@ -519,8 +591,48 @@ fn App() -> impl IntoView {
     let initial_panel = initial_panel();
     let panel_plugin = RwSignal::new(None::<ClientHalfInfo>);
     let pending_panel = RwSignal::new(initial_panel.clone());
-    let panel_slot = RwSignal::new(String::new());
+    // Plugin frames kept alive: eager (`immediately`) halves and already
+    // opened panels. A mounted frame is hidden, not unmounted, when the panel
+    // closes, so an eager half keeps running.
+    let mounted_frames = RwSignal::new(Vec::<String>::new());
+    let slots_by_plugin = RwSignal::new(BTreeMap::<String, Vec<ClientSlot>>::new());
+    let active_slot = RwSignal::new(None::<ClientSlot>);
     let panel_error = RwSignal::new(String::new());
+
+    let mount_frame = move |name: &str| {
+        let name = name.to_owned();
+        mounted_frames.update(|frames| {
+            if !frames.contains(&name) {
+                frames.push(name);
+            }
+        });
+    };
+
+    let open_panel = move |half: ClientHalfInfo| {
+        mount_frame(&half.name);
+        panel_error.set(String::new());
+        let known = slots_by_plugin
+            .get_untracked()
+            .get(&half.name)
+            .and_then(|slots| slots.first().cloned());
+        active_slot.set(known.clone());
+        if let Some(slot) = known {
+            activate_slot(&half.name, &slot);
+        }
+        panel_plugin.set(Some(half));
+    };
+
+    let close_panel = move || {
+        if let Some(half) = panel_plugin.get_untracked() {
+            deactivate_panel(&half.name);
+            if !half.immediately {
+                mounted_frames.update(|frames| frames.retain(|name| name != &half.name));
+            }
+        }
+        panel_plugin.set(None);
+        active_slot.set(None);
+        panel_error.set(String::new());
+    };
     let version = RwSignal::new(String::new());
     let custom_frame = web_sys::window()
         .and_then(|window| window.location().search().ok())
@@ -600,12 +712,15 @@ fn App() -> impl IntoView {
                     if let Ok(list) =
                         get_json::<ClientsResponse>("/v1/plugins/clients", &value).await
                     {
+                        for half in list.clients.iter().filter(|half| half.immediately) {
+                            mount_frame(&half.name);
+                        }
                         if let Some(name) = pending_panel.get_untracked()
                             && let Some(half) =
                                 list.clients.iter().find(|half| half.name == name).cloned()
                         {
                             pending_panel.set(None);
-                            panel_plugin.set(Some(half));
+                            open_panel(half);
                         }
                         clients.set(list.clients);
                     }
@@ -722,57 +837,87 @@ fn App() -> impl IntoView {
         });
     };
 
-    // One window listener for the whole page: the plugin iframe announces its
-    // slots and errors here, and the shell activates the first slot.
+    // One window listener for the whole page: every mounted plugin iframe
+    // announces its slots, errors and actions here.
     {
         let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
             let data = event.data();
             if !data.is_object() || field_of(&data, "ns") != "dshr-client" {
                 return;
             }
+            let plugin = field_of(&data, "plugin");
             match field_of(&data, "type").as_str() {
                 "slots" => {
-                    if let Some((slot, id, title)) = first_slot(&data) {
-                        panel_slot.set(title);
-                        post_to_panel("activate", Some(&slot), Some(&id));
+                    let slots = read_slots(&data);
+                    slots_by_plugin.update(|map| {
+                        map.insert(plugin.clone(), slots.clone());
+                    });
+                    let is_active = panel_plugin
+                        .get_untracked()
+                        .map(|half| half.name == plugin)
+                        .unwrap_or(false);
+                    if !is_active {
+                        return;
+                    }
+                    let known = active_slot
+                        .get_untracked()
+                        .and_then(|slot| slots.iter().find(|candidate| candidate.id == slot.id).cloned());
+                    let next = known.or_else(|| slots.first().cloned());
+                    if let Some(next) = next {
+                        if active_slot.get_untracked().as_ref().map(|slot| slot.id.clone())
+                            != Some(next.id.clone())
+                        {
+                            active_slot.set(Some(next.clone()));
+                            activate_slot(&plugin, &next);
+                        }
                     }
                 }
+                "resize" => apply_frame_height(&plugin, number_of(&data, "height")),
                 "error" => {
-                    let message = field_of(&data, "message");
-                    panel_error.set(if message.is_empty() {
-                        "plugin error".into()
-                    } else {
-                        message
-                    });
+                    let is_active = panel_plugin
+                        .get_untracked()
+                        .map(|half| half.name == plugin)
+                        .unwrap_or(false);
+                    if is_active {
+                        let message = field_of(&data, "message");
+                        panel_error.set(if message.is_empty() {
+                            "plugin error".into()
+                        } else {
+                            message
+                        });
+                    }
                 }
                 "action" => {
                     let action = field_of(&data, "action");
                     let id = field_of(&data, "id");
                     match action.as_str() {
                         "close" => {
-                            post_action_result(&id, true, "");
-                            panel_plugin.set(None);
+                            post_action_result(&plugin, &id, true, "");
+                            close_panel();
                         }
                         "reload" => {
                             let token_value = token.get_untracked();
-                            let name = panel_plugin
-                                .get_untracked()
-                                .map(|half| half.name)
-                                .unwrap_or_default();
+                            let name = plugin.clone();
+                            let reply = plugin.clone();
                             spawn_local(async move {
                                 let body = serde_json::json!({"name": name});
                                 let result =
                                     post_json::<Value>("/v1/plugins/reload", &token_value, &body)
                                         .await;
                                 match &result {
-                                    Ok(_) => post_action_result(&id, true, ""),
-                                    Err(error) => post_action_result(&id, false, error),
+                                    Ok(_) => post_action_result(&reply, &id, true, ""),
+                                    Err(error) => post_action_result(&reply, &id, false, error),
                                 }
                                 refresh_plugin_views(token_value, live_plugins, clients);
                             });
                         }
                         other => {
-                            post_action_result(&id, false, &format!("unsupported action '{other}'"));
+                            post_action_result(
+                                &plugin,
+                                &id,
+                                false,
+                                &format!("unsupported action '{other}'"),
+                            );
                         }
                     }
                 }
@@ -1024,6 +1169,10 @@ fn App() -> impl IntoView {
                 let next = if theme.get_untracked() == "dark" { "light" } else { "dark" };
                 theme.set(next.to_owned());
                 apply_theme(next.to_owned());
+                // Live panels follow the shell theme without a reload.
+                for name in mounted_frames.get_untracked() {
+                    push_theme(&name, next);
+                }
             }>"Theme"</button>
             <span id="version">{move || version.get()}</span>
             <span id="status">{move || status.get()}</span>
@@ -1184,11 +1333,7 @@ fn App() -> impl IntoView {
                                     client.entry,
                                     state,
                                 )}
-                                <button on:click=move |_| {
-                                    panel_error.set(String::new());
-                                    panel_slot.set(String::new());
-                                    panel_plugin.set(Some(open.clone()));
-                                }>"Open"</button>
+                                <button on:click=move |_| open_panel(open.clone())>"Open"</button>
                                 <button on:click=move |_| reload_plugin(reload_name.clone())>"Reload"</button>
                             </li>
                         }
@@ -1222,30 +1367,95 @@ fn App() -> impl IntoView {
                 </ul>
             </dialog>
         })}
-        {move || panel_plugin.get().map(|client| {
-            let name = client.name.clone();
-            let encoded_name = js_sys::encode_uri_component(&name).as_string().unwrap_or_default();
-            let encoded_token = js_sys::encode_uri_component(&token.get()).as_string().unwrap_or_default();
-            let encoded_theme = js_sys::encode_uri_component(&theme.get()).as_string().unwrap_or_default();
-            let src = format!(
-                "/v1/plugins/{encoded_name}/host?token={encoded_token}&theme={encoded_theme}"
-            );
+        {
+            let stage_open = move || panel_plugin.get().is_some();
             view! {
-                <dialog open>
-                    <h3>{move || format!("{} — {}", name, panel_slot.get())}</h3>
-                    <p class="tool">{move || panel_error.get()}</p>
-                    <iframe
-                        id="plugin-frame"
-                        class="plugin-frame"
-                        sandbox="allow-scripts"
-                        src=src
-                    ></iframe>
-                    <div class="row">
-                        <button on:click=move |_| panel_plugin.set(None)>"Close"</button>
+                <div
+                    id="plugin-stage"
+                    class=move || if stage_open() { "plugin-stage open" } else { "plugin-stage" }
+                >
+                    <div class="plugin-stage-panel">
+                        {move || panel_plugin.get().map(|half| {
+                            let tabs_plugin = half.name.clone();
+                            let title_name = half.name.clone();
+                            view! {
+                                <div class="plugin-stage-head">
+                                    <h3>
+                                        {move || {
+                                            let slot = active_slot
+                                                .get()
+                                                .map(|slot| format!(" — {}", slot.title))
+                                                .unwrap_or_default();
+                                            format!("{title_name}{slot}")
+                                        }}
+                                    </h3>
+                                    <div class="row plugin-tabs">
+                                        {move || slots_by_plugin
+                                            .get()
+                                            .get(&tabs_plugin)
+                                            .cloned()
+                                            .unwrap_or_default()
+                                            .into_iter()
+                                            .map(|slot| {
+                                                let plugin = tabs_plugin.clone();
+                                                let clicked = slot.clone();
+                                                let is_active = {
+                                                    let id = slot.id.clone();
+                                                    move || active_slot.get().map(|slot| slot.id == id).unwrap_or(false)
+                                                };
+                                                view! {
+                                                    <button
+                                                        class:active=is_active
+                                                        on:click=move |_| {
+                                                            active_slot.set(Some(clicked.clone()));
+                                                            activate_slot(&plugin, &clicked);
+                                                        }
+                                                    >
+                                                        {format!("{} · {}", slot.name, slot.title)}
+                                                    </button>
+                                                }
+                                            })
+                                            .collect_view()}
+                                        <button on:click=move |_| close_panel()>"Close"</button>
+                                    </div>
+                                    <p class="tool">{move || panel_error.get()}</p>
+                                </div>
+                            }
+                        })}
+                        <div class="plugin-stage-body">
+                            {move || mounted_frames.get().into_iter().filter_map(|name| {
+                                let half = clients.get().into_iter().find(|half| half.name == name)?;
+                                let encoded_name = js_sys::encode_uri_component(&half.name).as_string().unwrap_or_default();
+                                let token_value = token.get_untracked();
+                                let encoded_token = js_sys::encode_uri_component(&token_value).as_string().unwrap_or_default();
+                                let encoded_theme = js_sys::encode_uri_component(&theme.get_untracked()).as_string().unwrap_or_default();
+                                let src = format!(
+                                    "/v1/plugins/{encoded_name}/host?token={encoded_token}&theme={encoded_theme}"
+                                );
+                                let frame_id = frame_id(&half.name);
+                                let active_name = half.name.clone();
+                                let label = format!("plugin panel: {}", half.name);
+                                Some(view! {
+                                    <iframe
+                                        id=frame_id
+                                        title=label
+                                        class=move || {
+                                            let active = panel_plugin
+                                                .get()
+                                                .map(|current| current.name == active_name)
+                                                .unwrap_or(false);
+                                            if active { "plugin-frame" } else { "plugin-frame hidden" }
+                                        }
+                                        sandbox="allow-scripts"
+                                        src=src
+                                    ></iframe>
+                                })
+                            }).collect_view()}
+                        </div>
                     </div>
-                </dialog>
+                </div>
             }
-        })}
+        }
         {move || question.get().map(|info| view! {
             <dialog open>
                 <h3>"Question"</h3>
