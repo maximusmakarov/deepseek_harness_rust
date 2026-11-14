@@ -1324,10 +1324,12 @@ name = "dshr-cordis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "dshr-config",
  "dshr-core",
  "dshr-mcp",
  "dshr-tools",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1558,6 +1560,7 @@ dependencies = [
  "bytes",
  "dshr-agent",
  "dshr-compaction",
+ "dshr-cordis",
  "dshr-core",
  "dshr-llm",
  "dshr-llm-mock",

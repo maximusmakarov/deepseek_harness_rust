@@ -14,10 +14,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dshr_mcp::{McpServerSpec, connect_server};
+use dshr_mcp::{McpBackend, McpServerSpec, connect_server};
 use dshr_tools::{Tool, ToolCtx, ToolError, ToolOutcome};
 use serde_json::Value;
 use thiserror::Error;
+
+pub mod client;
+pub mod manager;
+
+pub use client::{ClientHalf, ClientHalfError, discover_client_half};
+pub use dshr_config::CordisGrants;
+pub use manager::{CordisManager, PluginEvent, PluginStatus, WatchOptions};
 
 const BOOTSTRAP: &str = include_str!("bootstrap.mjs");
 
@@ -28,9 +35,12 @@ pub enum CordisError {
 
     #[error("cordis sidecar: {0}")]
     Sidecar(String),
+
+    #[error("plugin '{0}' is not configured")]
+    NotConfigured(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CordisPluginSpec {
     pub name: String,
     pub entry: PathBuf,
@@ -39,12 +49,56 @@ pub struct CordisPluginSpec {
     pub grants: dshr_config::CordisGrants,
 }
 
-/// Connects a Cordis plugin sidecar and returns tools named
+impl CordisPluginSpec {
+    /// Absolute plugin package directory: the entry itself when it points at a
+    /// package directory, otherwise the entry's parent directory.
+    #[must_use]
+    pub fn package_dir(&self) -> PathBuf {
+        let entry = if self.entry.is_absolute() {
+            self.entry.clone()
+        } else {
+            self.root.join(&self.entry)
+        };
+        if entry.is_dir() {
+            entry
+        } else {
+            entry.parent().map(Path::to_path_buf).unwrap_or(entry)
+        }
+    }
+
+    /// Entry path resolved against the workspace root.
+    #[must_use]
+    pub fn resolved_entry(&self) -> PathBuf {
+        if self.entry.is_absolute() {
+            self.entry.clone()
+        } else {
+            self.root.join(&self.entry)
+        }
+    }
+}
+
+/// A live Cordis sidecar together with the tools it registered.
+///
+/// Keeping the connection alive keeps the node process alive: the backend owns
+/// the child with `kill_on_drop`. Hot reload drops the connection (after
+/// removing its tools) and connects a fresh process.
+pub struct CordisConnection {
+    pub backend: McpBackend,
+    pub tools: Vec<Arc<dyn Tool>>,
+}
+
+impl std::fmt::Debug for CordisConnection {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CordisConnection")
+            .field("tools", &self.tools.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Connects a Cordis plugin sidecar and returns its tools, named
 /// `cordis__<plugin>__<tool>`.
-pub async fn connect(
-    spec: CordisPluginSpec,
-    home: &Path,
-) -> Result<Vec<Arc<dyn Tool>>, CordisError> {
+pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnection, CordisError> {
     let bootstrap = bootstrap_path(home);
     if let Some(parent) = bootstrap.parent() {
         std::fs::create_dir_all(parent).map_err(|error| CordisError::Io(error.to_string()))?;
@@ -55,12 +109,8 @@ pub async fn connect(
             .map_err(|error| CordisError::Io(error.to_string()))?;
     }
     let node = std::env::var("DSHR_NODE").unwrap_or_else(|_| "node".to_owned());
-    let entry = if spec.entry.is_absolute() {
-        spec.entry.clone()
-    } else {
-        spec.root.join(&spec.entry)
-    };
-    let mut env = spec.env;
+    let entry = spec.resolved_entry();
+    let mut env = spec.env.clone();
     env.insert("DSHR_CORDIS_ROOT".into(), spec.root.display().to_string());
     env.insert(
         "DSHR_CORDIS_GRANTS".into(),
@@ -76,10 +126,10 @@ pub async fn connect(
         headers: BTreeMap::new(),
         oauth: None,
     };
-    let (_backend, tools) = connect_server(server)
+    let (backend, tools) = connect_server(server)
         .await
         .map_err(|error| CordisError::Sidecar(error.to_string()))?;
-    Ok(tools
+    let tools = tools
         .into_iter()
         .map(|tool| {
             let prefix = format!("mcp__cordis-{}__", spec.name);
@@ -94,7 +144,8 @@ pub async fn connect(
                 home: home.to_path_buf(),
             }) as Arc<dyn Tool>
         })
-        .collect())
+        .collect();
+    Ok(CordisConnection { backend, tools })
 }
 
 #[must_use]

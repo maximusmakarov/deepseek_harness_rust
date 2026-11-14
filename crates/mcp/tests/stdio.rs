@@ -25,7 +25,7 @@ async fn connects_lists_and_calls_tools() {
     assert_eq!(tools.len(), 6);
     assert_eq!(tools[0].name(), "mcp__mock__echo");
 
-    let mut registry = ToolRegistry::new();
+    let registry = ToolRegistry::new();
     let tool: Arc<dyn Tool> = tools[0].clone();
     registry.register_arc(tool);
     let ctx = ToolCtx {

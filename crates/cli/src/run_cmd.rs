@@ -155,7 +155,7 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
         std::path::Path::new(&cwd),
         &config.plugins,
     )?;
-    crate::cordis_setup::register(&mut tools, &config, loader.home()).await;
+    crate::cordis_setup::register(&tools, &config, loader.home()).await;
     crate::lsp_setup::register(&mut tools, &config, std::path::PathBuf::from(&cwd));
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {
@@ -208,7 +208,7 @@ pub async fn execute(loader: &ConfigLoader, args: &RunArgs) -> Result<u8> {
     };
     let base_tools = Arc::new(tools);
     let child_tools = Arc::clone(&base_tools);
-    let mut parent_tools = (*base_tools).clone();
+    let parent_tools = (*base_tools).clone();
     let runner: Arc<dyn SubagentRunner> =
         Arc::new(crate::subagent_runner::AgentSubagentRunner::new(
             Arc::clone(&provider),

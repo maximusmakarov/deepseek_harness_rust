@@ -61,7 +61,7 @@ pub async fn execute(loader: &ConfigLoader, args: &AcpArgs) -> Result<u8> {
     dshr_office::register_tools(&mut tools);
     dshr_browser::register_tools(&mut tools, Arc::new(dshr_browser::BrowserManager::new()));
     crate::wasm_setup::register(&mut tools, loader.home(), &cwd, &config.plugins)?;
-    crate::cordis_setup::register(&mut tools, &config, loader.home()).await;
+    crate::cordis_setup::register(&tools, &config, loader.home()).await;
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {
             SandboxMode::DangerFull

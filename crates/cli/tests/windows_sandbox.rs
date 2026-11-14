@@ -42,7 +42,10 @@ fn appcontainer_allows_workspace_write_and_denies_outside() {
         "inside write failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(std::fs::read_to_string(&inside).expect("inside").trim(), "ok");
+    assert_eq!(
+        std::fs::read_to_string(&inside).expect("inside").trim(),
+        "ok"
+    );
 
     let outside = dir.path().join("outside.txt");
     let _ = run(

@@ -35,7 +35,7 @@ pub async fn execute(loader: &ConfigLoader, _args: &PromptArgs) -> Result<u8> {
         std::path::Path::new(&cwd),
         &config.plugins,
     )?;
-    crate::cordis_setup::register(&mut tools, &config, loader.home()).await;
+    crate::cordis_setup::register(&tools, &config, loader.home()).await;
 
     let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
     let prompt = crate::run_cmd::build_system_prompt(

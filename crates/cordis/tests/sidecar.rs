@@ -32,7 +32,7 @@ export default {
     )
     .expect("plugin");
 
-    let tools = connect(
+    let connection = connect(
         CordisPluginSpec {
             name: "demo".into(),
             entry: "plugin.mjs".into(),
@@ -44,6 +44,7 @@ export default {
     )
     .await
     .expect("connect");
+    let tools = connection.tools;
     let echo = tools
         .iter()
         .find(|tool| tool.name() == "cordis__demo__echo")
@@ -96,7 +97,7 @@ export default {
     )
     .expect("plugin");
 
-    let tools = connect(
+    let connection = connect(
         CordisPluginSpec {
             name: "demo".into(),
             entry: "plugin.mjs".into(),
@@ -111,6 +112,7 @@ export default {
     )
     .await
     .expect("connect");
+    let tools = connection.tools;
     let read = tools
         .iter()
         .find(|tool| tool.name() == "cordis__demo__read")
