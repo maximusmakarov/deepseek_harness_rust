@@ -78,6 +78,17 @@ P2: ghcr-хостинг бутылок, прогон brew/desktop CI на тег
 - Headless Chrome: light-тема, версия, Plugins; `/v1/tools`, `/v1/plugins/catalog`,
   `/v1/plugins/ratings` отвечают.
 
+## Итог 60 раундов
+
+Закрыты: desktop (трей, профили/композиция бандлов, порт/LAN, папка/drag-and-drop,
+терминал с шимами, обновления stable/beta + установка, recovery-окно с профилями
+и плагинами, режимы окна/материал, тема), plugins (npm/Cordis install/update/
+enable/disable, Web-менеджер, featured-каталог, оценки, Cordis audit/fs-гранты),
+host (`ask_user` в TUI/Web/ACP, `apply_patch`, LLM-заголовки везде, elicitation
+stdio/HTTP/GET-SSE, DSH import, persistent bash, TUI diff), дистрибутивы
+(детерминированные архивы, reproducible-бинарь, bottles, DMG, Linux/Windows
+desktop-джобы, notarization-тулинг).
+
 ## Известные блокеры
 
 - **GHCR-бутылки:** нет tap-репозитория/учётных данных пакетов; бутылки публикуются
