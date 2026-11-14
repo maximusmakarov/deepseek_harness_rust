@@ -60,6 +60,7 @@ fn state(dir: &std::path::Path) -> AppState {
             home: PathBuf::from("."),
             profile: "default".into(),
             cordis_plugins: Vec::new(),
+            plugins: None,
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),

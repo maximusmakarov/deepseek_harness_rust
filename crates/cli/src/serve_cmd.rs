@@ -60,6 +60,10 @@ pub struct ServeArgs {
     /// Requests per minute per bearer token (0 disables)
     #[arg(long, env = "DSHR_RATE_LIMIT", default_value_t = 0)]
     pub rate_limit: u32,
+
+    /// Disable Cordis plugin hot reload (entry and config watching)
+    #[arg(long)]
+    pub no_watch_plugins: bool,
 }
 
 pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
@@ -95,7 +99,6 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
         std::path::Path::new(&cwd),
         &config.plugins,
     )?;
-    crate::cordis_setup::register(&mut tools, &config, loader.home()).await;
     crate::lsp_setup::register(&mut tools, &config, cwd.clone());
     let sandbox = Arc::new(Sandbox::platform(SandboxPolicy {
         mode: if args.danger {
@@ -113,13 +116,44 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
     ));
     dshr_jobs::register_tools(&mut tools, jobs);
 
-    let tools = tools.filtered(&config.tools.allowed, &config.tools.denied);
+    // Plugin tools are registered after the serving registry is filtered, so
+    // the supervisor must apply the same allow/deny lists itself.
+    let serving = Arc::new(tools.filtered(&config.tools.allowed, &config.tools.denied));
+    let manager = if crate::runtime_flags::safe_mode() {
+        None
+    } else {
+        let manager = dshr_cordis::CordisManager::new(
+            Arc::clone(&serving),
+            loader.home().to_path_buf(),
+            cwd.clone(),
+            dshr_cordis::manager::ToolFilter {
+                allowed: config.tools.allowed.clone(),
+                denied: config.tools.denied.clone(),
+            },
+        );
+        manager.sync(crate::cordis_setup::specs(&config)).await;
+        if !args.no_watch_plugins {
+            let watch_loader = loader.clone();
+            let refresh = Arc::new(move || {
+                watch_loader
+                    .load()
+                    .map(|loaded| crate::cordis_setup::specs(&loaded.config))
+                    .unwrap_or_default()
+            });
+            let _watch = manager.spawn_watch(dshr_cordis::WatchOptions {
+                interval: std::time::Duration::from_millis(750),
+                config_files: vec![loader.profile_path(), loader.user_path()],
+                refresh: Some(refresh),
+            });
+        }
+        Some(manager)
+    };
     let system_prompt = build_system_prompt(
         loader.home(),
         &cwd_string,
         provider.name(),
         provider.model(),
-        &tools,
+        &serving,
         &skills,
     );
     let token = args
@@ -161,9 +195,10 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
                 .iter()
                 .map(|plugin| (plugin.name.clone(), plugin.enabled))
                 .collect(),
+            plugins: manager,
         },
         provider,
-        Arc::new(tools),
+        serving,
         store,
     )
     .await

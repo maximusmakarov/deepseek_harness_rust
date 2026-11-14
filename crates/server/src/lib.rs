@@ -54,6 +54,8 @@ pub struct ServerConfig {
     pub profile: String,
     /// Cordis plugins at startup (name, enabled).
     pub cordis_plugins: Vec<(String, bool)>,
+    /// Live plugin supervisor; `None` in tests and one-shot embeddings.
+    pub plugins: Option<Arc<dshr_cordis::CordisManager>>,
 }
 
 #[derive(Clone)]
@@ -346,6 +348,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/review", post(add_review))
         .route("/v1/plugins/install", post(install_plugin))
         .route("/v1/plugins/installed", get(installed_plugins))
+        .route("/v1/plugins/status", get(plugin_status))
+        .route("/v1/plugins/reload", post(reload_plugins))
+        .route("/v1/plugins/clients", get(plugin_clients))
+        .route("/v1/plugins/{name}/client.js", get(plugin_client_bundle))
+        .route("/v1/plugins/{name}/host", get(plugin_client_host))
         .route("/v1/plugins/toggle", post(toggle_plugin))
         .route("/v1/plugins/remove", post(remove_plugin))
         .route("/v1/sessions", get(list_sessions).post(create_session))
@@ -705,12 +712,21 @@ async fn installed_plugins(
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
     authorize(&state, &headers, None)?;
-    let plugins: Vec<Value> = state
-        .config
-        .cordis_plugins
-        .iter()
-        .map(|(name, enabled)| json!({"name": name, "enabled": enabled}))
-        .collect();
+    // Prefer the live supervisor: it also knows plugins added or toggled while
+    // the server was running (the config watcher reconciles them).
+    let plugins: Vec<Value> = match state.config.plugins.as_ref() {
+        Some(manager) => manager
+            .statuses()
+            .into_iter()
+            .map(|plugin| json!({"name": plugin.name, "enabled": plugin.enabled}))
+            .collect(),
+        None => state
+            .config
+            .cordis_plugins
+            .iter()
+            .map(|(name, enabled)| json!({"name": name, "enabled": enabled}))
+            .collect(),
+    };
     Ok(Json(json!({"plugins": plugins})))
 }
 
@@ -749,6 +765,175 @@ async fn remove_plugin(
     }
     run_plugin_cli(&state, &["plugin", "npm", "remove", &body.name]).await
 }
+
+/// Cordis plugin control: live status and hot reload.
+///
+/// Reloading restarts one sidecar (or all of them) and swaps its tools in the
+/// serving registry; agent sessions that are already running pick up the new
+/// generation on their next tool call, because they hold the same registry.
+async fn plugin_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let plugins = state
+        .config
+        .plugins
+        .as_ref()
+        .map(|manager| manager.statuses())
+        .unwrap_or_default();
+    Ok(Json(json!({"plugins": plugins})))
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReloadPlugins {
+    #[serde(default)]
+    name: Option<String>,
+}
+
+async fn reload_plugins(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ReloadPlugins>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    authorize(&state, &headers, None)
+        .map_err(|status| (status, Json(json!({"error": "unauthorized"}))))?;
+    let Some(manager) = state.config.plugins.as_ref() else {
+        return Err((
+            StatusCode::NOT_IMPLEMENTED,
+            Json(json!({"error": "no plugin supervisor is attached to this server"})),
+        ));
+    };
+    let errors = match body.name {
+        Some(name) => {
+            if !valid_plugin_name(&name) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "invalid plugin name"})),
+                ));
+            }
+            match manager.reload(&name).await {
+                Ok(()) => Vec::new(),
+                Err(dshr_cordis::CordisError::NotConfigured(_)) => {
+                    return Err((
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"error": format!("plugin '{name}' is not configured")})),
+                    ));
+                }
+                Err(error) => vec![json!({"plugin": name, "error": error.to_string()})],
+            }
+        }
+        None => manager
+            .reload_all()
+            .await
+            .into_iter()
+            .map(|(plugin, error)| json!({"plugin": plugin, "error": error}))
+            .collect(),
+    };
+    let status = if errors.is_empty() {
+        StatusCode::OK
+    } else {
+        StatusCode::BAD_GATEWAY
+    };
+    let payload = json!({"plugins": manager.statuses(), "errors": errors});
+    if status == StatusCode::OK {
+        Ok(Json(payload))
+    } else {
+        Err((status, Json(payload)))
+    }
+}
+
+/// Client halves (`dsh.client`) of the configured plugins.
+async fn plugin_clients(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let (clients, errors) = state
+        .config
+        .plugins
+        .as_ref()
+        .map(|manager| manager.client_halves())
+        .unwrap_or_default();
+    Ok(Json(json!({
+        "clients": clients,
+        "errors": errors.into_iter().map(|(plugin, error)| json!({"plugin": plugin, "error": error})).collect::<Vec<_>>()
+    })))
+}
+
+/// Serves the plugin bundle for debugging; the host page inlines it instead.
+async fn plugin_client_bundle(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Response, StatusCode> {
+    authorize(&state, &headers, query.get("token").map(String::as_str))?;
+    let manager = state.config.plugins.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let half = manager
+        .client_half(&name)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let bytes = tokio::fs::read(&half.path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((
+        [
+            (
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            ),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ClientHostQuery {
+    #[serde(default)]
+    theme: Option<String>,
+    #[serde(default)]
+    token: Option<String>,
+}
+
+/// Serves the sandboxed host page that runs one client half.
+async fn plugin_client_host(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+    Query(query): Query<ClientHostQuery>,
+) -> Result<Response, StatusCode> {
+    authorize(&state, &headers, query.token.as_deref())?;
+    let manager = state.config.plugins.as_ref().ok_or(StatusCode::NOT_FOUND)?;
+    let half = manager
+        .client_half(&name)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let bundle = tokio::fs::read(&half.path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let theme = query.theme.as_deref().unwrap_or("dark");
+    let page = dshr_cordis::client::host_page(&half, &bundle, theme);
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+            (header::CONTENT_SECURITY_POLICY, CLIENT_HOST_CSP),
+            (
+                header::HeaderName::from_static("x-frame-options"),
+                "SAMEORIGIN",
+            ),
+        ],
+        page,
+    )
+        .into_response())
+}
+
+/// The host page runs with an opaque origin and must stay network-free; the
+/// bundle arrives base64-inlined and executes from a blob URL.
+const CLIENT_HOST_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' blob:; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
 async fn run_plugin_cli(state: &AppState, arguments: &[&str]) -> Result<Json<Value>, StatusCode> {
     let executable = std::env::current_exe().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
