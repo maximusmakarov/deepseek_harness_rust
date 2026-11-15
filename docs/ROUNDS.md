@@ -576,11 +576,27 @@ release-бинарь воспроизводим.
     C-full (design-system, SlotMap-семантика, React-контекст шелла) —
     решение владельца.
 
+- 88: **решение по C-full и полная верификация** — записан
+  [ADR-041](adr/041-c-full-decision.md): C-full (полный design-system,
+  SlotMap-семантика, React-контекст шелла, host-сервисы
+  `pluginManager`/`settings`, streaming) **отложен**; дальнейшие шаги —
+  точечные инкременты по спросу, критерий возврата — ≥3 реальных плагина,
+  которым не хватает этих возможностей (сейчас таких нет). Полный
+  `scripts/check.sh` зелёный («all gates passed»), reproducible-build
+  проверен, release-артефакты пересобраны и проверены (`.app` проходит smoke
+  80/80).
+
+Решение по полной React-совместимости зафиксировано в
+[ADR-041](adr/041-c-full-decision.md): C-full отложен, кандидаты следующих
+точечных инкрементов — host-сервисы `pluginManager`/`settings` (закрывают UI
+`dsh-plugin-debugging`/`dsh-plugin-studio`), SlotMap PoC `conversation.*` и
+streaming-прокси.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–87 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–88 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
