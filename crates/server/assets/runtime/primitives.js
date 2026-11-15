@@ -2029,8 +2029,10 @@
   // (micromark/mdast, shiki highlighting, KaTeX, footnotes) is not bundled; see
   // the module header.
   function sanitizeHref(url) {
+    // Reference sanitizeUrl: absolute http(s)/mailto only; relative and other
+    // protocols render as plain text (no opener vocabulary in dshr).
     try {
-      var parsed = new URL(url, "https://dshr.invalid/");
+      var parsed = new URL(String(url || ""));
       if (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:") {
         return parsed.href;
       }

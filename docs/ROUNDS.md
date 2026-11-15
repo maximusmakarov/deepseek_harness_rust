@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–96)
+# Журнал раундов паритета (1–97)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -857,16 +857,49 @@ streaming-прокси.
     16/16; общий рантайм-артефакт вырос с **405 323** до **415 972 байт**.
   - Границы C2.4: детальная `useMenuSubmenu`-механика focus-transition/
     page-anchor остаётся упрощённой (у нас CSS/JS-позиции вместо полного
-    reference-движка); `MarkdownText`/`JsonBlock` остаются упрощёнными
-    dshr-расширениями (upstream требует shiki/katex/mdast); store
+    reference-движка); `MarkdownText`/`JsonBlock` на конец C2.4 оставались
+    упрощёнными dshr-расширениями (upstream требует shiki/katex/mdast); store
     seats/renderer, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
     реальных shell-сайтов — C-full.
+
+- 97: **C2.5** — reference `JsonBlock` и API-совместимое подмножество
+  `MarkdownText`
+  ([ADR-040](adr/040-react-client-half.md) §«C2.5», [PLUGINS.md](PLUGINS.md)).
+  Закрыт markdown-долг C2.1–C2.4 настолько, насколько это возможно без
+  upstream-стека:
+  - **`JsonBlock`** портирован из `markdown/JsonBlock.tsx`: collapsible
+    (▾/▸), props `label`/`payload`/`defaultOpen`/`truncatedLabel`, cap
+    20 000 символов с хвостом «truncated», безопасный `JSON.stringify` с
+    fallback на `String` (циклические payload'ы и `undefined`);
+  - **`MarkdownText`** получил reference-поверхность
+    (`text`/`streaming`/`labels`/`fileMentions`/`pathImages`/`variant`/
+    `omitHtml`/`textInteractionSource`) и dependency-free рендерер
+    GFM-подмножества: заголовки 1–6, абзацы, ul/ol, fenced code, blockquote,
+    hr, inline `code`/`**bold**`/`*italic*`/`~~strike~~`, ссылки и изображения
+    (только `http(s)`/`mailto`; `javascript:`/`data:` отбрасываются, а относительные
+    изображения не рендерятся), raw HTML не рендерится (как при `omitHtml`);
+    `variant="compact"` даёт `data-markdown-variant`/`data-text-interaction-source`;
+  - **не** портирован upstream-стек: micromark/mdast, shiki-подсветка, KaTeX,
+    footnotes и инкрементальный streaming — записано как ограничение
+    (MarkdownText — не полный рендерер DSH, а API-совместимое подмножество);
+  - C2-probe теперь рендерит `MarkdownText` (заголовок, bold, fenced code,
+    ссылка) и `JsonBlock` (expanded JSON) и проверяет DOM/текст
+    (`.dshr-markdown h1`, `.dshr-markdown pre code`, `.dshr-json-block-body`).
+  - Проверки: smoke **82/82** (C2-probe с MarkdownText/JsonBlock), bridge
+    harness 102, cordis lib 26, server `plugins_live` 16, workspace 365 passed
+    + 3 ignored (desktop 21, итого 386), web-e2e 16/16; общий
+    рантайм-артефакт вырос с **415 972** до **424 801 байта**.
+  - Границы C2.5: markdown-стек upstream (mdast/shiki/KaTeX/footnotes/
+    streaming) не входит; детальная `useMenuSubmenu`-механика
+    focus-transition/page-anchor остаётся упрощённой; store seats/renderer,
+    `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
+    shell-сайтов — C-full; `Spinner`/`useAnchoredPosition` — dshr-расширения.
 
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–96 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–97 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -927,9 +960,13 @@ one-level submenu, dismissal; рантайм-артефакт 405 323 байта
 (**C2.4**) закрыл reference submenu page-layout (single-page back-row с
 `data-menu-back`, Escape/ArrowLeft с фокусом на родителе), hover grace
 200 мс и `MenuGroup`/`observeStickyMenuGroups` (sticky-заголовки через
-IntersectionObserver/ResizeObserver; рантайм-артефакт 415 972 байта), поэтому
-остаток — упрощённая детальная `useMenuSubmenu`-механика
-focus-transition/page-anchor, markdown-компоненты,
+IntersectionObserver/ResizeObserver; рантайм-артефакт 415 972 байта), а раунд
+97 (**C2.5**) портировал `JsonBlock` из reference и заменил упрощённый
+markdown-шим API-совместимым dependency-free подмножеством `MarkdownText`
+(GFM-подмножество, sanitize URL, reference-поверхность props; рантайм-артефакт
+424 801 байт), поэтому остаток — упрощённая детальная `useMenuSubmenu`-механика
+focus-transition/page-anchor, upstream markdown-стек
+(mdast/shiki/KaTeX/footnotes/streaming не входит),
 store/renderer, `chain`/`hoc`, `ownerProps` от реальных
 shell-сайтов.
 
@@ -941,7 +978,7 @@ shell-сайтов.
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite/C2/C2.1–C2.4-ограничения: с раунда 93 (C2.1) design-system **портирован из
+- C-lite/C2/C2.1–C2.5-ограничения: с раунда 93 (C2.1) design-system **портирован из
   reference-исходников** (`deepseek-ai/deepseek-harness` @ `39163dd`,
   `packages/client/ui-primitives/src`): атомы `Button`, `Input`, `Switch`,
   `Checkbox`, `Tag`, `Pill`, `SegmentedControl`, `SegmentedTabs`,
@@ -952,10 +989,13 @@ shell-сайтов.
   (раунд 95), а в C2.4 (раунд 96) — reference submenu page-layout
   (single-page back-row) с hover grace и `MenuGroup`/`observeStickyMenuGroups`
   (полный `Tooltip` закрыт в C2.2,
-  раунд 94), поэтому остаётся только упрощённая детальная
-  `useMenuSubmenu`-механика focus-transition/page-anchor; `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
-  (upstream требует shiki/katex/mdast), `Spinner`/`useAnchoredPosition` —
-  тоже dshr-расширения; `wide`
+  раунд 94), а раунд 97 (C2.5) закрыл markdown-долг настолько, насколько это
+  возможно без upstream-стека: `JsonBlock` — порт из reference, `MarkdownText` —
+  API-совместимое dependency-free GFM-подмножество с reference-поверхностью
+  props (upstream micromark/mdast, shiki, KaTeX, footnotes и инкрементальный
+  streaming **не** входят), поэтому остаётся только упрощённая детальная
+  `useMenuSubmenu`-механика focus-transition/page-anchor; `Spinner`/`useAnchoredPosition` —
+  dshr-расширения; `wide`
   в host-state сейчас всегда true, conformance-набор — **n=11**
   (цель ADR-013 §6 8–12 достигнута; остальные smoke-половины синтетические),
   host-сервисов `pluginManager`/`settings` нет, но с раунда 89 (C1.2) UI
@@ -991,11 +1031,14 @@ shell-сайтов.
   204 иконки портированы из reference, а в C2.2 (раунд 94) доведён полный
   `Tooltip`, в C2.3 (раунд 95) — ядро `Menu`/`MenuItemButton`, в C2.4
   (раунд 96) — submenu page-layout с hover grace и `MenuGroup`/
-  `observeStickyMenuGroups`; остаются упрощённая детальная
-  `useMenuSubmenu`-механика focus-transition/page-anchor и markdown-компоненты;
+  `observeStickyMenuGroups`, а в C2.5 (раунд 97) — `JsonBlock` из reference и
+  dependency-free GFM-подмножество `MarkdownText` с reference-поверхностью props;
+  остаются упрощённая детальная
+  `useMenuSubmenu`-механика focus-transition/page-anchor и upstream markdown-стек
+  (mdast/shiki/KaTeX/footnotes/streaming);
   следующий кандидат reference-работы — store seats/renderer,
   chain dispatch/hoc-nesting и ownerProps от реальных shell-сайтов.
-- C2.1–C2.4-остатки (раунды 93–96): портированы атомы и все 204 иконки;
+- C2.1–C2.5-остатки (раунды 93–97): портированы атомы и все 204 иконки;
   полный `Tooltip` доведён в C2.2, а в C2.3 — ядро `Menu`
   (`MenuItemButton`, data/компонентные ряды, separators/labels, reserve-icon,
   selection `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,
@@ -1005,11 +1048,15 @@ shell-сайтов.
   page-layout (single-page back-row `data-menu-back`, Escape/ArrowLeft на
   родителя), 200-мс hover grace между карточками и
   `MenuGroup`/`observeStickyMenuGroups` (sticky-заголовки через
-  IntersectionObserver/ResizeObserver). Остаётся упрощённой детальная
+  IntersectionObserver/ResizeObserver), а в C2.5 (раунд 97) — `JsonBlock`
+  (collapsible, cap 20 000 символов, `truncatedLabel`) и API-совместимое
+  dependency-free GFM-подмножество `MarkdownText` (заголовки/списки/fenced
+  code/blockquote/hr/inline-стили, sanitize URL, raw HTML не рендерится).
+  Остаётся упрощённой детальная
   `useMenuSubmenu`-механика focus-transition/page-anchor (у нас CSS/JS-позиции);
-  `MarkdownText`/`JsonBlock`
-  остаются упрощёнными dshr-расширениями (upstream зависит от
-  shiki/katex/mdast), `Spinner`/`useAnchoredPosition` — dshr-расширения;
+  upstream markdown-стек (micromark/mdast, shiki, KaTeX, footnotes,
+  инкрементальный streaming) **не** входит в `MarkdownText`,
+  `Spinner`/`useAnchoredPosition` — dshr-расширения;
   store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
   `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
   shell-сайтов остаются C-full.
@@ -1077,12 +1124,20 @@ shell-сайтов.
   side-карточка или single-page с non-selecting back-row `data-menu-back`,
   Escape/ArrowLeft с фокусом на родителе), 200-мс hover grace между
   карточками и `MenuGroup`/`observeStickyMenuGroups` (sticky-заголовки через
-  IntersectionObserver/ResizeObserver), рантайм-артефакт — 415 972 байта.
+  IntersectionObserver/ResizeObserver), рантайм-артефакт — 415 972 байта; раунд
+  97 — **C2.5**: `JsonBlock` портирован из
+  `packages/client/ui-primitives/src/markdown/JsonBlock.tsx` (collapsible,
+  `label`/`payload`/`defaultOpen`/`truncatedLabel`, cap 20 000 символов,
+  безопасный `JSON.stringify`), а `MarkdownText` получил reference-поверхность
+  props и dependency-free рендерер GFM-подмножества (заголовки, абзацы, списки,
+  fenced code, blockquote, hr, inline-стили, ссылки/изображения только
+  `http(s)`/`mailto`, raw HTML не рендерится), рантайм-артефакт — 424 801 байт.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
   (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, C2.3 — ядро Menu,
-  C2.4 — submenu page-layout/hover grace/MenuGroup; остаются упрощённая
+  C2.4 — submenu page-layout/hover grace/MenuGroup, C2.5 — reference JsonBlock и
+  markdown-подмножество; остаются упрощённая
   детальная `useMenuSubmenu`-механика focus-transition/page-anchor и
-  markdown-компоненты),
+  upstream markdown-стек: mdast/shiki/KaTeX/footnotes/streaming),
   SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
   ownerProps от реальных shell-сайтов),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии
