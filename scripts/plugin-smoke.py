@@ -675,7 +675,10 @@ export default function activate(ctx) {
   };
   NAMES.forEach((name, index) => {
     const id = "regions-" + name.replace(/[^A-Za-z0-9]+/g, "-");
-    ctx.slots.register({ name: name, id: id, title: "Regions " + name, order: index + 10 }, render(name));
+    // The synthetic fixture registers into real catalog keys, so it must satisfy
+    // the reference cardinality: keyed slots need an options.key.
+    const keyed = name === "tool.call.toolview" ? { key: "smoke" } : {};
+    ctx.slots.register({ name: name, id: id, title: "Regions " + name, order: index + 10, ...keyed }, render(name));
   });
   ctx.onTheme((theme) => { document.body.dataset.pluginTheme = theme; });
 }
@@ -1415,7 +1418,7 @@ def run(args: argparse.Namespace) -> int:
         )
         check(
             "bridge exposes the full DSH slot vocabulary and a panel fallback",
-            vocabulary == {"keys": 118, "unknown": "panel"},
+            vocabulary == {"keys": 124, "unknown": "panel"},
             vocabulary,
         )
 

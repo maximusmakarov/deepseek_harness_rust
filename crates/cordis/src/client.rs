@@ -16,6 +16,13 @@ use crate::CordisPluginSpec;
 /// The bridge runtime embedded into every plugin host page.
 pub const BRIDGE_JS: &str = include_str!("bridge.js");
 
+/// Generated DSH client slot catalog (122 declared slots: kind/scope/framework
+/// standard kit), trimmed from the reference repository's
+/// `cordis-client-runner/src/client/slot-catalog.ts`. The host page publishes it
+/// as `window.__DSHR_SLOT_META__`, and the bridge validates registrations against
+/// it exactly like the reference SlotCore.
+pub const SLOT_CATALOG_JSON: &str = include_str!("slot-catalog.json");
+
 /// How the browser half is delivered into the frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -722,6 +729,7 @@ fn page(
     };
     // The bridge config is a JSON object (not a JS literal) and `context` stays
     // a JSON string inside it; `<` is escaped so no value can close the tag.
+    let slot_meta = escape_script(SLOT_CATALOG_JSON);
     let frame_config = escape_script(
         &serde_json::to_string(&FrameConfig {
             plugin: &half.name,
@@ -771,6 +779,7 @@ fn page(
 <body>
 <script>window.__DSHR_PLUGIN__ = {name};</script>
 <script>window.__DSHR_FRAME__ = {frame_config};</script>
+<script>window.__DSHR_SLOT_META__ = {slot_meta};</script>
 <script>
 {BRIDGE_JS}
 </script>

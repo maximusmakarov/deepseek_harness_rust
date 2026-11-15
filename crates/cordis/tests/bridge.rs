@@ -18,7 +18,7 @@ fn bridge_protocol_and_lifecycle() {
     let output = Command::new("node")
         .arg(root.join("tests/bridge_harness.mjs"))
         .arg(root.join("src/bridge.js"))
-        .arg(root.join("tests/slot-catalog.json"))
+        .arg(root.join("src/slot-catalog.json"))
         .output()
         .expect("run node");
     let stdout = String::from_utf8_lossy(&output.stdout);

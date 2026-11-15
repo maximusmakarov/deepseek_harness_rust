@@ -1,0 +1,2980 @@
+{
+ "source": "deepseek-ai/deepseek-harness@39163dd30f703a79079e2d2446545cff3c453738 packages/extensions/cordis-client-runner/src/client/slot-catalog.ts (generated CLIENT_SLOT_API, trimmed)",
+ "count": 122,
+ "slots": {
+  "contextMenu.content": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ContextMenuTarget"
+   ]
+  },
+  "contextMenu.icon": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ContextMenuIcon"
+   ]
+  },
+  "conversation.approval.detail": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ApprovalDetailOwnerProps"
+   ]
+  },
+  "conversation.chat.assistant-actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "AssistantActionOwnerProps"
+   ]
+  },
+  "conversation.chat.commandview": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "CommandRowOwnerProps"
+   ]
+  },
+  "conversation.chat.flow": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": [
+    "ChatFlowOwnerProps"
+   ]
+  },
+  "conversation.chat.markdown.fence": {
+   "kind": "hoc",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "MarkdownDelegateFenceInfo"
+   ]
+  },
+  "conversation.chat.message.images": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "MessageImagesOwnerProps"
+   ]
+  },
+  "conversation.chat.node": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": [
+    "ChatNodeOwnerProps"
+   ]
+  },
+  "conversation.chat.reasoning.body": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ReasoningBodyOwnerProps"
+   ]
+  },
+  "conversation.chat.text-interaction": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "TextInteractionSurface"
+   ]
+  },
+  "conversation.chat.turnTail": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "TurnTailOwnerProps"
+   ]
+  },
+  "conversation.chat.user.before": {
+   "kind": "chain",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "UserBeforeOwnerProps"
+   ]
+  },
+  "conversation.chat.user.images": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "MessageImagesOwnerProps"
+   ]
+  },
+  "conversation.composer": {
+   "kind": "chain",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ComposerChainProps"
+   ]
+  },
+  "conversation.composer.bar": {
+   "kind": "single",
+   "scope": "session-maybe",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ComposerBarOwnerProps"
+   ]
+  },
+  "conversation.composer.dock": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.header": {
+   "kind": "single",
+   "scope": "session-maybe",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.header.leading": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ConversationHeaderLeadingOwnerProps"
+   ]
+  },
+  "conversation.hero.agentPreset": {
+   "kind": "single",
+   "scope": "session-maybe",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "HeroAgentPresetOwnerProps"
+   ]
+  },
+  "conversation.hero.brand.mark": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "HeroBrandMarkOwnerProps"
+   ]
+  },
+  "conversation.hero.frame": {
+   "kind": "hoc",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "HeroFrameOwnerProps"
+   ]
+  },
+  "conversation.hero.options": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.hero.workspace": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "EmptyWorkspaceOwnerProps"
+   ]
+  },
+  "conversation.hero.workspace.directoryFlow": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "DirectoryFlowOwnerProps"
+   ]
+  },
+  "conversation.input.activity": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "InputActivityOwnerProps"
+   ]
+  },
+  "conversation.input.attachments": {
+   "kind": "single",
+   "scope": "session-maybe",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ComposerAttachmentsOwnerProps"
+   ]
+  },
+  "conversation.input.dock": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "InputZone"
+   ]
+  },
+  "conversation.input.left": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.input.model": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "InputControlOwnerProps"
+   ]
+  },
+  "conversation.input.model.label": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ModelLabelOwner"
+   ]
+  },
+  "conversation.input.model.options": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ModelMenuControls",
+    "ModelMenuOptions"
+   ]
+  },
+  "conversation.input.model.pane": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ModelMenuControls"
+   ]
+  },
+  "conversation.input.overlay": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.input.permission": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "InputControlOwnerProps"
+   ]
+  },
+  "conversation.input.plan": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "InputControlOwnerProps"
+   ]
+  },
+  "conversation.input.right": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.plan-review.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "PlanReview"
+   ]
+  },
+  "conversation.session": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.session.header": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.session.header.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ConversationHeaderActionOwnerProps"
+   ]
+  },
+  "conversation.session.header.actions.subagent.footer": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "conversation.session.header.corner": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ConversationHeaderCornerOwnerProps"
+   ]
+  },
+  "conversation.session.header.lineage": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ConversationHeaderLineageOwnerProps"
+   ]
+  },
+  "conversation.session.header.utilities": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ConversationHeaderActionOwnerProps"
+   ]
+  },
+  "conversation.session.header.views.actions": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ConversationViewActionsOwnerProps"
+   ]
+  },
+  "conversation.trajectory.images": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "MessageImagesOwnerProps"
+   ]
+  },
+  "conversation.user.text.node": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "UserTextNodeOwnerProps"
+   ]
+  },
+  "conversation.view": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ConvViewOwnerProps"
+   ]
+  },
+  "deliverables.file.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "PresentedAction",
+    "PresentedOpenOutcome"
+   ]
+  },
+  "deliverables.review.file.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "SlotMap"
+   ]
+  },
+  "forge.change-request.card.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ForgeChangeRequestCardActionsProps"
+   ]
+  },
+  "forge.changes.file.menu": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ForgeChangesFileMenuProps"
+   ]
+  },
+  "forge.changes.toolbar": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ForgeChangesToolbarProps"
+   ]
+  },
+  "forge.diff.comment.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ForgeCommentActionsProps"
+   ]
+  },
+  "forge.diff.line.annotation": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ForgeLineAnnotationProps"
+   ]
+  },
+  "main": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "main.conversation": {
+   "kind": "single",
+   "scope": "session-maybe",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "plugins.add.actions": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginAddActionsProps"
+   ]
+  },
+  "plugins.bundle.activation": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginActivationOwnerProps"
+   ]
+  },
+  "plugins.bundle.config": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginConfigViewProps"
+   ]
+  },
+  "plugins.detail.actions": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginDetailProps"
+   ]
+  },
+  "plugins.detail.badge": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginDetailProps"
+   ]
+  },
+  "plugins.detail.section": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginDetailProps"
+   ]
+  },
+  "plugins.item": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginConfigViewProps"
+   ]
+  },
+  "plugins.row.config": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginConfigViewProps"
+   ]
+  },
+  "plugins.tab": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "PluginTabProps"
+   ]
+  },
+  "rightbar": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "RightbarOwnerProps"
+   ]
+  },
+  "rightbar.session": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "RightbarOwnerProps",
+    "TabId"
+   ]
+  },
+  "root": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "RootOwnerProps"
+   ]
+  },
+  "settings.action": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsHeaderOwnerProps"
+   ]
+  },
+  "settings.close": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsHeaderOwnerProps"
+   ]
+  },
+  "settings.general.item": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsGeneralItemOwnerProps"
+   ]
+  },
+  "settings.header": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsHeaderOwnerProps"
+   ]
+  },
+  "settings.launcher": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsLauncherOwnerProps"
+   ]
+  },
+  "settings.launcher.notifications": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "AccountNotificationsOwnerProps"
+   ]
+  },
+  "settings.models.footer": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ModelsFooterOwnerProps"
+   ]
+  },
+  "settings.models.provider-card": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "ProviderCardExtrasOwnerProps"
+   ]
+  },
+  "settings.models.sign-in": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "settings.onboarding": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsOnboardingOwnerProps"
+   ]
+  },
+  "settings.plugins.tab": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsPluginsTabOwnerProps"
+   ]
+  },
+  "settings.section": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsSectionOwnerProps"
+   ]
+  },
+  "settings.section.icon": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsSectionIconOwnerProps"
+   ]
+  },
+  "settings.trigger": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SettingsTriggerOwnerProps"
+   ]
+  },
+  "shell.bottom": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "shell.leading": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "shell.overlay": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "shell.quota-notice": {
+   "kind": "chain",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "QuotaNoticeOwnerProps"
+   ]
+  },
+  "sidebar": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarOwnerProps"
+   ]
+  },
+  "sidebar.brand.mark": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarBrandMarkOwnerProps"
+   ]
+  },
+  "sidebar.brand.name": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarBrandNameOwnerProps"
+   ]
+  },
+  "sidebar.chat.conversation": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "sidebar.footer.action": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarFooterActionOwnerProps"
+   ]
+  },
+  "sidebar.panellist": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarPanelIconOwnerProps"
+   ]
+  },
+  "sidebar.panellist.actions": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarPanelActionsOwnerProps"
+   ]
+  },
+  "sidebar.right.pane.tab": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": []
+  },
+  "sidebar.right.pane.tab.title": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": []
+  },
+  "sidebar.right.tab.document": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": [
+    "DocumentBodyOwner"
+   ]
+  },
+  "sidebar.right.tab.document.action": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": [
+    "DocumentContent"
+   ]
+  },
+  "sidebar.right.tab.document.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "sidebar.right.tab.document.office.pdf": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": [
+    "DocumentBodyOwner"
+   ]
+  },
+  "sidebar.right.tab.document.unpreviewable": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "sidebar.right.tab.files.actions": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "sidebar.right.tab.guide": {
+   "kind": "chain",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": []
+  },
+  "sidebar.right.tab.guide.actions": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarRightGuideActionsOwnerProps"
+   ]
+  },
+  "sidebar.right.tab.guide.entry": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": true,
+   "owner": [
+    "SidebarRightGuideEntryOwnerProps"
+   ]
+  },
+  "sidebar.right.tab.menu.item": {
+   "kind": "list",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarRightTabMenuOwnerProps"
+   ]
+  },
+  "sidebar.session.action": {
+   "kind": "hoc",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarSessionActionOwnerProps"
+   ]
+  },
+  "sidebar.session.row.hover": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SessionRowScheduleOwnerProps"
+   ]
+  },
+  "sidebar.session.row.leading": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SessionRowScheduleOwnerProps"
+   ]
+  },
+  "sidebar.session.row.trailing": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SessionRowTrailingOwnerProps"
+   ]
+  },
+  "sidebar.settings": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SidebarSettingsOwnerProps"
+   ]
+  },
+  "sidebar.toggle.badge": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": []
+  },
+  "sidebar.workspaces": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": true,
+   "owner": [
+    "SidebarSectionOwnerProps"
+   ]
+  },
+  "sidebar.workspaces.directoryFlow": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "DirectoryFlowOwnerProps"
+   ]
+  },
+  "sidebar.workspaces.session.menu.item": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": true,
+   "owner": [
+    "SessionRowOwnerProps"
+   ]
+  },
+  "sidebar.workspaces.session.row.action": {
+   "kind": "list",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "SessionRowOwnerProps"
+   ]
+  },
+  "tool.call.images": {
+   "kind": "single",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ToolImagesOwnerProps"
+   ]
+  },
+  "tool.call.toolview": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "ToolCallCommonProps",
+    "ToolCallOwnerProps",
+    "ToolCallPhaseProps"
+   ]
+  },
+  "tool.view.cordis": {
+   "kind": "keyed",
+   "scope": "session",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess",
+    "useChat",
+    "useConversation",
+    "useInput",
+    "inputActions",
+    "useSession",
+    "sessionId",
+    "useProjection",
+    "useAccess",
+    "useTrajectory"
+   ],
+   "inject": false,
+   "owner": [
+    "CordisToolViewOwnerProps"
+   ]
+  },
+  "workspace.picker.directoryFlow": {
+   "kind": "single",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "DirectoryFlowOwnerProps"
+   ]
+  },
+  "workspace.toast": {
+   "kind": "keyed",
+   "scope": "root",
+   "std": [
+    "useRemoteAccess",
+    "useResource",
+    "useContextMenu",
+    "useWorkspaces",
+    "usePanelInfo",
+    "useSessionStatus",
+    "useSessions",
+    "useSessionRetainInfo",
+    "useSessionAccess",
+    "useWorkspaceAccess"
+   ],
+   "inject": false,
+   "owner": [
+    "WorkspaceToastOwnerProps"
+   ]
+  }
+ }
+}

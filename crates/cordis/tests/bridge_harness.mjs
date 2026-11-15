@@ -120,6 +120,7 @@ function createPage(options = {}) {
       listeners.set(type, handlers);
     },
   };
+  window.__DSHR_SLOT_META__ = catalog;
   if (options.plugin !== undefined) window.__DSHR_PLUGIN__ = options.plugin;
   if (options.frameConfig !== undefined) window.__DSHR_FRAME__ = options.frameConfig;
   if (options.topLevel) {
@@ -250,17 +251,18 @@ async function registryScenario() {
   check("slotRegion falls back to panel for unknown keys", dshr.slotRegion("custom.key") === "panel", dshr.slotRegion("custom.key"));
 
   // Every catalog key has an explicit region; unknown keys are not in the map.
-  const missingRegions = catalog.keys.filter((key) => !REGION_IDS.has(dshr.slotRegion(key)));
+  const catalogKeys = Object.keys(catalog.slots);
+  const missingRegions = catalogKeys.filter((key) => !REGION_IDS.has(dshr.slotRegion(key)));
   check(
     "every slot-catalog key maps to one of the 17 regions",
-    catalog.keys.length === 116 && missingRegions.length === 0,
+    catalogKeys.length === catalog.count && missingRegions.length === 0,
     missingRegions,
   );
   const mapKeys = Object.keys(dshr.SLOT_REGIONS);
   check(
     "the region map covers the 116 catalog keys plus the 2 legacy keys",
-    mapKeys.length === catalog.keys.length + 2 &&
-      catalog.keys.every((key) => Object.prototype.hasOwnProperty.call(dshr.SLOT_REGIONS, key)),
+    mapKeys.length === catalogKeys.length + 2 &&
+      catalogKeys.every((key) => Object.prototype.hasOwnProperty.call(dshr.SLOT_REGIONS, key)),
     mapKeys.length,
   );
   check(
@@ -275,7 +277,7 @@ async function registryScenario() {
   };
 
   let injectedCleanup = 0;
-  const group = dshr.slots.inject("owner", () => {
+  const group = dshr.slots.inject("settings.section", () => {
     dshr.slots.register({ name: "settings.section", id: "settings", title: "Settings", order: 20 }, render);
     dshr.slots.register({ name: "panel", id: "first", title: "First", order: 10 }, render);
     return () => {
@@ -561,9 +563,10 @@ async function reactScenario() {
       plugin: "harness",
       frame: "slot:harness:react:0",
       mode: "slot",
-      slot: "sidebar.footer.action",
+      slot: "conversation.composer.dock",
       id: "memo",
       theme: "dark",
+      ownerProps: { ownerValue: "owner" },
     },
   });
   page.window.__DSHR_MODULES__ = { react: React, "react-dom/client": ReactDOM };
@@ -571,7 +574,7 @@ async function reactScenario() {
   dshr.locale.register("harness", { en: { greet: "Hello {name}" } });
   dshr.slots.register(
     {
-      name: "sidebar.footer.action",
+      name: "conversation.composer.dock",
       id: "memo",
       title: "Memo",
       locale: "harness",
@@ -601,6 +604,80 @@ async function reactScenario() {
     "React slot components get a working t() seat for their locale",
     Boolean(child) && child.props.t("greet", { name: "dshr" }) === "Hello dshr",
     child && typeof child.props.t === "function" && child.props.t("greet", { name: "dshr" }),
+  );
+  check(
+    "catalog standard kit supplies the declared session-scope hooks",
+    Boolean(child) &&
+      typeof child.props.useChat === "function" &&
+      typeof child.props.useConversation === "function" &&
+      typeof child.props.useTheme === "function",
+    child && Object.keys(child.props).filter((key) => key.startsWith("use")),
+  );
+  check(
+    "owner props are spread into the component props",
+    Boolean(child) && child.props.ownerValue === "owner",
+    child && child.props.ownerValue,
+  );
+  check(
+    "plain catalog standard values remain in the prop surface",
+    Boolean(child) && "sessionId" in child.props,
+    child && Object.prototype.hasOwnProperty.call(child.props, "sessionId"),
+  );
+
+  // Reference registration rules (SlotCore parity).
+  let undeclaredThrew = false;
+  try {
+    dshr.slots.register({ name: "totally.undeclared.slot" }, function Nope() {
+      return null;
+    });
+  } catch (error) {
+    undeclaredThrew = /not declared/.test(String(error && error.message));
+  }
+  check("undeclared slot registrations throw (SlotCore parity)", undeclaredThrew);
+
+  let keyedRequired = false;
+  try {
+    dshr.slots.register({ name: "conversation.chat.node", id: "no-key" }, MemoSlot);
+  } catch (error) {
+    keyedRequired = /requires options\.key/.test(String(error && error.message));
+  }
+  check("keyed slots require options.key", keyedRequired);
+
+  let chainRequired = false;
+  try {
+    dshr.slots.register({ name: "conversation.composer", id: "no-select" }, MemoSlot);
+  } catch (error) {
+    chainRequired = /requires options\.select/.test(String(error && error.message));
+  }
+  check("chain slots require options.select", chainRequired);
+
+  dshr.slots.register({ name: "sidebar.footer.action", id: "dup", priority: 0 }, MemoSlot);
+  let duplicateThrew = false;
+  try {
+    dshr.slots.register({ name: "sidebar.footer.action", id: "dup", priority: 0 }, MemoSlot);
+  } catch (error) {
+    duplicateThrew = /already has a registration/.test(String(error && error.message));
+  }
+  check("same-cell same-priority registrations throw", duplicateThrew);
+
+  dshr.slots.register(
+    { name: "conversation.header", id: "low", priority: 10 },
+    MemoSlot,
+  );
+  dshr.slots.register(
+    { name: "conversation.header", id: "high", priority: -5 },
+    MemoSlot,
+  );
+  const lastSlotsMessage = page.posted
+    .filter((message) => message.type === "slots")
+    .pop();
+  const headerEntries = (lastSlotsMessage ? lastSlotsMessage.slots : []).filter(
+    (entry) => entry.name === "conversation.header",
+  );
+  check(
+    "single slots project only the lowest-priority winner",
+    headerEntries.length === 1 && headerEntries[0].id === "high",
+    headerEntries,
   );
 
   check(
@@ -697,7 +774,7 @@ async function slotAutoRenderScenario() {
   });
   const dshr = page.dshr;
   const renders = [];
-  dshr.slots.register({ name: "conversation.composer", id: "composer" }, (container) => {
+  dshr.slots.register({ name: "conversation.composer.dock", id: "composer" }, (container) => {
     container.textContent = "composer";
   });
   dshr.slots.register(
@@ -763,11 +840,11 @@ async function slotByNameScenario() {
       plugin: "harness",
       frame: "slot:harness:name:0",
       mode: "slot",
-      slot: "conversation.composer",
+      slot: "conversation.composer.dock",
       id: "missing-registration-id",
     },
   });
-  page.dshr.slots.register({ name: "conversation.composer", id: "actual-id" }, (container, props) => {
+  page.dshr.slots.register({ name: "conversation.composer.dock", id: "actual-id" }, (container, props) => {
     container.textContent = props.id;
   });
   page.dshr.__frameActivated();
@@ -785,14 +862,14 @@ async function slotLateRegistrationScenario() {
       plugin: "harness",
       frame: "slot:harness:late:0",
       mode: "slot",
-      slot: "conversation.composer",
+      slot: "conversation.composer.dock",
       id: "late-id",
     },
   });
   page.dshr.__frameActivated();
   await tick();
   check("slot mode waits when the registration is not there yet", page.root.textContent === "", page.root.textContent);
-  page.dshr.slots.register({ name: "conversation.composer", id: "late-id" }, (container) => {
+  page.dshr.slots.register({ name: "conversation.composer.dock", id: "late-id" }, (container) => {
     container.textContent = "late";
   });
   await tick();
@@ -807,13 +884,13 @@ async function slotInvalidContextScenario() {
       plugin: "harness",
       frame: "slot:harness:context:0",
       mode: "slot",
-      slot: "conversation.composer",
+      slot: "conversation.composer.dock",
       id: "context-id",
       context: "not json",
     },
   });
   const renders = [];
-  page.dshr.slots.register({ name: "conversation.composer", id: "context-id" }, (container, props) => {
+  page.dshr.slots.register({ name: "conversation.composer.dock", id: "context-id" }, (container, props) => {
     renders.push(props);
     container.textContent = "context";
   });

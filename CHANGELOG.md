@@ -327,4 +327,43 @@
   persistence), the DSH configuration-engine semantics are not reproduced, and
   seat-inject failures are only logged; C-full stays deferred per ADR-041.
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose settings UI stayed inert without the `pluginManager`/settings host services until the round-89 C1.2 seat-inject/`configForms` work made it render — browser forms are in-memory and the DSH configuration engine is not reproduced) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: C1.1 now bridges `sessions`/`sessionProjections` from an internal server snapshot (≤ 5 s staleness, simplified projections: `llmMs=0`, no thread history; session content deliberately not bridged), so usage routes see real dshr sessions; there is still no SSE/WebSocket/streaming, and plugin routes still lack authentication. The bridge services are a subset (snapshot-based `sessions`/`sessionProjections` with simplified projections), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C1.3 — the reference slot contract (the C1.3 section of ADR-040). The
+  client slot catalog is no longer hand-made: `crates/cordis/src/slot-catalog.json`
+  is generated from the reference repository (`deepseek-ai/deepseek-harness` @
+  `39163dd`, `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`)
+  and holds 122 slots with kind (single 45 / list 48 / keyed 22 / chain 4 / hoc 3),
+  scope (root 57 / session 60 / session-maybe 5), framework standard-kit names and a
+  slot-`inject` flag; every host page publishes it as `window.__DSHR_SLOT_META__`.
+  Bridge registration mirrors reference `SlotCore`: an undeclared slot throws (the
+  dshr extension namespaces `panel`/`message.action`/`custom.*`/`x-*`/`dshr.*` are
+  exempt), `keyed` requires `key`, `list`/`hoc` require `id`, `chain` requires
+  `select`; a second registration in the same cell (single = slot, keyed = key,
+  otherwise id) at the same priority throws while a different priority shadows
+  (lowest renders); registrations may declare child slots with
+  `children: {key: {kind, scope}}` that live and cascade away with the parent entry
+  (this unblocked `dsh-mnemon`'s own `mnemon.component.*` slots);
+  `ctx.slots.inject(key, factory)` defers until the slot is declared and re-runs on
+  declaration; the shell mounts only shadowing winners (single one, keyed one per
+  key, list/chain/hoc all layers ordered priority → order → registration); component
+  props compose as catalog standard kit (unimplemented hooks stay callable and return
+  `undefined`, `sessionId` from host state) → seat `inject` → `ownerProps` from
+  `window.__DSHR_FRAME__.ownerProps` → `t`; and `ctx.slots.spec(key)` returns
+  `{key, kind, scope, standardProps, inject}` like the reference introspection mnemon
+  uses. The region map gained 6 upstream slot keys (`conversation.input.model.pane`,
+  `forge.*`) — 124 vocabulary keys including the 2 legacy ones — and the synthetic
+  smoke fixtures supply the now-required `key` for keyed slots. Effect: `dsh-mnemon`
+  registers its own child slots and deferred injections by the reference rules.
+  Evidence: bridge harness 98 (+8: undeclared/keyed/chain/duplicate throws, single
+  shadowing, catalog standard kit, ownerProps spread, plain values), smoke 82/82
+  (three consecutive green runs; no new checks — the real plugins already followed the
+  rules), cordis lib 26, server `plugins_live` 16, workspace 365 passed + 3 ignored
+  (desktop 21, total 386), web-e2e 16/16; the shared runtime artifact is unchanged
+  (176,725 bytes). C1.3 limits: `chain` select dispatch is not implemented (layers
+  mount instead), `hoc` children nesting across frames is absent, store seats
+  (`PropsStore`/`BoundActions`) and the mounted session model are missing, and
+  `ownerProps` are only supplied through the frame seam/harness — real shell render
+  sites (`conversation.chat.node` etc.) do not provide data yet. The C-full remainder
+  (full design-system, store/renderer semantics, chain/hoc rendering) stays deferred
+  per ADR-041.
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose settings UI stayed inert without the `pluginManager`/settings host services until the round-89 C1.2 seat-inject/`configForms` work made it render — browser forms are in-memory and the DSH configuration engine is not reproduced), the round-91 C1.3 reference slot contract is generated from the reference catalog (122 slots with kind/scope/standard kit; undeclared/keyed/chain/duplicate registration rules, shadowing winners, children declarations, deferred inject, standard kit + ownerProps; `chain` select dispatch, `hoc` nesting, store seats and ownerProps from real shell sites remain debt) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, the SlotMap remainder (chain select dispatch, hoc nesting, store seats, ownerProps from real shell sites), a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: C1.1 now bridges `sessions`/`sessionProjections` from an internal server snapshot (≤ 5 s staleness, simplified projections: `llmMs=0`, no thread history; session content deliberately not bridged), so usage routes see real dshr sessions; there is still no SSE/WebSocket/streaming, and plugin routes still lack authentication. The bridge services are a subset (snapshot-based `sessions`/`sessionProjections` with simplified projections), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

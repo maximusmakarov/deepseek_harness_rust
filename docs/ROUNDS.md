@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–89)
+# Журнал раундов паритета (1–91)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -637,6 +637,55 @@ streaming-прокси.
   регрессия валит оба прогона. Полный `scripts/check.sh` — «all gates passed»,
   perf после стабилизации нагрузки зелёный (p95 append в бюджете).
 
+- 91: **C1.3** — слот-контракт по референсному каталогу
+  ([ADR-040](adr/040-react-client-half.md) §«C1.3», [PLUGINS.md](PLUGINS.md)):
+  - каталог слотов больше не рукописный: `crates/cordis/src/slot-catalog.json`
+    сгенерирован из `deepseek-ai/deepseek-harness` (`packages/extensions/
+    cordis-client-runner/src/client/slot-catalog.ts`, коммит `39163dd`) — 122
+    слота с `kind` (single 45 / list 48 / keyed 22 / chain 4 / hoc 3), `scope`
+    (root 57 / session 60 / session-maybe 5), framework standard-kit и флагом
+    slot-`inject`; host-страница публикует его как
+    `window.__DSHR_SLOT_META__` (`crates/cordis/src/client.rs`);
+  - регистрация повторяет reference `SlotCore`: undeclared-слот бросает
+    (исключение — dshr extension-пространства `panel`/`message.action`/
+    `custom.*`/`x-*`/`dshr.*`), `keyed` требует `key`, `list`/`hoc` — `id`,
+    `chain` — `select`; вторая регистрация в ту же ячейку (`single` — слот,
+    `keyed` — key, иначе id) на том же `priority` бросает, другой `priority`
+    затеняет (рендерится меньший);
+  - регистрация может объявлять дочерние слоты
+    `children: {key: {kind, scope}}`; объявление живёт ровно столько же,
+    сколько запись, и каскадно снимает свои регистрации — это разблокировало
+    собственные слоты `dsh-mnemon` (`mnemon.component.*`);
+  - `ctx.slots.inject(key, factory)` ждёт **объявления** слота и
+    перезапускается при появлении (reference registry semantics), а не просто
+    «когда сервисы готовы»; новый `ctx.slots.spec(key)` отдаёт
+    `{key, kind, scope, standardProps, inject}` для интроспекции, как в
+    референсе (им пользуется mnemon);
+  - shell получает только shadowing-winners (`single` — один, `keyed` — по
+    одному на ключ, `list`/`chain`/`hoc` — все слои в порядке
+    priority → order → регистрация), а props компонента собираются в
+    референсном порядке: standard-kit из каталога (нереализованные hooks
+    остаются вызываемыми и возвращают `undefined`, `sessionId` — из
+    host-state) → seat `inject` → ownerProps из
+    `window.__DSHR_FRAME__.ownerProps` → `t`;
+  - словарь регионов пополнился 6 upstream-ключами (`conversation.input.
+    model.pane`, `forge.*`) — 124 ключа включая 2 legacy; synthetic
+    smoke-фикстуры получили обязательный `key` для keyed-слотов;
+  - Проверки: bridge harness **98** (+8: undeclared/keyed/chain/duplicate
+    throws, single shadowing, catalog standard kit, ownerProps, plain values),
+    smoke 82/82 (три зелёных прогона подряд; реальные плагины регистрируются по
+    тем же правилам, `dsh-mnemon` проходит дочерние слоты и deferred inject),
+    cordis lib 26, server `plugins_live` 16, workspace 365 passed + 3 ignored
+    (desktop 21, итого 386), web-e2e 16/16; общий рантайм-артефакт не менялся —
+    176 725 байт.
+  - Границы C1.3: `chain` не диспатчится по `select`, а монтируется слоями;
+    `hoc` не вкладывает `children` между кадрами; store-seats
+    (`PropsStore`/`BoundActions`) и mounted-model сессий не реализованы;
+    ownerProps поставляет только frame-seam (harness/расширения shell), реальные
+    render-сайты шелла (`conversation.chat.node` и т.п.) данных пока не дают.
+    Полный C-full (design-system, store/renderer, chain/hoc-рендеринг) —
+    [ADR-041](adr/041-c-full-decision.md).
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
@@ -682,7 +731,10 @@ sidecar получает DSH-shaped сервисы `sessions`/`sessionProjection
 регистраций слотов, Cordis-генераторы в `slots.inject`/`ctx.inject`/`ctx.effect`
 и host-сервис `configForms` (in-memory форма в кадре и файловая у host-половин),
 поэтому settings-UI `dsh-plugin-studio` и `dsh-plugin-debugging` реально
-рендерится.
+рендерится; раунд 91 (**C1.3**) перевёл слот-контракт на сгенерированный каталог
+DSH (122 слота с kind/scope/standard-kit) и референсные правила `SlotCore`
+(undeclared/keyed/chain/duplicate, shadowing-winners, children-декларации,
+deferred inject, standard-kit + ownerProps) — bridge harness 98 (+8).
 
 Открыто и не заблокировано:
 
@@ -707,17 +759,25 @@ sidecar получает DSH-shaped сервисы `sessions`/`sessionProjection
   `configForms`: studio отдаёт вкладки в Settings, debugging — карточку в
   Plugins с рабочим переключателем и Save; при отсутствии host-маршрутов
   плагины показывают честные error-состояния, а не молча инертны,
-  SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст шелла
-  по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (нет
-  проекций `sessions`, `sessionStats`), eval-based бандлы требуют ослабления CSP,
+  SlotMap-остатки (`chain` select-диспетчеризация, `hoc`-вложение, store seats,
+  ownerProps от реальных shell-сайтов; каталог слотов, регистрация, kinds,
+  winners, `children`/deferred inject закрыты в C1.3) и React-контекст шелла
+  по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (проекции
+  `sessionStats` упрощены: `llmMs`=0, без истории тредов), eval-based бандлы
+  требуют ослабления CSP,
   а `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
-  Дальнейшее расширение (полный design-system/SlotMap/React-контекст) — уже не
+  Дальнейшее расширение (полный design-system/SlotMap-остатки/React-контекст) — уже не
   C-lite, а C-full: решение владельца.
 - C1.2-остатки (раунд 89): browser-`configForms` — in-memory writable-форма,
   правки не переживают reload кадра (файловая персистентность есть только у
   host-половин в `<home>/cordis/config-forms/`); семантика конфигурационного
   движка DSH (схемы, слои, миграции) не воспроизведена; провалы seat-inject
   только логируются в лог кадра — плагин при этом остаётся живым.
+- C1.3-остатки (раунд 91): `chain` не диспатчится по `select`, а монтируется
+  слоями; `hoc` не вкладывает `children` между кадрами; store-seats
+  (`PropsStore`/`BoundActions`) и mounted-model сессий отсутствуют; ownerProps
+  поставляет только frame-seam (harness/расширения shell) — реальные
+  render-сайты шелла (`conversation.chat.node` и т.п.) данных пока не дают.
 - C1-остатки (раунды 84–87): раунд 87 (C1.1) закрыл отсутствие сервисов
   `sessions`/`sessionProjections` — sidecar строит их из снимка сервера
   (задержка ≤ 5 с, упрощённые проекции: `llmMs`=0, без истории тредов,
@@ -756,9 +816,13 @@ sidecar получает DSH-shaped сервисы `sessions`/`sessionProjection
   (задержка ≤ 5 с, упрощённые проекции, содержимое сессий не мостится); раунд
   89 — **C1.2**: seat-`inject`, Cordis-генераторы и `configForms` (in-memory
   форма в кадре, файловая — у host-половин), что сняло инертность
-  settings-плагинов.
+  settings-плагинов; раунд 91 — **C1.3**: слот-контракт по референсному
+  каталогу (122 слота с kind/scope/standard-kit; правила `SlotCore`:
+  undeclared/keyed/chain/duplicate, shadowing-winners, children-декларации,
+  deferred inject, standard-kit + ownerProps).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
-  SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
+  SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
+  ownerProps от реальных shell-сайтов),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии
   React и настоящего `@dshr/cordis-compat`-шима. Это вопрос объёма/приоритета
   для владельца (C-full по ADR-040 остаётся Proposed); D не рекомендуется.

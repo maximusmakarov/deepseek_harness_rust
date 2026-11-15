@@ -395,3 +395,36 @@ seat-props, генераторный `slots.inject` и генераторный 
 Границы: browser-`configForms` in-memory (правки не переживают reload кадра),
 семантика DSH-конфигурации не воспроизведена; seat-inject-провалы только
 логируются. Полный C-full — по [ADR-041](041-c-full-decision.md) отложен.
+
+## C1.3: слот-контракт по референсному каталогу (15.11.2026, раунд 91)
+
+SlotMap-семантика больше не «на глаз»: каталог слотов сгенерирован из
+`deepseek-ai/deepseek-harness` (тот же generated `slot-catalog.ts`, что отдаёт
+модели `cordis_inspect what:"client"`), и `bridge.js` проверяет регистрации по
+reference `SlotCore`:
+
+- **каталог** (`crates/cordis/src/slot-catalog.json`): 122 слота,
+  `kind`/`scope`/framework standard-kit/`inject`-флаг; host-страница отдаёт
+  его как `window.__DSHR_SLOT_META__`;
+- **валидация**: undeclared-слот бросает, `keyed`/`list`/`hoc`/`chain` требуют
+  `key`/`id`/`id`/`select`, конфликт в ячейке на том же `priority` бросает,
+  другой priority затеняет (lowest renders);
+- **children-декларации**: запись может объявить дочерние слоты
+  (`children: {key: {kind, scope}}`), объявление каскадно живёт/умирает вместе
+  с записью — это то, что использует `dsh-mnemon` для своих
+  `mnemon.component.*`;
+- **deferred inject**: `ctx.slots.inject(key, factory)` ждёт объявления слота и
+  перезапускается при появлении, как reference registry;
+- **победители**: shell монтирует только shadowing-winners (`single` — один,
+  `keyed` — по ключу, `list`/`chain`/`hoc` — все слои);
+- **props**: standard-kit (по каталогу; нереализованные hooks остаются
+  вызываемыми) → seat `inject` → ownerProps из frame config → `t`.
+
+Проверка: bridge harness **98** (+8: undeclared/keyed/chain/duplicate throws,
+single shadowing, standard kit, ownerProps, plain values), smoke 82/82
+(реальные плагины регистрируются по тем же правилам; synthetic fixtures
+дополнены `key`), workspace 365 + 3 ignored.
+
+Границы: `chain` select-диспетчеризация, `hoc`-вложение, store-seats и
+mounted session model остаются долгом; ownerProps от shell пока только seam.
+Полный C-full (design-system, store/renderer) — по [ADR-041](041-c-full-decision.md).

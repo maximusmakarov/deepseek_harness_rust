@@ -41,6 +41,156 @@
   const plugin =
     (typeof window.__DSHR_PLUGIN__ === "string" && window.__DSHR_PLUGIN__) || setting("plugin");
   const frame = setting("frame");
+
+  // ---------------------------------------------------------------------------
+  // DSH client slot catalog (generated from the reference repository:
+  // deepseek-ai/deepseek-harness, packages/extensions/cordis-client-runner/
+  // src/client/slot-catalog.ts). The host page publishes it as
+  // `window.__DSHR_SLOT_META__`; registration validation, cardinality, scope and
+  // the framework standard-kit seats are derived from it exactly like the
+  // reference SlotCore does. Slots outside the catalog are only accepted from
+  // the dshr extension namespaces (`panel`/`message.action` legacy keys and
+  // `custom.*`/`x-*`/`dshr.*` test/extension keys).
+  // ---------------------------------------------------------------------------
+  const SLOT_META =
+    window.__DSHR_SLOT_META__ && typeof window.__DSHR_SLOT_META__ === "object"
+      ? window.__DSHR_SLOT_META__
+      : null;
+  const SLOT_SPECS = SLOT_META && SLOT_META.slots ? SLOT_META.slots : null;
+  const EXTENSION_SLOT = /^(panel$|message\.action$|custom\.|x-|dshr\.)/;
+
+  // Runtime declaration ledger (SlotCore parity): the shipped catalog seeds the
+  // declared keys, and a live registration may declare child slots with
+  // `children: { key: { kind, scope } }`. A child declaration lives exactly as
+  // long as the declaring entry (both cascade away on unload).
+  const declaredSlots = new Map();
+  const slotInjectionWaiters = new Map();
+  if (SLOT_SPECS) {
+    for (const [key, spec] of Object.entries(SLOT_SPECS)) {
+      declaredSlots.set(key, {
+        kind: spec.kind,
+        scope: spec.scope,
+        std: Array.isArray(spec.std) ? spec.std : [],
+        inject: Boolean(spec.inject),
+        declaredByEntry: null,
+      });
+    }
+  }
+
+  function slotSpec(name) {
+    return declaredSlots.get(name) || null;
+  }
+
+  function declareChildSlots(entry, children) {
+    if (!children || typeof children !== "object") return;
+    const declared = [];
+    for (const [childName, childSpec] of Object.entries(children)) {
+      if (declaredSlots.has(childName)) {
+        throw new Error(
+          'slot "' + childName + '" is already declared (by ' +
+            (declaredSlots.get(childName).declaredByEntry || "the shipped catalog") + ")",
+        );
+      }
+      if (!childSpec || typeof childSpec !== "object" || typeof childSpec.kind !== "string") {
+        throw new Error('child slot "' + childName + '" needs a kind');
+      }
+      const record = {
+        kind: childSpec.kind,
+        scope: typeof childSpec.scope === "string" ? childSpec.scope : "root",
+        std: [],
+        inject: Boolean(childSpec.inject),
+        declaredByEntry: entry.id,
+      };
+      declaredSlots.set(childName, record);
+      declared.push({ name: childName, record });
+      runSlotWaiters(childName);
+    }
+    entry.childSlots = declared;
+  }
+
+  function undeclareChildSlots(entry) {
+    if (!entry.childSlots) return;
+    for (const child of entry.childSlots) {
+      // Cascade: registrations into the child slot and pending injections die
+      // with the declaration that created it.
+      for (const candidate of Array.from(slots.values())) {
+        if (candidate.name === child.name) {
+          slots.delete(candidate.id);
+          undeclareChildSlots(candidate);
+        }
+      }
+      const waiters = child.record.injectionDisposers;
+      if (waiters) {
+        for (const dispose of waiters.slice().reverse()) {
+          try {
+            dispose();
+          } catch (error) {
+            fail(error);
+          }
+        }
+      }
+      declaredSlots.delete(child.name);
+    }
+    entry.childSlots = [];
+  }
+
+  function runSlotWaiters(name) {
+    const waiters = slotInjectionWaiters.get(name);
+    if (!waiters || waiters.length === 0) return;
+    slotInjectionWaiters.delete(name);
+    const record = declaredSlots.get(name);
+    const disposers = record ? (record.injectionDisposers = record.injectionDisposers || []) : [];
+    for (const waiter of waiters) {
+      if (waiter.disposed) continue;
+      try {
+        const result = waiter.factory();
+        const disposer = cordisDisposer(result);
+        if (disposer) {
+          disposers.push(disposer);
+          waiter.disposers.push(disposer);
+        }
+      } catch (error) {
+        report("inject", error);
+      }
+    }
+  }
+
+  function isExtensionSlot(name) {
+    return EXTENSION_SLOT.test(name);
+  }
+
+  function slotKindOf(name) {
+    const spec = slotSpec(name);
+    return spec && typeof spec.kind === "string" ? spec.kind : "list";
+  }
+
+  function slotScopeOf(name) {
+    const spec = slotSpec(name);
+    return spec && typeof spec.scope === "string" ? spec.scope : "root";
+  }
+
+  function slotStandardNames(name) {
+    const spec = slotSpec(name);
+    return spec && Array.isArray(spec.std) ? spec.std : [];
+  }
+
+  function slotNeedsInject(name) {
+    const spec = slotSpec(name);
+    return Boolean(spec && spec.inject);
+  }
+
+  let frameOwnerProps = {};
+  try {
+    const configured = frameConfig ? frameConfig.ownerProps : undefined;
+    if (configured && typeof configured === "object") {
+      frameOwnerProps = configured;
+    } else if (typeof configured === "string" && configured !== "") {
+      const parsed = JSON.parse(configured);
+      if (parsed && typeof parsed === "object") frameOwnerProps = parsed;
+    }
+  } catch (error) {
+    frameOwnerProps = {};
+  }
   const mode = setting("mode") === "slot" ? "slot" : "registry";
   // Slot frames target one registration; the server validates both fields.
   const requestedSlot = mode === "slot" ? setting("slot") : "";
@@ -370,6 +520,37 @@
     }
   }
 
+  // Framework standard-kit seats per the reference scope contract: names the
+  // catalog lists for a slot become props (`useX` selector hooks / plain values).
+  // dshr implements the subset it can source from host state; any other declared
+  // hook stays callable and returns undefined so real components do not crash on
+  // a missing host service, and plain values stay undefined.
+  const standardCache = new Map();
+  function slotStandardProps(name) {
+    if (standardCache.has(name)) return standardCache.get(name);
+    const out = {};
+    const host = hostPropsNow();
+    for (const propName of slotStandardNames(name)) {
+      if (Object.prototype.hasOwnProperty.call(host, propName)) {
+        out[propName] = host[propName];
+        continue;
+      }
+      if (propName === "sessionId") {
+        out.sessionId = hostState && hostState.session ? hostState.session.id : undefined;
+        continue;
+      }
+      if (/^use[A-Z]/.test(propName)) {
+        out[propName] = function () {
+          return undefined;
+        };
+      }
+    }
+    // dshr extension hooks stay available on every entry (C-lite contract).
+    Object.assign(out, host);
+    standardCache.set(name, out);
+    return out;
+  }
+
   function translatorFor(namespace) {
     return function (key, params) {
       return translate(namespace || "", key, params);
@@ -422,8 +603,8 @@
     return cachedHostProps;
   }
 
-  // DSH slot name -> shell region id. Exhaustive over the 116-key DSH catalog
-  // (crates/cordis/tests/slot-catalog.json) plus the two legacy dshr keys;
+  // DSH slot name -> shell region id. Exhaustive over the 122-slot reference
+  // catalog (crates/cordis/src/slot-catalog.json) plus the two legacy dshr keys;
   // unknown names fall back to `panel` so older plugins keep rendering.
   const SLOT_REGIONS = Object.freeze({
     "contextMenu.content": "panel",
@@ -455,6 +636,7 @@
     "conversation.input.attachments": "composer.actions",
     "conversation.input.dock": "composer.actions",
     "conversation.input.left": "composer.actions",
+    "conversation.input.model.pane": "composer.actions",
     "conversation.input.model": "composer.actions",
     "conversation.input.model.label": "composer.actions",
     "conversation.input.model.options": "composer.actions",
@@ -480,6 +662,11 @@
     "main.conversation": "panel",
     "message.action": "message.action",
     "panel": "panel",
+    "forge.change-request.card.actions": "panel",
+    "forge.changes.file.menu": "panel",
+    "forge.changes.toolbar": "panel",
+    "forge.diff.comment.actions": "panel",
+    "forge.diff.line.annotation": "panel",
     "plugins.add.actions": "plugins.add",
     "plugins.bundle.activation": "plugins.detail",
     "plugins.bundle.config": "plugins.detail",
@@ -636,6 +823,11 @@
     fail(new Error(step + ": " + (error && error.message ? error.message : String(error))));
   }
 
+  let registrationSeq = 0;
+
+  // DSH SlotCore.register parity: an undeclared slot throws, cardinality
+  // requirements are enforced, and a same-cell/same-priority second registration
+  // throws (a different priority shadows instead).
   function normalize(entry, renderArgument) {
     if (!entry || typeof entry !== "object") throw new Error("slot entry must be an object");
     const render =
@@ -647,31 +839,180 @@
     const reactType =
       render && typeof render === "object" && Boolean(render.$$typeof) && Boolean(reactRuntimeNow());
     if (typeof render !== "function" && !reactType) throw new Error("slot: render is required");
-    const name = entry.name || entry.slot || "panel";
+    const name = String(entry.name || entry.slot || "panel");
+    const spec = slotSpec(name);
+    const extension = isExtensionSlot(name);
+    if (!spec && !extension) {
+      throw new Error(
+        'slot "' +
+          name +
+          '" is not declared in the DSH client slot catalog (register into a declared slot key)',
+      );
+    }
     const key = typeof entry.key === "string" ? entry.key : "";
-    // Keyed registrations need a distinct id per key, otherwise a second key of
-    // the same slot would silently replace the first one in the frame.
-    const id = entry.id || (key ? String(name) + ":" + key : name);
+    // Extension slots keep the dshr registration contract (a key means keyed,
+    // otherwise a list entry); declared slots follow the reference rules.
+    const kind = spec ? slotKindOf(name) : key !== "" ? "keyed" : "list";
+    if (kind === "keyed" && key === "") {
+      throw new Error('keyed slot "' + name + '" requires options.key');
+    }
+    const id = entry.id || (key ? name + ":" + key : name);
+    if ((kind === "list" || kind === "hoc" || kind === "chain") && !spec && !entry.id) {
+      // dshr extension convenience: extension keys may omit an explicit id.
+    } else if (kind !== "single" && kind !== "keyed" && (typeof entry.id !== "string" || !entry.id) && !extension) {
+      throw new Error('slot "' + name + '" requires options.id');
+    }
     if (typeof id !== "string" || !id) throw new Error("slot entry needs a string id");
-    return {
-      name: String(name),
+    const select = typeof entry.select === "function" ? entry.select : null;
+    if (kind === "chain" && !select) {
+      throw new Error('chain slot "' + name + '" requires options.select');
+    }
+    const priority = Number.isFinite(entry.priority) ? Number(entry.priority) : 0;
+    const order = Number.isFinite(entry.order) ? Number(entry.order) : 0;
+    // Conflict: same cell (single = the slot; keyed = key; others = id) at the
+    // same priority. A different priority shadows (lowest renders).
+    for (const occupant of slots.values()) {
+      if (occupant.name !== name || occupant.priority !== priority) continue;
+      const sameCell =
+        kind === "single"
+          ? true
+          : kind === "keyed"
+            ? occupant.key === key
+            : occupant.id === id;
+      if (sameCell) {
+        throw new Error(
+          (kind === "single" ? "single" : kind) +
+            ' slot "' +
+            name +
+            '" already has a registration at priority ' +
+            priority +
+            (occupant.registrant ? " (registered by " + occupant.registrant + ")" : "") +
+            " — register at a different priority to shadow it (lowest renders)",
+        );
+      }
+    }
+    const normalized = {
+      name: name,
       id: id,
       key: key,
+      kind: kind,
+      scope: spec ? slotScopeOf(name) : "root",
+      seq: ++registrationSeq,
       title: typeof entry.title === "string" && entry.title ? entry.title : id,
-      order: Number.isFinite(entry.order) ? Number(entry.order) : 0,
-      priority: Number.isFinite(entry.priority) ? Number(entry.priority) : 0,
+      order: order,
+      priority: priority,
       locale: typeof entry.locale === "string" ? entry.locale : "",
+      select: select,
+      registrant: typeof entry.registrant === "string" ? entry.registrant : "",
       // DSH slot registrations may provide the component's extra props with
       // `inject: () => ({...})` (a framework seat); resolve it at mount time.
       inject: typeof entry.inject === "function" || (entry.inject && typeof entry.inject === "object") ? entry.inject : null,
       render: render,
+      children: entry.children && typeof entry.children === "object" ? entry.children : null,
     };
+    if (normalized.children) {
+      try {
+        declareChildSlots(normalized, normalized.children);
+      } catch (error) {
+        undeclareChildSlots(normalized);
+        throw error;
+      }
+    }
+    return normalized;
+  }
+
+  // Raw ledger order, mirroring SlotCore: priority ascending for every kind,
+  // list/hoc refine equal priorities by explicit `order`, ties keep registration
+  // order (stable sort).
+  function dropEntry(entry) {
+    undeclareChildSlots(entry);
+    return slots.delete(entry.id);
+  }
+
+  // Run a slot-level inject factory now that the slot is declared.
+  function injectNow(factory) {
+    const before = new Set(slots.keys());
+    let result;
+    try {
+      result = factory();
+    } catch (error) {
+      report("inject", error);
+      return function () {};
+    }
+    const added = Array.from(slots.keys())
+      .filter(function (id) {
+        return !before.has(id);
+      })
+      .map(function (id) {
+        return slots.get(id);
+      })
+      .filter(Boolean);
+    const inner = cordisDisposer(result);
+    const disposeGroup = function () {
+      added.forEach(function (entry) {
+        dropEntry(entry);
+      });
+      publish();
+      if (inner) {
+        try {
+          inner();
+        } catch (error) {
+          fail(error);
+        }
+      }
+    };
+    disposers.push(disposeGroup);
+    return disposeGroup;
+  }
+
+  function ordered(entries) {
+    return entries
+      .slice()
+      .sort(function (left, right) {
+        const byPriority = left.priority - right.priority;
+        if (byPriority !== 0) return byPriority;
+        if (left.kind === "list" || left.kind === "hoc") {
+          const byOrder = left.order - right.order;
+          if (byOrder !== 0) return byOrder;
+        }
+        return left.seq - right.seq;
+      });
   }
 
   function sorted() {
-    return Array.from(slots.values()).sort(function (left, right) {
-      return left.order - right.order || left.id.localeCompare(right.id);
-    });
+    return ordered(Array.from(slots.values()));
+  }
+
+  // Projection to shadowing winners: single keeps the lowest-priority entry,
+  // keyed keeps one winner per key, list/chain/hoc keep every layer (their
+  // dispatch/nesting runs at render time in the reference; dshr mounts one
+  // frame per winner and renders chain/hoc layers in ledger order).
+  function winners() {
+    const byName = new Map();
+    for (const entry of sorted()) {
+      const bucket = byName.get(entry.name);
+      if (!bucket) {
+        byName.set(entry.name, [entry]);
+        continue;
+      }
+      bucket.push(entry);
+    }
+    const out = [];
+    for (const [name, bucket] of byName) {
+      const kind = slotKindOf(name);
+      if (kind === "single") {
+        out.push(bucket[0]);
+      } else if (kind === "keyed") {
+        const byKey = new Map();
+        for (const entry of bucket) {
+          if (!byKey.has(entry.key)) byKey.set(entry.key, entry);
+        }
+        out.push(...byKey.values());
+      } else {
+        out.push(...bucket);
+      }
+    }
+    return ordered(out);
   }
 
   // One wire shape for registrations, so `slots` messages and `slots.list()`
@@ -688,7 +1029,7 @@
   }
 
   function publish() {
-    const wireSlots = sorted().map(described);
+    const wireSlots = winners().map(described);
     post({
       type: "slots",
       slots: wireSlots,
@@ -773,9 +1114,14 @@
         null,
         React.createElement(
           entry.render,
-          Object.assign({}, props, injectedProps(entry), hostPropsNow(), {
-            t: translatorFor(entry.locale),
-          }),
+          Object.assign(
+            {},
+            props,
+            slotStandardProps(entry.name),
+            injectedProps(entry),
+            frameOwnerProps,
+            { t: translatorFor(entry.locale) },
+          ),
         ),
       ),
     );
@@ -847,7 +1193,7 @@
         active = entry;
         await entry.render(
           root,
-          Object.assign({}, props, injectedProps(entry)),
+          Object.assign({}, props, injectedProps(entry), frameOwnerProps),
         );
       }
       reportResize(entry);
@@ -1075,43 +1421,46 @@
         slots.set(normalized.id, normalized);
         publish();
         const unregister = function () {
-          if (slots.delete(normalized.id)) publish();
+          if (dropEntry(normalized)) publish();
         };
         disposers.push(unregister);
         return unregister;
       },
       // Reference-shaped: the factory's registrations are owned as one group
       // and can be torn down together.
-      inject: function (_ownerKey, factory) {
-        const before = new Set(slots.keys());
-        let result;
-        try {
-          result = factory();
-        } catch (error) {
-          report("inject", error);
-          return function () {};
-        }
-        const added = Array.from(slots.keys()).filter(function (id) {
-          return !before.has(id);
-        });
-        const inner = cordisDisposer(result);
-        const disposeGroup = function () {
-          added.forEach(function (id) {
-            if (slots.delete(id)) publish();
-          });
-          if (inner) {
-            try {
-              inner();
-            } catch (error) {
-              fail(error);
-            }
+      inject: function (key, factory) {
+        if (typeof factory !== "function") return function () {};
+        if (declaredSlots.has(key) || isExtensionSlot(key)) return injectNow(factory);
+        // The slot exists only while its declaring entry is mounted (SlotCore):
+        // defer until the declaration ledger receives the key.
+        const waiter = { factory: factory, disposed: false, disposers: [] };
+        const list = slotInjectionWaiters.get(key) || [];
+        list.push(waiter);
+        slotInjectionWaiters.set(key, list);
+        const stop = function () {
+          waiter.disposed = true;
+          const current = slotInjectionWaiters.get(key);
+          if (current) {
+            const index = current.indexOf(waiter);
+            if (index >= 0) current.splice(index, 1);
           }
+          waiter.disposers
+            .slice()
+            .reverse()
+            .forEach(function (dispose) {
+              try {
+                dispose();
+              } catch (error) {
+                fail(error);
+              }
+            });
         };
-        disposers.push(disposeGroup);
-        return disposeGroup;
+        disposers.push(stop);
+        return stop;
       },
       remove: function (id) {
-        if (slots.delete(id)) publish();
+        const entry = slots.get(id);
+        if (entry && dropEntry(entry)) publish();
       },
       list: function () {
         return sorted().map(described);
@@ -1126,6 +1475,19 @@
       },
       entries: function (key) {
         return slotsService.entries(key);
+      },
+      // Reference-callable slot declaration lookup (kind/scope/standard kit),
+      // used by plugins that branch on the resident owner, e.g. mnemon's chain.
+      spec: function (key) {
+        const spec = slotSpec(key);
+        if (!spec) return undefined;
+        return {
+          key: key,
+          kind: spec.kind,
+          scope: spec.scope,
+          standardProps: slotStandardNames(key),
+          inject: slotNeedsInject(key),
+        };
       },
     },
     effect: function (factory) {

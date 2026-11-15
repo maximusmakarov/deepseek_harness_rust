@@ -408,6 +408,45 @@ steps/usage-события, без содержимого сообщений) и
 loopback сервер отвечает 403, пока явно не передан
 `--allow-lan-plugin-routes`.
 
+### Слот-контракт по референсному каталогу (C1.3, SlotMap-semantics)
+
+Регистрация слотов теперь проверяется по **реальному каталогу DSH**, а не по
+рукописному списку: `crates/cordis/src/slot-catalog.json` сгенерирован из
+`deepseek-ai/deepseek-harness` (`packages/extensions/cordis-client-runner/
+src/client/slot-catalog.ts`, коммит `39163dd`) — 122 слота с `kind`
+(`single`/`list`/`keyed`/`chain`/`hoc`), `scope`
+(`root`/`session`/`session-maybe`), framework standard-kit и флагом
+slot-`inject`. Host-страница публикует его как `window.__DSHR_SLOT_META__`.
+
+Правила регистрации повторяют reference `SlotCore`:
+
+- неизвестный слот → `slot "<name>" is not declared` (исключение — dshr
+  extension-пространства `panel`/`message.action`/`custom.*`/`x-*`/`dshr.*`);
+- `keyed` требует `key`, `list`/`hoc` — `id`, `chain` — `select`;
+- вторая регистрация в ту же ячейку (`single` — слот, `keyed` — key, иначе id)
+  с **тем же `priority`** бросает ошибку; другой `priority` затеняет
+  (рендерится меньший);
+- регистрация может **объявлять дочерние слоты**:
+  `children: { "my.slot": { kind, scope } }` — объявление живёт вместе с
+  записью и каскадно снимается (вместе с регистрациями внутрь), это
+  разблокировало собственные слоты `dsh-mnemon`;
+- `ctx.slots.inject(key, factory)` ждёт **объявления** слота (reference
+  semantics) и перезапускается при его появлении, а не просто «когда сервисы
+  готовы»;
+- shell получает только **победителей** ячеек: `single` — один, `keyed` —
+  по одному на ключ, `list`/`chain`/`hoc` — все слои в порядке
+  (priority → order → регистрация);
+- props компонента собираются как в reference:
+  `standard-kit` (hooks из каталога; нереализованные остаются вызываемыми и
+  возвращают `undefined`, `sessionId` — из host-state) → seat
+  `inject` → **ownerProps** (из `window.__DSHR_FRAME__.ownerProps`) → `t`.
+
+Отличия от reference, зафиксированные как долг: `chain` не диспатчится по
+`select`, а монтируется слоями; `hoc` не вкладывает `children` между кадрами;
+store-seats (`PropsStore`/`BoundActions`) и mounted-model сессий не
+реализованы; ownerProps пока передаются только через harness/расширения shell
+(реальные shell-сайты вроде `conversation.chat.node` ещё не поставляют данные).
+
 ### Slot-level `inject`, generators и `configForms` (C1.2)
 
 Реальные settings-плагины используют контракты слотов, которых не было в
@@ -474,8 +513,9 @@ design-system, см. ниже). Незнакомый id отклоняется �
 
 Ограничения тира B: это React-рантайм и модульная таблица, но **не** полный
 design-system `@deepseek-ai/dsh-client-ui-*`, не React-контекст шелла, не
-композиция между плагинами и не SlotMap-семантика
-(`ownerProps`/framework-hooks) — для них нужен тир C-full. PoC проверен в smoke:
+композиция между плагинами и не SlotMap-семантика (`ownerProps`/framework-hooks) — базовый контракт слотов
+уже референсный (C1.3), но chain-диспетчеризация, hoc-вложение и store-seats —
+тир C-full. PoC проверен в smoke:
 фикстура `hosted` не содержит React в бандле и рендерит интерактивный
 React-компонент из общего рантайма.
 
