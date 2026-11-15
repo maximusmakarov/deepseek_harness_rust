@@ -133,6 +133,28 @@
       ".dshr-menu-row:disabled{opacity:.5;cursor:default}",
       ".dshr-menu-separator{height:1px;margin:4px 6px;background:var(--dsw-alias-border-l4,#3a3a3a);list-style:none}",
       ".dshr-menu-label{padding:4px 8px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#9b9b9b);list-style:none}",
+      ".dshr-menu-root{display:inline-flex}",
+      ".dshr-menu-list{min-width:160px;max-height:min(60vh,320px);overflow:auto;padding:4px}",
+      ".dshr-menu-viewport{display:flex;flex-direction:column}",
+      ".dshr-menu-row-wrap{position:relative}",
+      ".dshr-menu-row{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:transparent;border:0;color:inherit;font:inherit;font-size:13px;line-height:20px;padding:5px 8px;border-radius:var(--dshr-radius-sm);cursor:pointer}",
+      ".dshr-menu-row:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.16))}",
+      ".dshr-menu-row:disabled{opacity:.5;cursor:default}",
+      ".dshr-menu-row[aria-disabled='true']{opacity:.5;cursor:default}",
+      ".dshr-menu-row-icon{display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;flex:none;color:var(--dsw-alias-label-tertiary,#9b9b9b)}",
+      ".dshr-menu-row-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".dshr-menu-row-shortcut{display:inline-flex;flex:none;color:var(--dsw-alias-label-tertiary,#9b9b9b)}",
+      ".dshr-menu-row-check{display:inline-flex;flex:none;color:var(--dsw-alias-brand-primary,#4da3ff)}",
+      ".dshr-menu-row-selected{color:var(--dsw-alias-label-primary,#e6e6e6)}",
+      ".dshr-menu-row-selected-fill{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.16));color:var(--dsw-alias-label-primary,#e6e6e6)}",
+      ".dshr-menu-row-danger{color:var(--dsw-alias-state-error-primary,#ef4444)}",
+      ".dshr-menu-row-danger:hover:not(:disabled){background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#ef4444) 12%,transparent)}",
+      ".dshr-menu-footer{border-top:1px solid var(--dsw-alias-border-l4,#3a3a3a);margin-top:4px;padding-top:4px}",
+      ".dshr-menu-dense .dshr-menu-row{padding:3px 8px;line-height:18px}",
+      ".dshr-menu-compact .dshr-menu-row{font-size:12px;line-height:18px;padding:3px 8px}",
+      ".dshr-menu-submenu{z-index:81}",
+      ".dshr-menu-surface-compact{border-radius:8px}",
+      ".dshr-shortcut-keys-joined{gap:0}",
       ".dshr-menu-surface{background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);border-radius:var(--dshr-radius-md);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:8px;outline:none}",
       ".dshr-tooltip-bubble{position:fixed;z-index:110;display:inline-flex;align-items:center;gap:6px;max-width:min(320px,calc(100vw - 24px));padding:5px 8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary,#e6e6e6);pointer-events:none}",
       ".dshr-tooltip-bubble[data-pinned]{pointer-events:auto;max-height:min(70vh,480px);overflow:auto}",
@@ -779,151 +801,550 @@
     );
   });
 
-  // ----- Menu (reference Menu.tsx: data rows, separators and labels; the full
-  // submenu/focus machinery is not ported — see the module header) ------------
+  // ----- Focus helpers (reference focus.ts) ---------------------------------
+  var REMOVE_RING_KEYS = { Tab: true, ArrowUp: true, ArrowDown: true, ArrowLeft: true, ArrowRight: true, Home: true, End: true };
+  var mobileDevice;
+
+  function isMobileDevice() {
+    if (mobileDevice !== undefined) return mobileDevice;
+    var nav = typeof navigator === "undefined" ? {} : navigator;
+    mobileDevice =
+      /Android|iPhone|iPad|iPod/i.test(String(nav.userAgent || "")) ||
+      (nav.platform === "MacIntel" && (nav.maxTouchPoints || 0) > 1);
+    return mobileDevice;
+  }
+
+  function focusWithoutRing(element, options) {
+    function release() {
+      element.removeAttribute("data-dsh-automatic-focus");
+      element.removeEventListener("blur", release);
+      element.removeEventListener("keydown", navigate, true);
+    }
+    function navigate(event) {
+      if (!event.isComposing && !event.ctrlKey && !event.altKey && !event.metaKey && REMOVE_RING_KEYS[event.key]) release();
+    }
+    element.setAttribute("data-dsh-automatic-focus", "");
+    element.addEventListener("blur", release);
+    element.addEventListener("keydown", navigate, true);
+    element.focus(options);
+    if (typeof element.matches === "function" && !element.matches(":focus")) release();
+  }
+
+  // ----- Pointer grace (reference pointer-grace.ts) -------------------------
+  var POINTER_GRACE_MS = 200;
+
+  function usePointerGrace(close) {
+    var timerRef = React.useRef(null);
+    var closeRef = React.useRef(close);
+    closeRef.current = close;
+    var cancel = React.useCallback(function () {
+      if (timerRef.current === null) return;
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }, []);
+    var arm = React.useCallback(
+      function () {
+        cancel();
+        timerRef.current = setTimeout(function () {
+          timerRef.current = null;
+          closeRef.current();
+        }, POINTER_GRACE_MS);
+      },
+      [cancel],
+    );
+    React.useEffect(function () {
+      return cancel;
+    }, [cancel]);
+    return { arm: arm, cancel: cancel };
+  }
+
+  var MENU_TRANSITION_MS = { enter: 40, dismiss: 80, replace: 10, prepare: 20 };
+
+  // ----- Menu (reference Menu.tsx: data/component rows, decorations, footer,
+  // selection markers, one-level submenu and the reference keyboard walk) -----
+  function renderMenuDecoration(entry) {
+    if (entry.type === "separator") {
+      return h("div", { key: entry.id, className: "dshr-menu-separator", role: "separator" });
+    }
+    return h("div", { key: entry.id, className: "dshr-menu-label", role: "presentation" }, entry.text);
+  }
+
   function MenuRow(props) {
+    var reasonId = React.useId ? React.useId() : "dshr-menu-reason";
+    var explained = props.disabled === true && props.disabledReason !== undefined;
+    var rest = passThrough(props, [
+      "children", "icon", "shortcut", "current", "disabled", "disabledReason", "danger",
+      "separatorBefore", "selected", "selection", "reserveIcon", "decorativeIcon", "wrapperProps",
+      "onClick", "hasSubmenu", "submenuOpen", "rowRef", "rowId",
+    ]);
+    var button = h(
+      "button",
+      Object.assign({}, rest, {
+        ref: props.rowRef,
+        type: "button",
+        role: "menuitem",
+        "data-menu-row-id": props.rowId,
+        className: classNames(
+          "dshr-menu-row",
+          props.selected && (props.selection === "fill" ? "dshr-menu-row-selected-fill" : "dshr-menu-row-selected"),
+          props.danger && "dshr-menu-row-danger",
+        ),
+        disabled: props.disabled === true && !explained,
+        "aria-disabled": explained ? "true" : undefined,
+        "aria-describedby": explained ? reasonId : undefined,
+        "aria-keyshortcuts": props.shortcut ? props.shortcut.aria : undefined,
+        "aria-current": props.current === true ? "page" : undefined,
+        "aria-haspopup": props.hasSubmenu ? "menu" : rest["aria-haspopup"],
+        "aria-expanded": props.hasSubmenu ? (props.submenuOpen === true ? "true" : "false") : rest["aria-expanded"],
+        onClick: explained ? undefined : props.onClick,
+      }),
+      props.icon !== undefined || props.reserveIcon
+        ? h("span", { "aria-hidden": props.decorativeIcon === false ? undefined : "true", className: "dshr-menu-row-icon" }, props.icon)
+        : null,
+      h("span", { className: "dshr-menu-row-label" }, props.children),
+      props.shortcut !== undefined
+        ? h("span", { "aria-hidden": "true", className: "dshr-menu-row-shortcut" }, h(ShortcutKeys, { keys: props.shortcut.keys }))
+        : null,
+      props.selected && (props.selection || "check") === "check"
+        ? h(IconCheckOutlineRegular, { className: "dshr-menu-row-check" })
+        : null,
+      props.hasSubmenu ? h(IconChevronRightOutlineRegular, { "aria-hidden": "true", className: "dshr-menu-row-check" }) : null,
+    );
     return h(
-      "li",
-      { role: "none" },
-      h(
-        "button",
-        {
-          type: "button",
-          role: "menuitem",
-          className: "dshr-menu-row",
-          "data-selected": props.selected ? "" : undefined,
-          disabled: props.disabled === true,
-          title: props.disabledReason,
-          onClick: props.onClick,
-        },
-        props.icon !== undefined ? h("span", { className: "dshr-menu-row-icon" }, props.icon) : null,
-        h("span", { className: "dshr-menu-row-label" }, props.children),
-        props.shortcut ? h("span", { className: "dshr-menu-row-shortcut" }, props.shortcut) : null,
-      ),
+      "div",
+      Object.assign({}, props.wrapperProps, { className: "dshr-menu-row-wrap" }),
+      props.separatorBefore ? h("div", { className: "dshr-menu-separator", role: "separator" }) : null,
+      explained ? h(Tooltip, { label: props.disabledReason, side: "bottom", delayMs: 500, maxWidth: 300, portal: true }, button) : button,
+      explained ? h("span", { id: reasonId, hidden: true }, props.disabledReason) : null,
     );
   }
 
   function Menu(props) {
     var open = props.open === true;
+    var items = Array.isArray(props.items) ? props.items : [];
+    var footer = Array.isArray(props.footer) ? props.footer : [];
+    var selection = props.selection || "check";
     var align = props.align || "start";
     var side = props.side || "bottom";
-    var rootRef = React.useRef(null);
+    var portal = props.portal === true;
     var listRef = React.useRef(null);
-    var items = Array.isArray(props.items) ? props.items : [];
+    var rootRef = React.useRef(null);
+    var triggerRef = React.useRef(null);
+    var walkIndex = React.useRef(null);
+    var selectingWithTab = React.useRef(false);
+    var submenuState = React.useState(null);
+    var submenuId = submenuState[0];
+    var setSubmenuId = submenuState[1];
+    var styleState = React.useState(null);
+    var portalStyle = styleState[0];
+    var setPortalStyle = styleState[1];
+    var submenuStyleState = React.useState(null);
+    var submenuStyle = submenuStyleState[0];
+    var setSubmenuStyle = submenuStyleState[1];
+    var closeRef = React.useRef(props.onClose);
+    closeRef.current = props.onClose;
+    var openRef = React.useRef(open);
+    openRef.current = open;
+    var grace = usePointerGrace(function () {
+      if (openRef.current) closeRef.current();
+    });
+
+    function refocusAnchor(navigation) {
+      var trigger = triggerRef.current;
+      var target =
+        trigger !== null && trigger.isConnected && trigger.disabled !== true
+          ? trigger
+          : rootRef.current
+            ? rootRef.current.querySelector("button:not(:disabled)")
+            : null;
+      if (target === null) return;
+      if (navigation) target.focus();
+      else focusWithoutRing(target);
+    }
+
+    function refocusAfterSelection() {
+      var navigation = selectingWithTab.current;
+      queueMicrotask(function () {
+        if (openRef.current) return;
+        var active = document.activeElement;
+        if (active === null || active === document.body || (listRef.current && listRef.current.contains(active))) {
+          refocusAnchor(navigation);
+        }
+      });
+    }
+
+    React.useEffect(function () {
+      if (!open) return;
+      var active = document.activeElement;
+      triggerRef.current =
+        active instanceof HTMLElement && active !== document.body && rootRef.current && rootRef.current.contains(active)
+          ? active
+          : rootRef.current
+            ? rootRef.current.querySelector("button:not(:disabled)")
+            : null;
+    }, [open]);
+
+    React.useLayoutEffect(function () {
+      if (!open) {
+        setPortalStyle(null);
+        return;
+      }
+      if (!portal || !rootRef.current) return;
+      var rect = rootRef.current.getBoundingClientRect();
+      var next = { position: "fixed", zIndex: 80 };
+      if (props.minWidthFromAnchor) next.minWidth = rect.width;
+      if (props.anchorPoint) {
+        next.left = props.anchorPoint.x;
+        next.top = props.anchorPoint.y;
+      } else {
+        if (side === "top") next.bottom = Math.max(8, window.innerHeight - rect.top + 4);
+        else next.top = rect.bottom + 4;
+        if (align === "end") next.right = Math.max(8, window.innerWidth - rect.right);
+        else next.left = rect.left;
+      }
+      setPortalStyle(next);
+    }, [open, portal, props.anchorPoint, props.minWidthFromAnchor, side, align]);
+
+    React.useLayoutEffect(function () {
+      if (submenuId === null || !listRef.current) {
+        setSubmenuStyle(null);
+        return;
+      }
+      var row = listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]');
+      if (!row) {
+        setSubmenuStyle(null);
+        return;
+      }
+      var rect = row.getBoundingClientRect();
+      var next = { position: "fixed", zIndex: 81, top: rect.top, minWidth: rect.width };
+      if (rect.right + 220 > window.innerWidth) next.right = Math.max(8, window.innerWidth - rect.left + 4);
+      else next.left = rect.right + 4;
+      setSubmenuStyle(next);
+    }, [submenuId]);
+
     React.useEffect(function () {
       if (!open) return undefined;
       function onPointerDown(event) {
         var target = event.target;
-        if (rootRef.current && rootRef.current.contains(target)) return;
-        if (listRef.current && listRef.current.contains(target)) return;
-        if (typeof props.onClose === "function") props.onClose();
+        if (target instanceof Node) {
+          if (rootRef.current && rootRef.current.contains(target)) return;
+          if (props.anchorRef && props.anchorRef.current && props.anchorRef.current.contains(target)) return;
+          if (listRef.current && listRef.current.contains(target)) return;
+          if (typeof props.isExternalTrigger === "function" && props.isExternalTrigger(target)) return;
+        }
+        closeRef.current();
+      }
+      function onWindowBlur() {
+        if (document.activeElement instanceof HTMLIFrameElement) closeRef.current();
+      }
+      document.addEventListener("pointerdown", onPointerDown);
+      window.addEventListener("blur", onWindowBlur);
+      return function () {
+        document.removeEventListener("pointerdown", onPointerDown);
+        window.removeEventListener("blur", onWindowBlur);
+      };
+    }, [open, props.anchorRef, props.isExternalTrigger]);
+
+    React.useEffect(function () {
+      if (!open) setSubmenuId(null);
+    }, [open]);
+
+    React.useEffect(function () {
+      if (!open) {
+        walkIndex.current = null;
+        return undefined;
       }
       function onKeyDown(event) {
-        if (event.key !== "Escape") return;
+        if (event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
+        var focused = document.activeElement;
+        var insideList = listRef.current ? listRef.current.contains(focused) : false;
+        var anchored =
+          focused === triggerRef.current ||
+          (props.anchorRef && props.anchorRef.current && props.anchorRef.current.contains(focused)) ||
+          (rootRef.current && rootRef.current.contains(focused)) ||
+          insideList;
+        if (event.key === "Escape" && !event.shiftKey) {
+          event.preventDefault();
+          if (event.repeat) return;
+          if (submenuId !== null) {
+            setSubmenuId(null);
+            return;
+          }
+          closeRef.current();
+          if (anchored || props.autoFocus === true) refocusAnchor(false);
+          return;
+        }
+        if (event.key === "ArrowLeft" && anchored && submenuId !== null) {
+          event.preventDefault();
+          setSubmenuId(null);
+          return;
+        }
+        if (event.key === "ArrowRight" && insideList && focused instanceof HTMLButtonElement) {
+          var rowId = focused.getAttribute("data-menu-row-id");
+          var parent = items.filter(function (entry) {
+            return entry && !entry.type && entry.id === rowId && Array.isArray(entry.submenu) && entry.submenu.length > 0;
+          })[0];
+          if (parent) {
+            event.preventDefault();
+            setSubmenuId(parent.id);
+            return;
+          }
+        }
+        if (event.key === "Tab") {
+          if (!anchored) return;
+          if (event.shiftKey) {
+            event.preventDefault();
+            closeRef.current();
+            refocusAnchor(true);
+            return;
+          }
+          if (insideList) {
+            if (focused instanceof Element && focused.getAttribute("role") === "menuitem") {
+              event.preventDefault();
+              if (focused.getAttribute("aria-disabled") === "true") {
+                closeRef.current();
+                refocusAnchor(true);
+                return;
+              }
+              selectingWithTab.current = true;
+              try {
+                focused.click();
+              } finally {
+                selectingWithTab.current = false;
+              }
+            }
+            return;
+          }
+          var row = listRef.current ? listRef.current.querySelector("button:not(:disabled)") : null;
+          if (row === null) return;
+          event.preventDefault();
+          row.focus();
+          walkIndex.current = 0;
+          return;
+        }
+        if (["ArrowDown", "ArrowUp", "Home", "End"].indexOf(event.key) === -1) return;
+        if (!anchored) return;
+        var scope =
+          submenuId !== null && listRef.current
+            ? listRef.current.querySelector('[data-submenu-for="' + submenuId + '"]')
+            : listRef.current;
+        if (scope === null) return;
+        var buttons = Array.prototype.slice.call(scope.querySelectorAll("button:not(:disabled)"));
+        if (buttons.length === 0) return;
+        var index = buttons.indexOf(focused);
+        var from = index >= 0 ? index : walkIndex.current;
+        var next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? buttons.length - 1
+              : from === null
+                ? event.key === "ArrowDown"
+                  ? 0
+                  : buttons.length - 1
+                : (from + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
         event.preventDefault();
-        event.stopPropagation();
-        if (typeof props.onClose === "function") props.onClose();
+        walkIndex.current = next;
+        if (buttons[next] && typeof buttons[next].focus === "function") buttons[next].focus();
       }
-      document.addEventListener("pointerdown", onPointerDown, true);
-      document.addEventListener("keydown", onKeyDown, true);
+      document.addEventListener("keydown", onKeyDown);
       return function () {
-        document.removeEventListener("pointerdown", onPointerDown, true);
-        document.removeEventListener("keydown", onKeyDown, true);
+        document.removeEventListener("keydown", onKeyDown);
       };
-    }, [open, props.onClose]);
+    }, [open, submenuId, items, props.autoFocus, props.anchorRef]);
+
     React.useEffect(function () {
-      if (!open || props.autoFocus !== true || !listRef.current) return;
-      var first = listRef.current.querySelector('[role="menuitem"]');
-      if (first && typeof first.focus === "function") first.focus();
-    }, [open, props.autoFocus]);
-    var anchor = h("span", { ref: rootRef, className: props.className }, props.anchor);
-    if (!open) return anchor;
-    var selectedIds = Array.isArray(props.selectedIds) ? props.selectedIds : null;
-    var rows = [];
-    items.forEach(function (entry, index) {
-      if (!entry || typeof entry !== "object") return;
-      if (entry.type === "separator") {
-        rows.push(h("li", { key: entry.id || "sep-" + index, className: "dshr-menu-separator", role: "separator" }));
-        return;
-      }
-      if (entry.type === "label") {
-        rows.push(h("li", { key: entry.id || "label-" + index, className: "dshr-menu-label", role: "presentation" }, entry.text));
-        return;
-      }
-      var selected = entry.id === props.selectedId || (selectedIds !== null && selectedIds.indexOf(entry.id) !== -1);
-      rows.push(
-        h(
-          MenuRow,
-          {
-            key: entry.id || "item-" + index,
-            selected: selected,
-            disabled: entry.disabled === true,
-            disabledReason: entry.disabledReason,
-            icon: entry.icon,
-            shortcut: entry.shortcut,
-            onClick: function () {
-              if (entry.disabled === true) return;
-              if (typeof props.onSelect === "function") props.onSelect(entry.id);
-            },
-          },
-          entry.label,
-        ),
+      if (!open || !props.autoFocus || !listRef.current) return;
+      if (listRef.current.contains(document.activeElement)) return;
+      var first = listRef.current.querySelector("button:not(:disabled)");
+      walkIndex.current = first === null ? null : 0;
+      if (first !== null) focusWithoutRing(first);
+    }, [open, props.autoFocus, portalStyle, items.length, footer.length]);
+
+    function selectionOf(entry) {
+      return (
+        entry.id === props.selectedId ||
+        (Array.isArray(props.selectedIds) && props.selectedIds.indexOf(entry.id) !== -1)
       );
-    });
-    if (props.children !== undefined) {
-      rows.push(h("li", { key: "children", role: "none" }, props.children));
     }
-    if (Array.isArray(props.footer)) {
-      props.footer.forEach(function (entry, index) {
-        rows.push(
-          h(
-            MenuRow,
-            {
-              key: "footer-" + index,
-              disabled: entry.disabled === true,
-              icon: entry.icon,
-              onClick: function () {
-                if (entry.disabled === true) return;
-                if (typeof props.onSelect === "function") props.onSelect(entry.id);
-              },
-            },
-            entry.label,
-          ),
-        );
+
+    function alignedColumns(entries) {
+      var aligned = [];
+      if (!props.contextual) return aligned;
+      var group = [];
+      function finish() {
+        if (group.some(function (entry) { return !("type" in entry) && entry.icon !== undefined; })) {
+          aligned = aligned.concat(group);
+        }
+        group = [];
+      }
+      entries.forEach(function (entry) {
+        if (entry && "type" in entry && entry.type === "separator") finish();
+        else group.push(entry);
       });
+      finish();
+      return aligned;
     }
-    var list = h(
-      "ul",
-      {
-        ref: listRef,
-        role: "menu",
-        className: classNames("dshr-menu", props.listClassName),
-        style: {
-          position: "fixed",
-          top: 8,
-          left: align === "end" ? undefined : 8,
-          right: align === "end" ? 8 : undefined,
-          bottom: side === "top" ? 8 : undefined,
-          maxHeight: "min(60vh, 320px)",
-          overflow: "auto",
+
+    function renderEntry(entry, columns, inSubmenu) {
+      if (!entry || typeof entry !== "object") return null;
+      if ("type" in entry) return renderMenuDecoration(entry);
+      var hasSub = !inSubmenu && Array.isArray(entry.submenu) && entry.submenu.length > 0;
+      return h(
+        MenuRow,
+        {
+          key: entry.id,
+          rowId: entry.id,
+          icon: entry.icon,
+          reserveIcon: columns.indexOf(entry) !== -1,
+          disabled: entry.disabled === true,
+          disabledReason: entry.disabledReason,
+          danger: entry.danger,
+          shortcut: entry.shortcut,
+          current: entry.current,
+          selected: selectionOf(entry),
+          selection: selection,
+          hasSubmenu: hasSub,
+          submenuOpen: submenuId === entry.id,
+          wrapperProps: hasSub
+            ? {
+                onPointerEnter: function (event) {
+                  if (event.pointerType !== "mouse" || entry.disabled === true) return;
+                  setSubmenuId(entry.id);
+                },
+              }
+            : undefined,
+          onClick: function () {
+            if (hasSub) {
+              setSubmenuId(entry.id);
+              return;
+            }
+            if (entry.disabled === true) return;
+            if (typeof props.onSelect === "function") props.onSelect(entry.id);
+            refocusAfterSelection();
+          },
         },
-        "data-selection": props.selection || "check",
+        entry.label,
+      );
+    }
+
+    var list = null;
+    if (open) {
+      var itemColumns = alignedColumns(items);
+      var footerColumns = alignedColumns(footer);
+      var activeParent = submenuId === null
+        ? null
+        : items.filter(function (entry) {
+            return entry && !entry.type && entry.id === submenuId;
+          })[0];
+      var submenuPanel =
+        activeParent && Array.isArray(activeParent.submenu)
+          ? h(
+              MenuSurface,
+              {
+                className: classNames("dshr-menu dshr-menu-submenu", props.compact && "dshr-menu-compact", props.dense && "dshr-menu-dense"),
+                style: submenuStyle || { position: "fixed", display: "none" },
+                "data-submenu-for": submenuId,
+                role: "menu",
+                onClick: function (event) {
+                  event.stopPropagation();
+                },
+              },
+              h(
+                "div",
+                { className: "dshr-menu-viewport", role: "presentation" },
+                activeParent.submenu.map(function (entry) {
+                  return renderEntry(entry, [], true);
+                }),
+              ),
+            )
+          : null;
+      var surface = h(
+        MenuSurface,
+        {
+          ref: listRef,
+          id: props.contextual ? "dshr-context-menu" : undefined,
+          className: classNames(
+            "dshr-menu",
+            "dshr-menu-list",
+            props.listClassName,
+            props.dense && "dshr-menu-dense",
+            props.compact && "dshr-menu-compact",
+            portal && "dshr-menu-portal",
+          ),
+          style: portal
+            ? portalStyle || { position: "fixed", visibility: "hidden" }
+            : {
+                position: "absolute",
+                zIndex: 80,
+                minWidth: "100%",
+                top: side === "top" ? undefined : "calc(100% + 4px)",
+                bottom: side === "top" ? "calc(100% + 4px)" : undefined,
+                left: align === "end" ? undefined : 0,
+                right: align === "end" ? 0 : undefined,
+              },
+          role: "menu",
+          "data-context-menu": props.contextual ? "" : undefined,
+          "data-anchor-side": portal ? side : undefined,
+          onClick: function (event) {
+            event.stopPropagation();
+            var row = event.target instanceof Element ? event.target.closest('button[role="menuitem"]') : null;
+            if (row !== null && row.getAttribute("aria-haspopup") !== "menu") refocusAfterSelection();
+          },
+        },
+        h(
+          "div",
+          { className: "dshr-menu-viewport", role: "presentation" },
+          items.map(function (entry) {
+            return renderEntry(entry, itemColumns, false);
+          }),
+          props.children,
+        ),
+        footer.length > 0
+          ? h(
+              "div",
+              { className: "dshr-menu-footer", role: "presentation" },
+              footer.map(function (entry) {
+                return renderEntry(entry, footerColumns, false);
+              }),
+            )
+          : null,
+      );
+      list = h(React.Fragment, null, surface, submenuPanel);
+    }
+    var rootStyle = props.anchorPoint
+      ? { position: "fixed", left: props.anchorPoint.x, top: props.anchorPoint.y, width: 0, height: 0 }
+      : { position: "relative" };
+    return h(
+      "span",
+      {
+        ref: rootRef,
+        className: classNames("dshr-menu-root", props.className),
+        style: rootStyle,
+        onPointerEnter: props.closeOnPointerLeave ? grace.cancel : undefined,
+        onPointerLeave: props.closeOnPointerLeave
+          ? function (event) {
+              if (open && event.pointerType === "mouse") grace.arm();
+            }
+          : undefined,
       },
-      rows,
+      props.anchor,
+      open && portal && ReactDOM ? ReactDOM.createPortal(list, document.body) : list,
     );
-    var anchored = typeof window !== "undefined" && rootRef.current
-      ? (function () {
-          var rect = rootRef.current.getBoundingClientRect();
-          var style = { position: "fixed", minWidth: rect.width, zIndex: 80 };
-          if (side === "top") style.bottom = Math.max(8, window.innerHeight - rect.top + 4);
-          else style.top = rect.bottom + 4;
-          if (align === "end") style.right = Math.max(8, window.innerWidth - rect.right);
-          else style.left = rect.left;
-          return h("ul", { ref: listRef, role: "menu", className: classNames("dshr-menu", props.listClassName), style: style, "data-selection": props.selection || "check" }, rows);
-        })()
-      : list;
-    var panel = props.portal && ReactDOM ? ReactDOM.createPortal(anchored, document.body) : anchored;
-    return h(React.Fragment, null, anchor, panel);
+  }
+
+  function MenuItemButton(props) {
+    var rest = passThrough(props, ["onSelect", "children"]);
+    return h(
+      MenuRow,
+      Object.assign({}, rest, {
+        decorativeIcon: false,
+        onClick: function () {
+          if (typeof props.onSelect === "function") props.onSelect();
+        },
+      }),
+      props.children,
+    );
   }
 
   // ----- Input modality (reference input-modality.ts) ------------------------
@@ -934,10 +1355,7 @@
   var keyFocusOrigin;
   function publishInputModality() {
     if (typeof document === "undefined" || !document.documentElement) return;
-    document.documentElement.setAttribute(
-      INPUT_MODALITY_ATTRIBUTE,
-      pointerOwnsFocus ? "pointer" : "keyboard",
-    );
+    document.documentElement.setAttribute(INPUT_MODALITY_ATTRIBUTE, pointerOwnsFocus ? "pointer" : "keyboard");
   }
   function pointerModality() {
     return pointerInput;
@@ -982,12 +1400,9 @@
       },
       true,
     );
-    window.addEventListener(
-      "blur",
-      function () {
-        keyFocusOrigin = undefined;
-      },
-    );
+    window.addEventListener("blur", function () {
+      keyFocusOrigin = undefined;
+    });
   }
 
   // ----- Tooltip placement (reference tooltip-placement.ts) -----------------
@@ -1056,11 +1471,7 @@
         ),
       },
       keys.map(function (key, index) {
-        return h(
-          "kbd",
-          { key: index, className: key === "+" ? "dshr-shortcut-separator" : "dshr-shortcut-key" },
-          key,
-        );
+        return h("kbd", { key: index, className: key === "+" ? "dshr-shortcut-separator" : "dshr-shortcut-key" }, key);
       }),
     );
   }
@@ -1680,7 +2091,12 @@
     ShortcutKeys: ShortcutKeys,
     Modal: Modal,
     Menu: Menu,
+    MenuItemButton: MenuItemButton,
     MenuSurface: MenuSurface,
+    MENU_TRANSITION_MS: MENU_TRANSITION_MS,
+    usePointerGrace: usePointerGrace,
+    focusWithoutRing: focusWithoutRing,
+    isMobileDevice: isMobileDevice,
     Tooltip: Tooltip,
     Spinner: Spinner,
     JsonBlock: JsonBlock,

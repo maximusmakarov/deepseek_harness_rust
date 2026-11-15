@@ -455,7 +455,16 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   warning tone, headless, footer), `Menu` (data-rows/separators/labels,
   fixed-позиционирование, outside/Escape, selectedId(s), portal; полный
   submenu/focus-движок не портирован), `MenuSurface` (forwardRef,
-  `data-menu-material`/`phase`), `Tooltip` — **полный порт**: label-резолвер,
+  `data-menu-material`/`phase`), `Menu`/`MenuItemButton` — **порт ядра**: data-
+  и компонентные ряды, separators/labels, reserve-icon, selection
+  `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,
+  ShortcutKeys, footer-группа, `children`-ряды, one-level submenu
+  (hover/ArrowRight, fixed-панель рядом с рядом), клавиатурный walk
+  (Arrow/Home/End, Escape с возвратом фокуса, Tab-семантика), outside-
+  dismissal + iframe-blur, autoFocus, `copyOnPointerLeave` grace 200 мс,
+  portal-позиционирование с `minWidthFromAnchor`/`anchorPoint`, dense/compact;
+  полная submenu-машинерия (`useMenuSubmenu`, single-panel back-page,
+  `MenuGroup`) — не портирована; `Tooltip` — **полный порт**: label-резолвер,
   hover/focus-триггеры с независимыми задержками, `openOnClick`-pinning,
   Escape/Tab/outside-dismiss, `onlyWhenClipped`, `maxWidth`, portal,
   nested-suppression, `ShortcutKeys`, детерминированный placement-engine

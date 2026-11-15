@@ -503,3 +503,33 @@ renderer-семантика, `chain`-диспетчеризация/`hoc`-вло
 bridge harness 102, workspace 365+3, web-e2e 16/16; общий рантайм-артефакт —
 387 613 байт. Осталось: полный `Menu`
 (submenu/focus-машинерия), markdown-стек, store/renderer, chain/hoc.
+
+## C2.3: Menu по reference-ядру (15.11.2026, раунд 95)
+
+Последний упрощённый компонент — `Menu` — переписан по
+`ui-primitives/src/Menu.tsx`/`MenuRow.tsx`:
+
+- **ряды**: data-`items` и компонентные `MenuItemButton`, separators/labels,
+  `reserveIcon`-колонки (contextual), selection `check`/`fill`, `danger`,
+  `current`, disabled-reason через reference `Tooltip`, `shortcut` +
+  `ShortcutKeys`, aria (`menuitem`/`haspopup`/`expanded`/`disabled`/
+  `describedby`/`keyshortcuts`/`current`);
+- **структура**: `children`-ряды, `footer`-группа, `dense`/`compact`,
+  portal-позиционирование по anchor-rect (`minWidthFromAnchor`, `anchorPoint`,
+  `align`/`side`), contextual-атрибут;
+- **клавиатура**: Arrow/Home/End walk с roving focus, Escape закрывает и
+  возвращает фокус (focusWithoutRing), Tab «settles» ряд / Shift+Tab уходит,
+  ArrowRight/Left входят/выходят из submenu, autoFocus;
+- **submenu**: one-level панель, открывается hover/ArrowRight и закрывается
+  ArrowLeft/Escape/выбором; **не** портирована полная `useMenuSubmenu`
+  машинерия (single-panel back-page, меж-уровневый grace) и `MenuGroup`;
+- **поведение**: outside-pointer dismissal, закрытие при blur в iframe,
+  `closeOnPointerLeave` с 200-мс grace, возврат фокуса на триггер после
+  выбора/Escape; экспортированы `MenuItemButton`, `MENU_TRANSITION_MS`,
+  `usePointerGrace`, `focusWithoutRing`, `isMobileDevice`.
+
+Проверка: smoke 82/82 (menu-рендер в C2-probe и реальные плагины), harness 102,
+workspace 365+3, web-e2e 16/16; общий рантайм-артефакт — 405 323 байт.
+
+Осталось по reference: полная submenu-машинерия + `MenuGroup`/sticky-groups,
+markdown-стек (`MarkdownText`/`JsonBlock`), store/seats/renderer, chain/hoc.
