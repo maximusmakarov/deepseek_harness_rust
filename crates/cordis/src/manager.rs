@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dshr_tools::ToolRegistry;
 use tokio::sync::broadcast;
 
-use crate::{CordisConnection, CordisError, CordisPluginSpec, connect};
+use crate::{CordisConnection, CordisError, CordisPluginSpec, SidecarHttp, connect, sidecar_http};
 
 /// Tool name prefix for every Cordis plugin tool.
 pub const TOOL_PREFIX: &str = "cordis__";
@@ -51,6 +51,15 @@ pub struct PluginStatus {
     pub error: Option<String>,
 }
 
+/// Where the dshr HTTP server should proxy one plugin route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpTarget {
+    pub plugin: String,
+    pub port: u16,
+    /// Shared secret of the sidecar's loopback server.
+    pub token: String,
+}
+
 /// Lifecycle notification published on the manager's broadcast channel.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PluginEvent {
@@ -71,6 +80,8 @@ struct Running {
     tool_names: Vec<String>,
     generation: u64,
     started_at: u64,
+    /// Loopback HTTP endpoint + route table of the plugin host half, if any.
+    http: Option<SidecarHttp>,
 }
 
 /// Rebuilds the desired plugin list from disk; `Err` means the config could not
@@ -311,6 +322,9 @@ impl CordisManager {
                     tools.iter().map(|tool| tool.name().to_owned()).collect();
                 let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
                 let started_at = unix_now();
+                // Ask the sidecar for its host-route table (best effort; plugins
+                // without host routes have none and keep the plain tool contract).
+                let http = sidecar_http(&connection).await;
                 lock(&self.running).insert(
                     spec.name.clone(),
                     Running {
@@ -319,6 +333,7 @@ impl CordisManager {
                         tool_names: tool_names.clone(),
                         generation,
                         started_at,
+                        http,
                     },
                 );
                 lock(&self.errors).remove(&spec.name);
@@ -458,6 +473,46 @@ impl CordisManager {
             }
         }
         (halves, errors)
+    }
+
+    /// Loopback target for one exact plugin HTTP path, if any running plugin
+    /// registered it. The caller proxies to `127.0.0.1:port` with `token`.
+    #[must_use]
+    pub fn http_route(&self, path: &str) -> Option<HttpTarget> {
+        let running = lock(&self.running);
+        for (name, state) in running.iter() {
+            let Some(http) = state.http.as_ref() else {
+                continue;
+            };
+            if http
+                .routes
+                .iter()
+                .any(|route| route.kind == "exact" && route.path == path)
+            {
+                return Some(HttpTarget {
+                    plugin: name.clone(),
+                    port: http.port,
+                    token: http.token.clone(),
+                });
+            }
+        }
+        None
+    }
+
+    /// Every registered plugin HTTP route (`plugin`, `path`), for diagnostics.
+    #[must_use]
+    pub fn http_routes(&self) -> Vec<(String, String)> {
+        let running = lock(&self.running);
+        running
+            .iter()
+            .flat_map(|(name, state)| {
+                state.http.as_ref().into_iter().flat_map(move |http| {
+                    http.routes
+                        .iter()
+                        .map(move |route| (name.clone(), route.path.clone()))
+                })
+            })
+            .collect()
     }
 
     pub fn client_half(&self, name: &str) -> Result<crate::ClientHalf, crate::ClientHalfError> {

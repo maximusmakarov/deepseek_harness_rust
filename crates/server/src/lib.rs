@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use axum::body::Body;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -376,6 +377,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/{name}/client.js", get(plugin_client_bundle))
         .route("/v1/plugins/{name}/host", get(plugin_client_host))
         .route("/v1/runtime/{file}", get(shared_runtime))
+        .fallback(plugin_http_proxy)
         .route(
             "/v1/plugins/{name}/asset/{capability}/{*path}",
             get(plugin_client_asset),
@@ -1277,6 +1279,164 @@ fn frame_spec(query: &ClientHostQuery) -> Result<FrameSpec, (StatusCode, Json<Va
     })
 }
 
+/// Paths owned by the dshr HTTP API/embedded UI: a plugin route must never
+/// shadow them, even if a sidecar somehow registered one.
+fn reserved_plugin_path(path: &str) -> bool {
+    const RESERVED: [&str; 8] = [
+        "/v1",
+        "/dshr",
+        "/openapi",
+        "/manifest.webmanifest",
+        "/style.css",
+        "/icon-192.png",
+        "/icon-512.png",
+        "/",
+    ];
+    path.is_empty()
+        || RESERVED
+            .iter()
+            .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")))
+}
+
+fn plugin_proxy_error(status: StatusCode, message: &str) -> Response {
+    let body = Json(json!({ "ok": false, "error": message })).into_response();
+    let mut response = body;
+    *response.status_mut() = status;
+    response.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        header::HeaderValue::from_static("*"),
+    );
+    response
+}
+
+fn with_plugin_cors(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        header::HeaderValue::from_static("*"),
+    );
+    response
+}
+
+/// C1: proxy a plugin host-half HTTP route to its sidecar.
+///
+/// A Cordis host half registers plain Node `(req, res)` routes; the sidecar
+/// serves them on loopback with a per-process token. dshr exposes only paths
+/// present in the live allowlist (no wildcard), keeps the request/response size
+/// bounded and adds permissive CORS because plugin frames have an opaque origin.
+async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    if reserved_plugin_path(&path) {
+        return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
+    }
+    let Some(manager) = state.config.plugins.as_ref() else {
+        return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
+    };
+    let Some(target) = manager.http_route(&path) else {
+        return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
+    };
+    // Browser CORS preflight for plugin routes that send JSON bodies.
+    if method == axum::http::Method::OPTIONS {
+        let mut response = StatusCode::NO_CONTENT.into_response();
+        let headers = response.headers_mut();
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            header::HeaderValue::from_static("*"),
+        );
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_METHODS,
+            header::HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE, OPTIONS"),
+        );
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_HEADERS,
+            header::HeaderValue::from_static("content-type, accept"),
+        );
+        headers.insert(
+            header::ACCESS_CONTROL_MAX_AGE,
+            header::HeaderValue::from_static("600"),
+        );
+        return response;
+    }
+    let query = request
+        .uri()
+        .query()
+        .map(|query| format!("?{query}"))
+        .unwrap_or_default();
+    let content_type = request.headers().get(header::CONTENT_TYPE).cloned();
+    let accept = request.headers().get(header::ACCEPT).cloned();
+    let body = match axum::body::to_bytes(request.into_body(), 1024 * 1024).await {
+        Ok(body) => body,
+        Err(_) => {
+            return plugin_proxy_error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "plugin request body too large",
+            );
+        }
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .no_proxy()
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin proxy unavailable"),
+    };
+    let Ok(reqwest_method) = reqwest::Method::from_bytes(method.as_str().as_bytes()) else {
+        return plugin_proxy_error(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+    };
+    let url = format!("http://127.0.0.1:{}{path}{query}", target.port);
+    let mut outgoing = client
+        .request(reqwest_method, &url)
+        .header("x-dshr-sidecar-token", &target.token);
+    if let Some(value) = content_type {
+        outgoing = outgoing.header("content-type", value.as_bytes());
+    }
+    if let Some(value) = accept {
+        outgoing = outgoing.header("accept", value.as_bytes());
+    }
+    if !body.is_empty() {
+        outgoing = outgoing.body(body);
+    }
+    let response = match outgoing.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(plugin = %target.plugin, path = %path, %error, "plugin route proxy failed");
+            return plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin route failed");
+        }
+    };
+    let status =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_owned();
+    let cache_control = response
+        .headers()
+        .get(reqwest::header::CACHE_CONTROL)
+        .and_then(|value| value.to_str().ok())
+        .map(ToOwned::to_owned);
+    let bytes = match response.bytes().await {
+        Ok(bytes) => bytes,
+        Err(_) => return plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin route failed"),
+    };
+    if bytes.len() > 8 * 1024 * 1024 {
+        return plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin response too large");
+    }
+    let mut builder = Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff");
+    if let Some(cache_control) = cache_control {
+        builder = builder.header(header::CACHE_CONTROL, cache_control);
+    }
+    builder
+        .body(Body::from(bytes))
+        .map(with_plugin_cors)
+        .unwrap_or_else(|_| plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin route failed"))
+}
+
 /// Versioned module-table artifact shared by every opt-in client frame of a page
 /// (tier B PoC). Public like a static asset: it contains no secrets, and a
 /// sandboxed opaque-origin frame could not authenticate anyway.
@@ -1417,7 +1577,11 @@ async fn plugin_client_host(
                         plugin: runtime.as_deref(),
                     },
                 ),
-                client_host_csp(&request_origin(&headers), shared_runtime.is_some()),
+                client_host_csp(
+                    &request_origin(&headers),
+                    shared_runtime.is_some(),
+                    !half.host_modules.is_empty(),
+                ),
             )
         }
         dshr_cordis::client::BundleMode::Assets => {
@@ -1464,13 +1628,22 @@ const CLIENT_HOST_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' bl
 /// only new permission is loading classic scripts from this server origin (the
 /// versioned `/v1/runtime/react-<ver>.js` artifact); connect/img/style stay as
 /// locked down as the network-free page, so no token or plugin data can leave.
-fn client_host_csp(origin: &str, shared_runtime: bool) -> String {
-    if !shared_runtime {
+fn client_host_csp(origin: &str, shared_runtime: bool, allow_connect: bool) -> String {
+    if !shared_runtime && !allow_connect {
         return CLIENT_HOST_CSP.to_owned();
     }
+    let script = if shared_runtime {
+        format!("'unsafe-inline' blob: {origin}")
+    } else {
+        "'unsafe-inline' blob:".to_owned()
+    };
+    // Real plugins fetch their own host-half routes (`ctx.inject(['webServer'])`).
+    // Opening connect-src to the server origin is the C1 trade-off: no external
+    // network, but the frame may reach same-origin plugin routes (like DSH does).
+    let connect = if allow_connect { origin } else { "'none'" };
     format!(
-        "default-src 'none'; script-src 'unsafe-inline' blob: {origin}; style-src 'unsafe-inline'; \
-         img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+        "default-src 'none'; script-src {script}; style-src 'unsafe-inline'; \
+         img-src data: blob:; connect-src {connect}; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
     )
 }
 

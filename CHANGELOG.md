@@ -155,4 +155,41 @@
   (149,442 bytes). Full React compatibility stays an owner decision (ADR-040
   C-full, still Proposed).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`) and a partial 7-component design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, DSH plugin host HTTP routes (data plugins render, but their data branch fails), a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C1 — plugin host HTTP routes work end-to-end (ADR-040 §C1). A host
+  half calls `ctx.inject(['webServer'], scope => scope.webServer.register({name,
+  kind: 'exact', path, handler}))` with a plain Node `(req, res)` handler, exactly
+  like DSH. The Cordis sidecar now runs a loopback-only HTTP server (`127.0.0.1`,
+  random port, per-process token; reserved `/v1`/`/dshr`/`/openapi`/UI prefixes
+  rejected), exposes an internal `__dshr_routes` control tool (port, token, route
+  table), and reads `credentials.resolve(name)` from the environment so keys never
+  reach the browser. `CordisManager` keeps the table in `Running` and answers
+  `http_route(path)` for exact paths only; `__dshr_*` tools are filtered out of the
+  agent tool registry. The dshr server has a fallback proxy for allowlisted exact
+  paths only: it forwards method/query/body (request cap 1 MiB, response cap 8 MiB,
+  15 s timeout), answers reserved and unknown paths with the normal dshr 404, and
+  adds permissive CORS for opaque-origin frames (the global `CorsLayer` answers
+  preflight first). Routes are live — reload/stop removes them. CSP change: frames
+  that opt into `host_modules` now get `connect-src <server origin>` — the real
+  cause of the earlier "Failed to fetch" — while external network stays denied and
+  frames without `host_modules` stay network-free (`connect-src 'none'`). The real
+  `@kt11/dsh-deepseek-balance` host half is no longer stubbed: the upstream host
+  half is vendored verbatim (host sha256 `8771ae90…`, client sha unchanged
+  `f0a4080…`), and smoke proves through the plugin frame that `/dsh-balance/deepseek`
+  answers 500 JSON `{ok:false, code:"not-configured"}` without a key,
+  `/dsh-usage/sessions?tz=UTC` answers 200 JSON with a `sessions` array, and an
+  unknown plugin path keeps the dshr 404. Remaining C1 limits (recorded in
+  TECH-DEBT/LIMITATIONS): no `sessions`/`sessionProjections` services yet (usage
+  routes that build session statistics return empty/error data), no
+  SSE/WebSocket/streaming through the proxy, exact paths only, plugin routes are
+  unauthenticated/public like DSH and reachable on the LAN interface in LAN mode;
+  a Cordis sidecar connects through MCP, so MCP meta-tools (`list_resources`/
+  `read_resource`/`list_prompts`/`get_prompt`) still appear in the tool list of a
+  host-only plugin. Evidence: smoke 75/75 (+3: proxied host route with its own
+  JSON, query/status preservation, unknown-path 404), bridge harness 87, cordis lib
+  26, server `plugins_live` 14 (+2: `proxies_plugin_host_routes`,
+  `plain_frames_stay_network_free`), workspace 363 passed + 3 ignored (desktop 21,
+  total 384), web-e2e 16/16; the shared runtime artifact is unchanged (149,442
+  bytes). Full React compatibility (full design-system, host React context, SlotMap
+  semantics) stays an owner decision (ADR-040 C-full, still Proposed).
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`) and a partial 7-component design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work for exact paths (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame), but the remaining C1 limits are recorded too: no `sessions`/`sessionProjections` services for usage routes, no SSE/WebSocket/streaming, exact paths only, unauthenticated plugin routes reachable on the LAN interface, and MCP meta-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the tool list of host-only plugins. The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

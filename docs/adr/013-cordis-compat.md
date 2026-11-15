@@ -75,7 +75,7 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 - **Iframe на слот.** На каждую регистрацию (и на каждое вхождение повторяющегося региона: сообщение, карточка инструмента, строка сессии) создаётся отдельный iframe `mode=slot` с токеном фрейма, именем слота, id и `context`. Бандл в нём рендерит ровно эту регистрацию; `ctx.effect`/`inject` живут вместе с фреймом.
 - **Полный словарь.** Каталог слотов DSH `0.2.2-rc.2` (116 ключей `@deepseek-ai/dsh-client-ui-*`) плюс legacy `panel`/`message.action` разложен по 17 регионам шелла: `panel`, `sidebar.top`, `sidebar.footer`, `sidebar.session.action`, `settings.section`, `settings.icon`, `settings.action`, `message.action`, `tool.card`, `conversation.header`, `composer.actions`, `shell.leading`, `shell.bottom`, `shell.overlay`, `plugins.add`, `plugins.detail`, `approval.detail`; незнакомое имя — fallback в панель плагина.
 - **Протокол v1.2.** Токен фрейма и режим в каждом сообщении, `region` в `slots`/`resize`, `context` для повторяющихся регионов, адресный ответ на `ctx.action` тому фрейму, который спросил.
-- **Проверка.** Node-харнесс моста (покрытие всего каталога, slot mode, регионы), серверные тесты валидации `/host`, `scripts/plugin-smoke.py` — 72 проверки в headless Chrome (слоты по регионам, eager-registry, диалоги, сообщения, тема, действия, reload).
+- **Проверка.** Node-харнесс моста (покрытие всего каталога, slot mode, регионы), серверные тесты валидации `/host`, `scripts/plugin-smoke.py` — 75 проверок в headless Chrome (слоты по регионам, eager-registry, диалоги, сообщения, тема, действия, reload).
 
 Что по-прежнему **вне scope**: React-компоненты (`render` строит DOM сам), `ownerProps`/hooks/chain/hoc-семантика слотов DSH, произвольная инъекция в DOM шелла. Это сохраняет Leptos-архитектуру и попутно даёт изоляцию UI-плагина.
 
@@ -124,11 +124,11 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 
 **Клиентская половина** следует §5 этого ADR: React-совместимости нет, есть мост.
 - `dsh.client` (`platform: "web"`, `entry` или `exports["./client"]`) обнаруживается в каталоге пакета; путь канонизируется и обязан оставаться внутри пакета.
-- Host-страница (`GET /v1/plugins/{name}/host`) исполняется в `<iframe sandbox="allow-scripts">`: origin непрозрачный, CSP `default-src 'none'` запрещает сеть, бандл встроен base64 и импортируется из blob-URL — токен и запросы не покидают шелл. `client.js` остаётся отдельным маршрутом для отладки.
+- Host-страница (`GET /v1/plugins/{name}/host`) исполняется в `<iframe sandbox="allow-scripts">`: origin непрозрачный, CSP `default-src 'none'` запрещает внешнюю сеть, бандл встроен base64 и импортируется из blob-URL — токен и запросы не покидают шелл. С раунда 84 кадр, объявивший `host_modules`, дополнительно получает `connect-src` на origin сервера (C1: fetch к своим host-маршрутам); кадры без `host_modules` остаются network-free. `client.js` остаётся отдельным маршрутом для отладки.
 - Мост `window.dshr` (протокол v1): `slots.register/remove/list`, `action(action,payload)`, `theme`, `log`; сообщения размечены `ns`/`v`. Шелл активирует слот, отвечает на `action` (`close`, `reload`) и показывает ошибки плагина.
 - Web UI: панель Plugins показывает клиентские половины, их live-статус, кнопку Reload; панель открывается в sandboxed iframe, deep link `?token=…&plugin=…`.
 
-**Что осталось от объёма ADR:** React-компоненты и произвольная инъекция в DOM (сознательно вне scope), `ownerProps`/hooks/семантика слотов, кэш грантов и conformance-набор из 8–12 реальных плагинов, `cordis-embedded`.
+**Что осталось от объёма ADR:** React-компоненты и произвольная инъекция в DOM (сознательно вне scope), `ownerProps`/hooks/семантика слотов, кэш грантов, `cordis-embedded`; conformance-набор из 8–12 реальных плагинов достигнут (n=9), host-маршруты — частично (C1, раунд 84).
 
 ## Углубление клиентской половины (14.11.2026, раунды 64–66)
 
@@ -161,10 +161,12 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 приносит свою модульную таблицу (включая собранный React), см. §5 и
 [ADR-040](040-react-client-half.md).
 Осталось: полная React-совместимость (полный design-system, React-контекст
-шелла, SlotMap-семантика, host-маршруты DSH-плагинов — **тир C-full** по
-[ADR-040](040-react-client-half.md), решение ожидается; тиры A, B-PoC и C-lite
-уже реализованы), conformance-набор реальных пакетов (сейчас n=9),
-`dsh.client.external`.
+шелла, SlotMap-семантика — **тир C-full** по
+[ADR-040](040-react-client-half.md), решение ожидается; тиры A, B-PoC, C-lite
+уже реализованы), `dsh.client.external`. Host-маршруты плагинов закрыты
+частично в раунде 84 (**C1**: sidecar-proxy с allowlist, CORS, лимитами;
+сервисы `sessions`/`sessionProjections`, стриминг и LAN-политика — остаются),
+conformance-набор реальных пакетов достиг n=9 (цель 8–12).
 
 ## Региональный монтаж слотов (14.11.2026, раунд 76)
 

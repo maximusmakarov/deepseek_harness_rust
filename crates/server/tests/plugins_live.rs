@@ -707,6 +707,29 @@ async fn host_page_opts_into_the_shared_runtime() {
         csp.contains("script-src 'unsafe-inline' blob: http://"),
         "{csp}"
     );
+    // C1: a host-modules frame may reach its own plugin routes on the server
+    // origin (no external network); a plain frame stays network-free.
+    assert!(csp.contains("connect-src http://"), "{csp}");
+    assert!(!csp.contains("connect-src 'none'"), "{csp}");
+}
+
+#[tokio::test]
+async fn plain_frames_stay_network_free() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_plugin(dir.path(), "v1");
+    write_client_half(dir.path());
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+    let (status, headers, _) = raw(&app, "/v1/plugins/demo/host?token=test-token", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let csp = headers[header::CONTENT_SECURITY_POLICY]
+        .to_str()
+        .expect("csp")
+        .to_owned();
     assert!(csp.contains("connect-src 'none'"), "{csp}");
 }
 
@@ -737,6 +760,115 @@ async fn hostile_host_cannot_inject_the_shared_runtime_csp() {
     assert!(csp.contains("http://127.0.0.1"), "{csp}");
     assert!(!csp.contains("evil.test"), "{csp}");
     assert!(!csp.contains("script-src *"), "{csp}");
+}
+
+const WEB_ROUTE_PLUGIN: &str = r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "probe",
+      description: "probe",
+      inputSchema: { type: "object" },
+      handler: () => "ok",
+    });
+    ctx.inject(["webServer"], (scope) => {
+      scope.webServer.register({
+        name: "probe-route",
+        kind: "exact",
+        path: "/probe-route",
+        handler: async (req, res) => {
+          let body = "";
+          if (req.method === "POST") {
+            for await (const chunk of req) body += chunk;
+          }
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, url: req.url, method: req.method, body }));
+        },
+      });
+    });
+  },
+};
+"#;
+
+#[tokio::test]
+async fn proxies_plugin_host_routes() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("plugin.mjs"), WEB_ROUTE_PLUGIN).expect("plugin");
+    let (state, _registry, manager) = state(dir.path()).await;
+    let app = router(state);
+
+    // Exact route, query string and status are proxied from the sidecar.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-route?x=1")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let value: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(value["ok"], true, "{value}");
+    assert_eq!(value["url"], "/probe-route?x=1", "{value}");
+    assert_eq!(value["method"], "GET", "{value}");
+
+    // Request bodies are forwarded for plugin POST routes.
+    let request = Request::builder()
+        .method("POST")
+        .uri("/probe-route")
+        .header("content-type", "text/plain")
+        .body(Body::from("hello"))
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let value: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(value["method"], "POST", "{value}");
+    assert_eq!(value["body"], "hello", "{value}");
+
+    // CORS preflight is answered without touching the sidecar.
+    let request = Request::builder()
+        .method("OPTIONS")
+        .uri("/probe-route")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    // The global permissive CorsLayer answers browser preflights before the
+    // fallback (200), the handler's own 204 branch is the defensive fallback.
+    assert!(
+        response.status() == StatusCode::NO_CONTENT || response.status() == StatusCode::OK,
+        "{}",
+        response.status()
+    );
+    assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+
+    // Unregistered and reserved paths keep the normal 404.
+    for uri in ["/probe-missing", "/v1/probe-route"] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request");
+        let response = app.clone().oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+    }
+
+    // Stopping the plugin drops its routes (live allowlist, not a cached copy).
+    manager.sync(Vec::new()).await;
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-route")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

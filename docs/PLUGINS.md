@@ -345,6 +345,50 @@ network-free, отдельной подписи у runtime нет (часть п
 фрейм грузит runtime заново — это цена изоляции. Проверено на React 18.3.1:
 рендер, `useState`-интерактивность и `ctx.onTheme` работают (раунд 77).
 
+### Host HTTP-маршруты плагина (C1)
+
+Host-половина может отдавать свои HTTP-маршруты — так реальные плагины получают
+данные (например, карточка баланса ходит в свой `/dsh-balance/deepseek`):
+
+```js
+export function apply(ctx) {
+  ctx.inject(["webServer"], (scope) => {
+    scope.webServer.register({
+      name: "my-route",
+      kind: "exact",
+      path: "/my-plugin/data",
+      handler: async (req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      },
+    });
+  });
+}
+```
+
+Как это устроено в dshr:
+
+- sidecar поднимает **loopback-only** HTTP-сервер (`127.0.0.1`, случайный порт) с
+  per-process токеном; bootstrap предоставляет `ctx.inject(['webServer'])`
+  и `webServer.register({ name, kind, path, handler })` с обычными Node
+  `(req, res)`; `credentials.resolve(name)` читает значение из окружения
+  (ключи никогда не попадают в браузер);
+- Rust-сервер проксирует **только пути из живого allowlist** (exact-match,
+  `kind: "exact"`), не даёт зарегистрировать зарезервированные префиксы
+  (`/v1`, `/dshr`, `/openapi`, UI-ассеты), ограничивает тело запроса 1 МиБ,
+  ответ 8 МиБ и таймаут 15 с; неизвестный путь остаётся обычным 404 dshr;
+- маршруты живые: reload/stop плагина убирает их из allowlist;
+- для кадров с `host_modules` CSP открывает `connect-src` на origin сервера
+  (внешняя сеть по-прежнему запрещена, `default-src 'none'`); кадры без
+  `host_modules` остаются полностью network-free; CORS для opaque-origin кадров
+  разрешён только на plugin-маршрутах (и preflight обрабатывается до прокси).
+
+Ограничения C1: нет сервисов `sessions`/`sessionProjections` (маршруты,
+которые строят статистику по сессиям, отдают пустые/ошибочные данные), нет
+SSE/WebSocket/стриминга и потоковых ответов через прокси, только exact-пути;
+plugin-маршруты не аутентифицированы (как в DSH — они публичные для локального
+web-профиля) и в LAN-режиме доступны с интерфейса сервера.
+
 ### Общая модульная таблица хоста (`dsh.client.host_modules`)
 
 Вместо того чтобы вшивать React в каждый бандл, половина может попросить
@@ -378,9 +422,11 @@ design-system, см. ниже). Незнакомый id отклоняется �
 - JS-реалм у каждого iframe свой (изоляция), поэтому рантайм исполняется в каждом
   кадре; «одна версия на страницу» — это один версионированный артефакт и одна
   загрузка по сети, а не один общий JS-контекст;
-- CSP такого кадра остаётся жёстким: `connect-src 'none'`, `default-src 'none'`,
-  из сети разрешён только скрипт с origin сервера (`script-src ... <origin>`).
-  Кадры без `host_modules` по-прежнему полностью network-free.
+- CSP такого кадра остаётся жёстким: `default-src 'none'`, внешняя сеть
+  запрещена; из сети разрешены только origin сервера —
+  `script-src ... <origin>` для рантайма и `connect-src <origin>`, иначе
+  браузерный fetch плагина к его же C1-маршруту блокировался бы. Кадры без
+  `host_modules` по-прежнему полностью network-free (`connect-src 'none'`).
 
 Ограничения тира B: это React-рантайм и модульная таблица, но **не** полный
 design-system `@deepseek-ai/dsh-client-ui-*`, не React-контекст шелла, не
@@ -446,8 +492,11 @@ Host-state приходит от шелла сообщением `host-state` (`
 изменений (в манифесте только `host_modules`):
 
 - `@kt11/dsh-deepseek-balance@0.2.1` — React-карточка в `sidebar.footer.action`,
-  свой CSS, popup по клику; data-запросы идут на host-маршруты DSH, которых в
-  dshr нет, поэтому popup показывает ветку «查询失败» (записанное ограничение);
+  свой CSS, popup по клику; **host-половина настоящая** (не заглушка): её
+  маршруты `/dsh-balance/deepseek` и `/dsh-usage/*` отдаются через C1-proxy.
+  Без ключа карточка показывает собственную ветку `not-configured`, с ключом в
+  окружении — реальный баланс; usage-маршруты, зависящие от сервисов сессий,
+  пока отдают пустые данные (ограничение C1);
 - `dsh-remote@1.1.2` — регистрирует React-слоты в `conversation.session.header.*`,
   `sidebar.workspaces.directoryFlow`; активируется без ошибок, опциональные
   сервисы (`betterSidebar`, `sidebarRight`, `webTerminals`) отсутствуют и

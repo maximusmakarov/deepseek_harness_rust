@@ -2,6 +2,8 @@
 import readline from "node:readline";
 import path from "node:path";
 import fs from "node:fs/promises";
+import http from "node:http";
+import { randomBytes } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 
@@ -50,8 +52,131 @@ function addTool(definition) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Host HTTP routes (C1): DSH host halves call
+//   ctx.inject(['webServer'], (scope) => scope.webServer.register({ name, kind, path, handler }))
+// with a plain Node `(req, res)` handler. The sidecar runs a loopback-only HTTP
+// server, and the dshr server proxies only the registered paths to it.
+// ---------------------------------------------------------------------------
+const routes = [];
+let httpServer = null;
+let httpPort = 0;
+const httpToken = randomBytes(16).toString("hex");
+// Paths that collide with the dshr HTTP API/embedded UI must never be proxied.
+const reservedPrefixes = [
+  "/v1",
+  "/dshr",
+  "/openapi",
+  "/manifest.webmanifest",
+  "/style.css",
+  "/icon-192.png",
+  "/icon-512.png",
+];
+
+function validRoutePath(candidate) {
+  if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 200) return false;
+  if (!candidate.startsWith("/") || candidate === "/" || candidate.includes("..")) return false;
+  return !reservedPrefixes.some(
+    (prefix) => candidate === prefix || candidate.startsWith(prefix + "/"),
+  );
+}
+
+function ensureHttpServer() {
+  if (httpServer) return;
+  httpServer = http.createServer(async (req, res) => {
+    if (req.headers["x-dshr-sidecar-token"] !== httpToken) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "forbidden" }));
+      return;
+    }
+    let route;
+    try {
+      route = routes.find(
+        (candidate) => candidate.path === new URL(req.url || "/", "http://127.0.0.1").pathname,
+      );
+    } catch {
+      route = undefined;
+    }
+    if (!route) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: "no such plugin route" }));
+      return;
+    }
+    try {
+      await route.handler(req, res);
+    } catch (error) {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    }
+  });
+  httpServer.on("listening", () => {
+    httpPort = httpServer.address().port;
+  });
+  httpServer.keepAliveTimeout = 5_000;
+  httpServer.requestTimeout = 30_000;
+  httpServer.listen(0, "127.0.0.1");
+}
+
+const webServer = {
+  register: (route) => {
+    if (!route || typeof route !== "object" || typeof route.handler !== "function") {
+      throw new Error("webServer.register: handler is required");
+    }
+    if (!validRoutePath(route.path)) {
+      throw new Error(`webServer.register: invalid or reserved path '${route.path}'`);
+    }
+    const entry = {
+      name: route.name || route.path,
+      kind: route.kind || "exact",
+      path: route.path,
+      handler: route.handler,
+    };
+    const existing = routes.findIndex((candidate) => candidate.path === entry.path);
+    if (existing >= 0) routes[existing] = entry;
+    else routes.push(entry);
+    ensureHttpServer();
+    return function unregister() {
+      const index = routes.findIndex((candidate) => candidate.path === entry.path);
+      if (index >= 0) routes.splice(index, 1);
+    };
+  },
+};
+
+// DSH credential seam: environment only (the sidecar inherits the harness env).
+const credentialsService = {
+  resolve: async (name) => {
+    const value = process.env[name];
+    return typeof value === "string" && value.trim() !== "" ? { value: value.trim() } : null;
+  },
+};
+
+const serviceMap = {
+  webServer,
+  credentials: credentialsService,
+};
+
 const ctx = {
   tool: (definition) => addTool(definition),
+  get: (name) => serviceMap[name],
+  webServer,
+  // Reference fiber helper: run the callback only when every dependency exists.
+  inject: (dependencies, callback) => {
+    if (typeof callback !== "function") return () => {};
+    const list = Array.isArray(dependencies) ? dependencies : [dependencies];
+    const ready = list.every((name) => serviceMap[name] !== undefined);
+    if (!ready) return () => {};
+    try {
+      const result = callback(ctx);
+      return typeof result === "function" ? result : () => {};
+    } catch (error) {
+      console.error("[cordis] inject callback failed:", error);
+      return () => {};
+    }
+  },
   log: (...args) => console.error("[cordis]", ...args),
   fs: {
     readFile: async (name) => {
@@ -81,6 +206,29 @@ const ctx = {
   },
 };
 
+// Internal control tool (not served to the agent; the host filters `__dshr_`
+// tools out of the registry). It reports the loopback port + route table.
+addTool({
+  name: "__dshr_routes",
+  description: "internal: host HTTP route table",
+  inputSchema: { type: "object" },
+  handler: async () => {
+    // `listen(0)` completes asynchronously; an early route query must not report
+    // port 0 (the host would treat the plugin as route-less).
+    if (httpServer && httpPort === 0) {
+      await new Promise((resolve) => {
+        if (httpServer.listening) resolve();
+        else httpServer.once("listening", resolve);
+      });
+    }
+    return {
+      port: httpPort,
+      token: httpToken,
+      routes: routes.map((route) => ({ path: route.path, kind: route.kind })),
+    };
+  },
+});
+
 const require = createRequire(path.resolve(root, entry));
 let resolvedEntry = path.resolve(root, entry);
 try {
@@ -104,6 +252,9 @@ if (cordis && typeof cordis.Context === "function") {
     const app = new cordis.Context();
     app.tool = ctx.tool;
     app.log = ctx.log;
+    app.get = ctx.get;
+    app.inject = ctx.inject;
+    app.webServer = ctx.webServer;
     app.dshr = { fs: ctx.fs, exec: ctx.exec, net: ctx.net };
     app.plugin(plugin);
     await new Promise((resolve) => setTimeout(resolve, 50));

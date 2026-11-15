@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -254,3 +254,38 @@ workspace 361 passed + 3 ignored, web-e2e 16/16.
 
 Проверка: smoke 72/72 (+3), bridge harness 87, cordis 26, server plugins_live 12,
 workspace 361 passed + 3 ignored, web-e2e 16/16.
+
+## C1: host HTTP-маршруты плагинов (15.11.2026, раунд 84)
+
+Реальные host-половины DSH регистрируют маршруты через
+`ctx.inject(['webServer'], scope => scope.webServer.register({ name, kind, path, handler }))`
+с Node `(req, res)`. dshr теперь это обслуживает:
+
+- **Sidecar.** Loopback-only HTTP-сервер (`127.0.0.1`, случайный порт,
+  per-process токен), `webServer.register` с валидацией пути (package/reserved
+  prefixes), `credentials.resolve(name)` из окружения (ключи не покидают
+  sidecar), маршруты снимаются вместе с процессом.
+- **Host.** После старта sidecar manager читает внутренний инструмент
+  `__dshr_routes` (порт, токен, таблица путей), хранит её в `Running` и отдаёт
+  `http_route(path)`; внутренние `__dshr_*`-инструменты не попадают в реестр
+  инструментов агента.
+- **Proxy.** Fallback dshr-сервера проксирует только exact-пути из allowlist
+  (`127.0.0.1:port`, заголовок с токеном), ограничивает request 1 МиБ /
+  response 8 МиБ, таймаут 15 с; reserved-префиксы (`/v1`, `/dshr`, `/openapi`,
+  UI-ассеты) и неизвестные пути → обычный 404; CORS/permissive для
+  opaque-origin кадров; preflight отвечает глобальный CorsLayer до прокси.
+- **CSP.** Кадры с `host_modules` теперь получают `connect-src <origin
+  сервера>` — иначе браузерный fetch плагина к своему маршруту блокировался бы
+  (реальная причина «Failed to fetch» в C-lite). Внешняя сеть по-прежнему
+  запрещена, кадры без `host_modules` остаются network-free.
+- **Проверка.** Реальная host-половина `@kt11/dsh-deepseek-balance` больше не
+  застаблена: в smoke её маршрут `/dsh-balance/deepseek` отвечает своим JSON
+  (`500`, `{ok:false, code:"not-configured"}` без ключа), `/dsh-usage/sessions`
+  отдаёт `200` c JSON и query-строкой, неизвестный путь — 404 dshr; серверный
+  integration test проверяет GET/POST/OPTIONS/404 и снятие маршрутов при
+  остановке плагина.
+
+Осталось от C1: сервисы `sessions`/`sessionProjections` (статистика по сессиям
+в usage-маршрутах), SSE/WebSocket/стриминг, LAN-политика для plugin-маршрутов,
+аутентификация (сейчас как в DSH — public loopback). Полный C-full (design-system,
+SlotMap-семантика, React-контекст) остаётся решением владельца.

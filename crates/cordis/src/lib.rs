@@ -96,6 +96,71 @@ impl std::fmt::Debug for CordisConnection {
     }
 }
 
+/// One HTTP route a plugin host half registered on its sidecar.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct SidecarHttpRoute {
+    /// Path as registered (exact match).
+    pub path: String,
+    /// Registration kind (`exact` today).
+    pub kind: String,
+}
+
+/// Loopback HTTP endpoint of one sidecar plus the route table it serves.
+///
+/// The host never exposes the port: every request is proxied by the dshr HTTP
+/// server after an allowlist check, and carries `token` so another local process
+/// cannot talk to the sidecar directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidecarHttp {
+    pub port: u16,
+    pub token: String,
+    pub routes: Vec<SidecarHttpRoute>,
+}
+
+/// Reads the sidecar's internal route table (`__dshr_routes`).
+///
+/// Best effort: plugins without host routes, or a sidecar that has not started
+/// its loopback server (port 0), return `None`.
+pub async fn sidecar_http(connection: &CordisConnection) -> Option<SidecarHttp> {
+    let result = connection
+        .backend
+        .call_tool(
+            "__dshr_routes",
+            serde_json::Value::Object(Default::default()),
+        )
+        .await
+        .ok()?;
+    if result.is_error {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(&result.content).ok()?;
+    let port = u16::try_from(value.get("port")?.as_u64()?).ok()?;
+    if port == 0 {
+        return None;
+    }
+    let token = value.get("token")?.as_str()?.to_owned();
+    let routes = value
+        .get("routes")?
+        .as_array()?
+        .iter()
+        .filter_map(|route| {
+            Some(SidecarHttpRoute {
+                path: route.get("path")?.as_str()?.to_owned(),
+                kind: route
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("exact")
+                    .to_owned(),
+            })
+        })
+        .collect();
+    Some(SidecarHttp {
+        port,
+        token,
+        routes,
+    })
+}
+
 /// Connects a Cordis plugin sidecar and returns its tools, named
 /// `cordis__<plugin>__<tool>`.
 pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnection, CordisError> {
@@ -131,6 +196,13 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
         .map_err(|error| CordisError::Sidecar(error.to_string()))?;
     let tools = tools
         .into_iter()
+        // Internal sidecar control tools (`__dshr_*`) are called by the host
+        // itself, never exposed to the agent/tool registry.
+        .filter(|tool| {
+            let prefix = format!("mcp__cordis-{}__", spec.name);
+            let short = tool.name().strip_prefix(&prefix).unwrap_or(tool.name());
+            !short.starts_with("__dshr_")
+        })
         .map(|tool| {
             let prefix = format!("mcp__cordis-{}__", spec.name);
             let short = tool

@@ -7,10 +7,11 @@ A real, third-party DSH client plugin used to prove C-lite conformance
   lazy-CJS module-table bundle, `require("react")` / `require("react-dom")`,
   registers `sidebar.footer.action`). SHA-256 is recorded in `package.json`
   (`dshrFixture.clientSha256`).
-- `dsh/stub.mjs` replaces the host half because the upstream host half registers
-  routes on the DSH web server, which the dshr Cordis sidecar does not expose;
-  the client half under test does not depend on it (it degrades gracefully when
-  its fetches 404).
+- `dsh/index.js` is the upstream **unmodified** host half (zero runtime deps,
+  node builtins + global fetch). It registers `/dsh-balance/deepseek` and the
+  `/dsh-usage/*` routes through `ctx.inject(['webServer'])`; dshr serves them via
+  the C1 sidecar proxy, so the card fetches its own plugin routes instead of
+  receiving a 404 page.
 - `dsh.client.host_modules: ["react", "react-dom/client"]` is the only manifest
   change: it opts the frame into the shared host runtime instead of bundling
   React.

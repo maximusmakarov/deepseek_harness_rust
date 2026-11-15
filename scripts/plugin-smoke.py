@@ -811,7 +811,13 @@ def write_fixtures(home: Path, workspace: Path) -> None:
 def start_server(
     binary: Path, home: Path, workspace: Path, port: int, cassette: Path
 ) -> subprocess.Popen:
-    environment = dict(os.environ, DEEPSEEK_API_KEY="dummy")
+    environment = dict(os.environ)
+    # The real C1 host halves must not reach the network or a developer's
+    # credentials file during tests: an empty key makes them answer with their own
+    # deterministic "not configured" JSON, and an isolated HOME hides ~/.dsh.
+    environment["DEEPSEEK_API_KEY"] = ""
+    environment["DEEPSEEK_PLATFORM_TOKEN"] = ""
+    environment["HOME"] = str(home)
     process = subprocess.Popen(
         [
             str(binary),
@@ -1779,6 +1785,77 @@ def run(args: argparse.Namespace) -> int:
             "the market plugin mounts its sidebar entry frame",
             any(item["slot"] == "sidebar.panellist" for item in market_frame),
             market_frame,
+        )
+
+        # C1: the real host half registers its own routes (ctx.inject(['webServer']));
+        # they are proxied to the sidecar and answered as the plugin's JSON, not a
+        # dshr 404 page. Evaluate inside the plugin frame to cover frame CSP + CORS.
+        balance_route_target = frame_target(
+            debug_port, "deepseek-balance", "slot", "sidebar.footer.action"
+        )
+        balance_route_state = {"error": "no balance frame"}
+        if balance_route_target is not None:
+            balance_route_frame = DevTools(balance_route_target["webSocketDebuggerUrl"])
+            try:
+                balance_route_frame.call("Runtime.enable")
+                raw = balance_route_frame.eval(
+                    "fetch('/dsh-balance/deepseek').then(r => r.json().then(body => JSON.stringify({status: r.status, body})))",
+                    True,
+                )
+                balance_route_state = json.loads(str(raw))
+            except Exception as error:  # noqa: BLE001 - reported as a check detail
+                balance_route_state = {"error": str(error)}
+            finally:
+                balance_route_frame.close()
+        route_body = balance_route_state.get("body") or {}
+        check(
+            "a plugin host route is proxied with its own JSON (C1)",
+            balance_route_state.get("status") == 500
+            and route_body.get("ok") is False
+            and route_body.get("code") == "not-configured",
+            balance_route_state,
+        )
+        usage_route_state = {"error": "no balance frame"}
+        if balance_route_target is not None:
+            usage_frame = DevTools(balance_route_target["webSocketDebuggerUrl"])
+            try:
+                usage_frame.call("Runtime.enable")
+                raw = usage_frame.eval(
+                    "fetch('/dsh-usage/sessions?tz=UTC').then(r => r.json().then(body => JSON.stringify({status: r.status, body})))",
+                    True,
+                )
+                usage_route_state = json.loads(str(raw))
+            except Exception as error:  # noqa: BLE001 - reported as a check detail
+                usage_route_state = {"error": str(error)}
+            finally:
+                usage_frame.close()
+        usage_body = usage_route_state.get("body") or {}
+        check(
+            "a plugin host route keeps query strings and status codes",
+            usage_route_state.get("status") == 200
+            and usage_body.get("ok") is True
+            and isinstance(usage_body.get("sessions"), list),
+            usage_route_state,
+        )
+        unknown_route = shell.eval(
+            """(() => {
+                window.__c1Unknown = null;
+                fetch('/dsh-balance/unknown-route').then(r => r.json().then(body => {
+                    window.__c1Unknown = {status: r.status, body};
+                })).catch(error => { window.__c1Unknown = {error: String(error)}; });
+            })()"""
+        )
+        wait_until(
+            lambda: shell.eval("window.__c1Unknown !== null"),
+            timeout=FRAME_TIMEOUT,
+            label="unknown plugin route",
+        )
+        unknown_state = json.loads(str(shell.eval("JSON.stringify(window.__c1Unknown)")))
+        check(
+            "unknown plugin routes keep the dshr 404",
+            unknown_state.get("status") == 404
+            and (unknown_state.get("body") or {}).get("error") == "not found",
+            unknown_state,
         )
 
         shell.call(

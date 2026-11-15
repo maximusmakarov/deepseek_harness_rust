@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–83)
+# Журнал раундов паритета (1–84)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 361 root-тест
-(+3 ignored) и 21 desktop-тест = **382**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 363 root-теста
+(+3 ignored) и 21 desktop-тест = **384**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -423,11 +423,53 @@ release-бинарь воспроизводим.
     DSH-плагинов, выбор версии React) — решение владельца, а не незакрытая
     C-lite-работа.
 
+- 84: **C1** — host HTTP-маршруты плагинов работают end-to-end
+  ([ADR-040](adr/040-react-client-half.md), [PLUGINS.md](PLUGINS.md)):
+  - sidecar поднимает **loopback-only** HTTP-сервер (`127.0.0.1`, случайный порт,
+    per-process токен), bootstrap даёт `ctx.inject(['webServer'])` +
+    `webServer.register({name, kind, path, handler})` с обычными Node
+    `(req, res)` и `credentials.resolve(name)` из окружения (ключи не покидают
+    sidecar); зарезервированные префиксы (`/v1`, `/dshr`, `/openapi`, UI-ассеты)
+    не регистрируются;
+  - менеджер после старта читает внутренний инструмент `__dshr_routes` (порт,
+    токен, таблица путей), хранит её в `Running` и отдаёт `http_route(path)`
+    (только exact-пути); внутренние `__dshr_*`-инструменты отфильтрованы из
+    реестра инструментов агента;
+  - fallback-прокси сервера: только allowlist, пробрасывает method/query/body
+    (request ≤ 1 МиБ, response ≤ 8 МиБ, таймаут 15 с), reserved- и неизвестные
+    пути → обычный dshr 404; permissive CORS для opaque-origin кадров (preflight
+    отвечает глобальный `CorsLayer`); маршруты живые — reload/stop убирает их из
+    allowlist;
+  - CSP: кадры с `host_modules` получают `connect-src <origin сервера>` — реальная
+    причина «Failed to fetch» в C-lite (браузерный fetch плагина к своему
+    маршруту блокировался); внешняя сеть по-прежнему запрещена, кадры без
+    `host_modules` остаются network-free;
+  - реальная host-половина `@kt11/dsh-deepseek-balance@0.2.1` больше не
+    застаблена: upstream host half вендорен дословно (host sha256 `8771ae90…`,
+    client sha не менялся — `f0a4080…`); smoke через кадр плагина проверяет
+    `/dsh-balance/deepseek` → `500 {ok:false, code:"not-configured"}`,
+    `/dsh-usage/sessions?tz=UTC` → `200` c JSON и массивом `sessions`, неизвестный
+    путь → dshr 404.
+  - Проверки: smoke — 75/75 (+3: проксирование host-маршрута, query/status,
+    неизвестный путь), bridge harness 87, cordis lib 26, server `plugins_live`
+    14 (+2: `proxies_plugin_host_routes`, `plain_frames_stay_network_free`),
+    workspace 363 passed + 3 ignored (desktop 21, итого 384), web-e2e 16/16;
+    общий рантайм-артефакт не менялся — 149 442 байта.
+  - Границы C1: сервисов `sessions`/`sessionProjections` нет (usage-маршруты,
+    строящие статистику по сессиям, отдают пустые/ошибочные данные), нет
+    SSE/WebSocket/стриминга, только exact-пути; plugin-маршруты не
+    аутентифицированы (как в DSH — публичные для локального web-профиля) и в
+    LAN-режиме доступны с интерфейса сервера; sidecar подключается через MCP,
+    поэтому meta-инструменты MCP (`list_resources`/`read_resource`/
+    `list_prompts`/`get_prompt`) по-прежнему видны в реестре инструментов
+    host-only плагина. Полный C-full (design-system, SlotMap-семантика,
+    React-контекст шелла, триаж отклонённых плагинов) — решение владельца.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–83 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–84 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -445,26 +487,36 @@ UI-стек, включая React, внутрь слота), PoC тира B — 
 conformance до **n=9** — целевой диапазон ADR-013 §6 (8–12 реальных плагинов)
 закрыт (`dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5`,
 `@goodandready/dsh-plugin-notify@0.4.9`; смонтированы сайдбар, панель настроек и
-строки plugins-страницы).
+строки plugins-страницы), а раунд 84 — **C1**: host HTTP-маршруты плагинов
+работают end-to-end (loopback-сервер sidecar + allowlist-прокси dshr-сервера,
+`connect-src` на origin сервера для кадров с `host_modules`; реальная
+host-половина `@kt11/dsh-deepseek-balance` отвечает своим JSON через кадр
+плагина).
 
 Открыто и не заблокировано:
 
 - Общая серверная база отзывов plugin market (сейчас home-scoped файл).
 - Экспериментальные контракты клиентской половины (`dsh.client.runtime` и
   `dsh.client.host_modules`: classic script, без ESM и отдельной подписи, версия
-  React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов)
-  могут поменяться до полного тира C по [ADR-040](adr/040-react-client-half.md).
+  React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
+  `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
+  по [ADR-040](adr/040-react-client-half.md).
 - C-lite-ограничения: design-system шим частичный (7 компонентов: `Button`,
   `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`), `wide`
-  в host-state сейчас всегда true, host-маршрутов DSH-плагинов нет (реальные
-  data-плагины в smoke показывают ветку ошибки данных), conformance-набор — n=9
+  в host-state сейчас всегда true, conformance-набор — n=9
   (цель ADR-013 §6 8–12 достигнута; остальные smoke-половины синтетические),
   SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст шелла
   по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (нет
   проекций `sessions`, `sessionStats`), eval-based бандлы требуют ослабления CSP,
   а `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
-  Дальнейшее расширение (полный design-system/SlotMap/React-контекст/host-маршруты)
-  — уже не C-lite, а C-full: решение владельца.
+  Дальнейшее расширение (полный design-system/SlotMap/React-контекст) — уже не
+  C-lite, а C-full: решение владельца.
+- C1-остатки (раунд 84): сервисы `sessions`/`sessionProjections` для
+  usage-маршрутов отсутствуют, нет SSE/WebSocket/стриминга через прокси, только
+  exact-пути; plugin-маршруты не аутентифицированы (как в DSH) и в LAN-режиме
+  доступны с интерфейса сервера; meta-инструменты MCP (`list_resources`/
+  `read_resource`/`list_prompts`/`get_prompt`) видны в реестре инструментов
+  host-only плагина.
 
 Ожидает решения (ADR-040 Proposed, тир C/C-full):
 
@@ -476,13 +528,16 @@ conformance до **n=9** — целевой диапазон ADR-013 §6 (8–12
   (`dsh-session-superagent@0.10.12` — composer dock, `dsh-mnemon@0.5.46` —
   multi-region и референсная поверхность слотов); раунд 83: conformance n=9 —
   цель ADR-013 §6 достигнута (`dsh-plugin-market@1.2.2`,
-  `dsh-plugin-codegraph-panel@0.6.5`, `@goodandready/dsh-plugin-notify@0.4.9`).
+  `dsh-plugin-codegraph-panel@0.6.5`, `@goodandready/dsh-plugin-notify@0.4.9`);
+  раунд 84: **C1** — host HTTP-маршруты плагинов работают end-to-end
+  (loopback-сервер sidecar, allowlist-прокси, `connect-src` на origin сервера,
+  реальная host-половина balance-плагина), с честно записанными остатками
+  (сервисы `sessions`/`sessionProjections`, стриминг, аутентификация/LAN-политика).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
-  React-контекста/состояния шелла и композиции между плагинами, host-маршрутов
-  DSH-плагинов, выбора версии React и настоящего `@dshr/cordis-compat`-шима.
-  Это вопрос объёма/приоритета для владельца (C-full по ADR-040 остаётся
-  Proposed); D не рекомендуется.
+  React-контекста/состояния шелла и композиции между плагинами, выбора версии
+  React и настоящего `@dshr/cordis-compat`-шима. Это вопрос объёма/приоритета
+  для владельца (C-full по ADR-040 остаётся Proposed); D не рекомендуется.
 
 Заблокировано внешним условием:
 

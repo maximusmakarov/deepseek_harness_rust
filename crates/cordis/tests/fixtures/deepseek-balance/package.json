@@ -3,16 +3,16 @@
   "version": "0.2.1",
   "description": "dsh plugin: DeepSeek API balance and daily spend card in the sidebar footer (conformance fixture)",
   "type": "module",
-  "main": "./dsh/stub.mjs",
+  "main": "./dsh/index.js",
   "exports": {
-    ".": "./dsh/stub.mjs",
-    "./dsh": "./dsh/stub.mjs",
+    ".": "./dsh/index.js",
+    "./dsh": "./dsh/index.js",
     "./client": "./dsh/client.js",
     "./package.json": "./package.json"
   },
   "files": [
+    "dsh/index.js",
     "dsh/client.js",
-    "dsh/stub.mjs",
     "README.md"
   ],
   "keywords": [
@@ -39,6 +39,7 @@
     "upstreamVersion": "0.2.1",
     "upstreamLicense": "MIT",
     "clientSha256": "f0a40800e1e14da3e4bf470be986930d10e70478e8ae2e38ac6df1ee0f0a4bbc",
-    "changes": "client half copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime"
+    "changes": "client half, host half and LICENSE copied verbatim; dsh.client.host_modules added to opt into the shared host runtime (host routes are served through the C1 sidecar proxy)",
+    "hostSha256": "8771ae901fa88297fc3ca7891e8b80efeab869c61c151992cad2b3ceeb74f409"
   }
 }
