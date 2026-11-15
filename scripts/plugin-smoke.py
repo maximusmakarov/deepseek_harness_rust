@@ -2033,6 +2033,16 @@ def run(args: argparse.Namespace) -> int:
                                     { label: "C2 group" },
                                     e(primitives.MenuItemButton, { onSelect() {} }, "C2 group item"),
                                 ),
+                                e(primitives.MarkdownText, {
+                                    text: "# C2 heading\\n\\nSome **bold** and `code` and [link](https://example.com)\\n\\n```js\\nconst c2 = 1\\n```",
+                                    labels: { code: {}, footnotes: "" },
+                                }),
+                                e(primitives.JsonBlock, {
+                                    label: "C2 json",
+                                    payload: { answer: 42 },
+                                    defaultOpen: true,
+                                    truncatedLabel: () => "truncated",
+                                }),
                                 e(primitives.IconChevronDownOutlineRegular, { size: 12 })
                             ));
                             setTimeout(() => resolve(JSON.stringify({
@@ -2044,6 +2054,9 @@ def run(args: argparse.Namespace) -> int:
                                 icon: document.querySelectorAll('svg').length,
                                 group: !!document.querySelector('[data-menu-group]'),
                                 menuRows: document.querySelectorAll('[role="menuitem"]').length,
+                                markdownHeading: !!document.querySelector('.dshr-markdown h1'),
+                                markdownCode: !!document.querySelector('.dshr-markdown pre code'),
+                                jsonBlock: !!document.querySelector('.dshr-json-block-body'),
                                 checkbox: !!document.querySelector('label.dshr-checkbox'),
                                 path: (document.querySelector('[data-path-label]') || {}).textContent || '',
                             })), 500);
@@ -2072,6 +2085,11 @@ def run(args: argparse.Namespace) -> int:
             "C2 menu item",
             "C2 submenu parent",
             "C2 group item",
+            "C2 heading",
+            "bold",
+            "const c2 = 1",
+            "C2 json",
+            '"answer": 42',
         ]
         check(
             "expanded design-system primitives render with host React (C2)",
@@ -2083,7 +2101,10 @@ def run(args: argparse.Namespace) -> int:
             and c2_state.get("checkbox") is True
             and c2_state.get("path") == "/tmp/c2-path"
             and c2_state.get("group") is True
-            and (c2_state.get("menuRows") or 0) >= 3,
+            and (c2_state.get("menuRows") or 0) >= 3
+            and c2_state.get("markdownHeading") is True
+            and c2_state.get("markdownCode") is True
+            and c2_state.get("jsonBlock") is True,
             {
                 "missing": [marker for marker in c2_markers if marker not in c2_text],
                 **{key: c2_state.get(key) for key in ("switch", "tag", "tabs", "icon", "checkbox", "error")},

@@ -477,9 +477,14 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   upstream `icons/artwork.ts` — те же SVG-пути/stroke (regular 1, medium 1.3),
   инлайн вместо document-спрайта; для неизвестных `Icon*` остаётся Proxy-global.
 
-Остаются расширения dshr (не из reference): `Spinner`, упрощённые
-`JsonBlock`/`MarkdownText` (upstream зависит от shiki/katex/mdast),
-`useAnchoredPosition`. `writeClipboard` и `useDismissOnOutsidePointer`
+`JsonBlock` портирован из reference (collapsible, cap 20 000 символов,
+`truncatedLabel`). `MarkdownText` — API-совместимый dependency-free рендерер:
+принимает `text`/`labels`/`variant`/`omitHtml`/`textInteractionSource`/
+`fileMentions`/`pathImages`, рендерит GFM-подмножество (заголовки, абзацы,
+списки, fenced code, blockquotes, hr, inline bold/italic/strike/code/links/
+images с sanitize URL; raw HTML не рендерится), но **не** upstream-стек
+mdast/micromark/shiki/KaTeX/footnotes. Остаются расширения dshr (не из
+reference): `Spinner`, `useAnchoredPosition`. `writeClipboard` и `useDismissOnOutsidePointer`
 портированы по reference-алгоритмам.
 
 ### Слот-контракт по референсному каталогу (C1.3, SlotMap-semantics)

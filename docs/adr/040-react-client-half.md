@@ -560,3 +560,26 @@ web-e2e 16/16; общий рантайм-артефакт — 415 972 байт.
 Осталось по reference: `useMenuSubmenu`-механика focus-transition/page-anchor
 в деталях (у нас упрощённые CSS-позиции), markdown-стек, store/seats/renderer,
 chain/hoc.
+
+## C2.5: JsonBlock из reference и MarkdownText-подмножество (15.11.2026, раунд 97)
+
+- **`JsonBlock`** портирован из `markdown/JsonBlock.tsx`: collapsible
+  (▾/▸), `label`/`payload`/`defaultOpen`/`truncatedLabel`, cap 20 000 символов
+  с хвостом «truncated», безопасный `JSON.stringify` с fallback на `String`.
+- **`MarkdownText`** получил reference-поверхность
+  (`text`/`streaming`/`labels`/`fileMentions`/`pathImages`/`variant`/
+  `omitHtml`/`textInteractionSource`) и dependency-free рендерер
+  GFM-подмножества: заголовки 1–6, абзацы, ul/ol, fenced code, blockquote,
+  hr, inline `code`/`**bold**`/`*italic*`/`~~strike~~`, ссылки и изображения
+  (только http(s)/mailto, `javascript:`/`data:`/relative отбрасываются),
+  raw HTML не рендерится; `variant="compact"` и
+  `data-markdown-variant`/`data-text-interaction-source` поддержаны.
+  **Не** портирован upstream-стек (micromark/mdast/shiki/KaTeX/footnotes/
+  инкрементальный streaming) — записано как ограничение.
+
+Проверка: C2 smoke-probe рендерит `MarkdownText` (заголовок, bold, fenced
+code, ссылка) и `JsonBlock` (expanded JSON) и проверяет DOM/текст; smoke 82/82,
+harness 102, workspace 365+3, web-e2e 16/16. Рантайм-артефакт — 424 801 байт.
+
+Осталось: upstream markdown-стек, store/seats/renderer, chain/hoc,
+ownerProps из shell-сайтов, registerFallback/registerUpgrade.

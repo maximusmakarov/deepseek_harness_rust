@@ -175,6 +175,25 @@
       ".dshr-spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--dsw-alias-border-l3,#454545);border-top-color:var(--dsw-alias-brand-primary,#4da3ff);border-radius:50%;animation:dshr-spin .8s linear infinite}",
       ".dshr-json-block{margin:6px 0;padding:8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12));overflow-x:auto;font:12px/1.4 ui-monospace,monospace}",
       ".dshr-markdown-text{white-space:pre-wrap;overflow-wrap:anywhere}",
+      ".dshr-markdown{min-width:0;overflow-wrap:anywhere;color:var(--dsw-alias-label-primary,inherit);font-size:14px;line-height:22px}",
+      ".dshr-markdown-compact{font-size:12px;line-height:18px}",
+      ".dshr-markdown h1,.dshr-markdown h2,.dshr-markdown h3,.dshr-markdown h4,.dshr-markdown h5,.dshr-markdown h6{margin:12px 0 6px;line-height:1.3;font-weight:600}",
+      ".dshr-markdown h1{font-size:20px}.dshr-markdown h2{font-size:17px}.dshr-markdown h3{font-size:15px}.dshr-markdown h4,.dshr-markdown h5,.dshr-markdown h6{font-size:14px}",
+      ".dshr-markdown p{margin:6px 0}",
+      ".dshr-markdown ul,.dshr-markdown ol{margin:6px 0;padding-left:22px}",
+      ".dshr-markdown li{margin:2px 0}",
+      ".dshr-markdown code{font:12px/1.5 ui-monospace,monospace;padding:1px 4px;border-radius:4px;background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12))}",
+      ".dshr-markdown pre{margin:8px 0;padding:10px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12));overflow:auto}",
+      ".dshr-markdown pre code{padding:0;background:transparent}",
+      ".dshr-markdown blockquote{margin:8px 0;padding:2px 10px;border-left:2px solid var(--dsw-alias-border-l3,#454545);color:var(--dsw-alias-label-secondary,#bbb)}",
+      ".dshr-markdown a{color:var(--dsw-alias-state-business-primary,#4da3ff);text-decoration:none}",
+      ".dshr-markdown a:hover{text-decoration:underline}",
+      ".dshr-markdown img{max-width:100%;border-radius:var(--dshr-radius-sm)}",
+      ".dshr-markdown hr{margin:12px 0;border:0;border-top:1px solid var(--dsw-alias-border-l4,#3a3a3a)}",
+      ".dshr-json-block-root{margin:6px 0;font:12px/1.5 ui-monospace,monospace}",
+      ".dshr-json-block-toggle{display:inline-flex;align-items:center;gap:4px;background:transparent;border:0;padding:0;font:inherit;color:var(--dsw-alias-label-tertiary,#9b9b9b);cursor:pointer}",
+      ".dshr-json-block-toggle:hover{color:var(--dsw-alias-label-primary,#e6e6e6)}",
+      ".dshr-json-block-body{margin:6px 0;padding:8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12));overflow:auto}",
       ".dshr-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;line-height:0}",
       ".dshr-icon svg{display:block}",
     ].join("\n");
@@ -1961,26 +1980,225 @@
     );
   }
 
-  // ----- Extensions kept by dshr (not part of the reference export set) ------
-  function Spinner(props) {
-    return h("span", { className: classNames("dshr-spinner", props && props.className), role: "status", "aria-label": (props && props.label) || "loading" });
-  }
+  // ----- JsonBlock (reference markdown/JsonBlock.tsx) ------------------------
+  var JSON_BLOCK_MAX_CHARS = 20000;
 
   function JsonBlock(props) {
-    var value = props.value !== undefined ? props.value : props.data !== undefined ? props.data : props.children;
-    var text;
-    try {
-      text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-    } catch (error) {
-      text = String(value);
+    var openPair = React.useState(props.defaultOpen === true);
+    var open = openPair[0];
+    var setOpen = openPair[1];
+    var body = "";
+    if (open) {
+      var serialized;
+      try {
+        serialized = JSON.stringify(props.payload, null, 2);
+        if (serialized === undefined) serialized = String(props.payload);
+      } catch (error) {
+        serialized = String(props.payload);
+      }
+      body =
+        serialized.length > JSON_BLOCK_MAX_CHARS
+          ? serialized.slice(0, JSON_BLOCK_MAX_CHARS) +
+            "\n" +
+            (typeof props.truncatedLabel === "function"
+              ? props.truncatedLabel(serialized.length)
+              : "truncated")
+          : serialized;
     }
-    return h("pre", { className: classNames("dshr-json-block", props.className) }, text);
+    return h(
+      "div",
+      { className: classNames("dshr-json-block-root", props.className) },
+      h(
+        "button",
+        {
+          type: "button",
+          className: "dshr-json-block-toggle",
+          onClick: function () {
+            setOpen(!open);
+          },
+        },
+        (open ? "▾ " : "▸ ") + props.label,
+      ),
+      open ? h("pre", { className: "dshr-json-block-body" }, body) : null,
+    );
+  }
+
+  // ----- MarkdownText -------------------------------------------------------
+  // dshr renders a dependency-free GFM subset with the reference prop surface
+  // (text/labels/variant/omitHtml/textInteractionSource). The upstream stack
+  // (micromark/mdast, shiki highlighting, KaTeX, footnotes) is not bundled; see
+  // the module header.
+  function sanitizeHref(url) {
+    try {
+      var parsed = new URL(url, "https://dshr.invalid/");
+      if (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:") {
+        return parsed.href;
+      }
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function isAbsoluteHttp(url) {
+    return /^https?:\/\//i.test(String(url || ""));
+  }
+
+  var INLINE_TOKEN = /(`[^`]*`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|~~[^~]+~~|!\[[^\]]*\]\([^)]*\)|\[[^\]]*\]\([^)]*\)|<[^>]+>)/g;
+
+  function renderInline(source, keyPrefix) {
+    var textValue = String(source === undefined || source === null ? "" : source);
+    var parts = textValue.split(INLINE_TOKEN);
+    return parts.map(function (part, index) {
+      if (part === undefined || part === "") return null;
+      var key = keyPrefix + "i" + index;
+      if (part.charAt(0) === "`" && part.length > 1 && part.charAt(part.length - 1) === "`") {
+        return h("code", { key: key }, part.slice(1, -1));
+      }
+      if (/^\*\*[\s\S]+\*\*$/.test(part) || /^__[\s\S]+__$/.test(part)) {
+        return h("strong", { key: key }, renderInline(part.slice(2, -2), key + "-"));
+      }
+      if (/^\*[\s\S]+\*$/.test(part) || /^_[\s\S]+_$/.test(part)) {
+        return h("em", { key: key }, renderInline(part.slice(1, -1), key + "-"));
+      }
+      if (/^~~[\s\S]+~~$/.test(part)) {
+        return h("del", { key: key }, renderInline(part.slice(2, -2), key + "-"));
+      }
+      var image = /^!\[([^\]]*)\]\(([^)]*)\)$/.exec(part);
+      if (image) {
+        if (isAbsoluteHttp(image[2])) {
+          return h("img", { key: key, src: image[2], alt: image[1], className: "dshr-markdown-image" });
+        }
+        return image[1] || null;
+      }
+      var link = /^\[([^\]]*)\]\(([^)]*)\)$/.exec(part);
+      if (link) {
+        var target = sanitizeHref(link[2]);
+        if (target === null) return h(React.Fragment, { key: key }, link[1]);
+        return h(
+          "a",
+          { key: key, href: target, target: "_blank", rel: "noreferrer noopener" },
+          link[1],
+        );
+      }
+      if (part.charAt(0) === "<" && part.charAt(part.length - 1) === ">") {
+        return null;
+      }
+      return part;
+    });
+  }
+
+  function markdownBlocks(source) {
+    var lines = String(source === undefined || source === null ? "" : source).replace(/\r\n?/g, "\n").split("\n");
+    var blocks = [];
+    var index = 0;
+    var keySeq = 0;
+    function nextKey() {
+      keySeq += 1;
+      return "md" + keySeq;
+    }
+    while (index < lines.length) {
+      var line = lines[index];
+      if (line.trim() === "") {
+        index += 1;
+        continue;
+      }
+      var fence = /^```([A-Za-z0-9_+-]*)\s*$/.exec(line);
+      if (fence) {
+        var language = fence[1];
+        var code = [];
+        index += 1;
+        while (index < lines.length && !/^```\s*$/.test(lines[index])) {
+          code.push(lines[index]);
+          index += 1;
+        }
+        if (index < lines.length) index += 1;
+        blocks.push(
+          h("pre", { key: nextKey(), className: "dshr-markdown-code", "data-language": language || undefined },
+            h("code", null, code.join("\n"))),
+        );
+        continue;
+      }
+      var heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      if (heading) {
+        var level = heading[1].length;
+        blocks.push(h("h" + level, { key: nextKey() }, renderInline(heading[2], nextKey())));
+        index += 1;
+        continue;
+      }
+      if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        blocks.push(h("hr", { key: nextKey() }));
+        index += 1;
+        continue;
+      }
+      if (/^>\s?/.test(line)) {
+        var quote = [];
+        while (index < lines.length && /^>\s?/.test(lines[index])) {
+          quote.push(lines[index].replace(/^>\s?/, ""));
+          index += 1;
+        }
+        blocks.push(h("blockquote", { key: nextKey() }, markdownBlocks(quote.join("\n"))));
+        continue;
+      }
+      if (/^[-*+]\s+/.test(line)) {
+        var unordered = [];
+        while (index < lines.length && /^[-*+]\s+/.test(lines[index])) {
+          unordered.push(lines[index].replace(/^[-*+]\s+/, ""));
+          index += 1;
+        }
+        blocks.push(
+          h("ul", { key: nextKey() }, unordered.map(function (item, itemIndex) {
+            return h("li", { key: "li" + itemIndex }, renderInline(item, "u" + itemIndex));
+          })),
+        );
+        continue;
+      }
+      if (/^\d+\.\s+/.test(line)) {
+        var ordered = [];
+        while (index < lines.length && /^\d+\.\s+/.test(lines[index])) {
+          ordered.push(lines[index].replace(/^\d+\.\s+/, ""));
+          index += 1;
+        }
+        blocks.push(
+          h("ol", { key: nextKey() }, ordered.map(function (item, itemIndex) {
+            return h("li", { key: "li" + itemIndex }, renderInline(item, "o" + itemIndex));
+          })),
+        );
+        continue;
+      }
+      var paragraph = [];
+      while (
+        index < lines.length &&
+        lines[index].trim() !== "" &&
+        !/^(#{1,6}\s|```|>\s?|[-*+]\s+|\d+\.\s+|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[index])
+      ) {
+        paragraph.push(lines[index]);
+        index += 1;
+      }
+      var key = nextKey();
+      blocks.push(
+        h("p", { key: key }, renderInline(paragraph.join("\n"), key + "-")),
+      );
+    }
+    return blocks;
   }
 
   function MarkdownText(props) {
-    var value = props.source !== undefined ? props.source : props.text !== undefined ? props.text : props.children;
-    var text = Array.isArray(value) ? value.join("\n") : value === undefined || value === null ? "" : String(value);
-    return h("div", { className: classNames("dshr-markdown-text", props.className) }, text);
+    var variant = props.variant || "body";
+    return h(
+      "div",
+      {
+        className: classNames("dshr-markdown", variant === "compact" && "dshr-markdown-compact", props.className),
+        "data-text-interaction-source": props.textInteractionSource ? "" : undefined,
+        "data-markdown-variant": variant === "compact" ? "compact" : undefined,
+      },
+      markdownBlocks(props.text),
+    );
+  }
+
+  // ----- Extensions kept by dshr (not part of the reference export set) ------
+  function Spinner(props) {
+    return h("span", { className: classNames("dshr-spinner", props && props.className), role: "status", "aria-label": (props && props.label) || "loading" });
   }
 
   async function writeClipboard(text) {
