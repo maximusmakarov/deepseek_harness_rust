@@ -824,6 +824,37 @@ export default {
       } catch (error) {
         void error;
       }
+      let duplicateThrew = false;
+      try {
+        scope.webServer.register({
+          name: "duplicate",
+          kind: "exact",
+          path: "/probe-route",
+          handler: async (_req, res) => res.end("dup"),
+        });
+      } catch (error) {
+        duplicateThrew = true;
+      }
+      let trailingRejected = false;
+      try {
+        scope.webServer.register({
+          name: "trailing",
+          kind: "exact",
+          path: "/trailing/",
+          handler: async (_req, res) => res.end("x"),
+        });
+      } catch (error) {
+        trailingRejected = true;
+      }
+      scope.webServer.register({
+        name: "probe-rules",
+        kind: "exact",
+        path: "/probe-rules",
+        handler: async (_req, res) => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ duplicateThrew, trailingRejected }));
+        },
+      });
     });
   },
 };
@@ -898,6 +929,21 @@ async fn proxies_plugin_host_routes() {
         let response = app.clone().oneshot(request).await.expect("response");
         assert_eq!(response.status(), StatusCode::OK, "{uri}");
     }
+
+    // Reference route rules: duplicate (kind, path) throws, trailing slash rejected.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-rules")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let rules: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(rules["duplicateThrew"], true, "{rules}");
+    assert_eq!(rules["trailingRejected"], true, "{rules}");
 
     // Status exposes the live route table and hides MCP pseudo-tools.
     let request = Request::builder()

@@ -352,7 +352,11 @@
       status: "ready",
       writable: true,
       value: {},
-      revision: "0",
+      base: {},
+      user: {},
+      // Reference ConfigFormSnapshot.revision is a number; undefined before the
+      // first Host view (dshr starts ready with revision 0).
+      revision: 0,
       listeners: new Set(),
       // `useSyncExternalStore` requires a stable snapshot object between
       // notifications; a fresh object every read causes an update loop.
@@ -361,9 +365,11 @@
         if (!state.snapshot) {
           state.snapshot = {
             status: state.status,
-            writable: state.writable,
             value: state.value,
+            base: state.base,
+            user: state.user,
             revision: state.revision,
+            writable: state.writable,
           };
         }
         return state.snapshot;
@@ -377,7 +383,7 @@
       },
       mutate: function (operations, expectedRevision) {
         if (!Array.isArray(operations)) return Promise.resolve(false);
-        if (expectedRevision !== undefined && String(expectedRevision) !== state.revision) {
+        if (expectedRevision !== undefined && expectedRevision !== state.revision) {
           return Promise.resolve(false);
         }
         let next = {};
@@ -388,7 +394,9 @@
           return Promise.resolve(false);
         }
         for (const operation of operations) {
-          if (!operation || operation.op !== "set") return Promise.resolve(false);
+          if (!operation || (operation.op !== "set" && operation.op !== "unset")) {
+            return Promise.resolve(false);
+          }
           const segments = Array.isArray(operation.path) ? operation.path : [operation.path];
           if (segments.length === 0) return Promise.resolve(false);
           let cursor = next;
@@ -397,10 +405,13 @@
             if (typeof cursor[segment] !== "object" || cursor[segment] === null) cursor[segment] = {};
             cursor = cursor[segment];
           }
-          cursor[String(segments[segments.length - 1])] = operation.value;
+          const last = String(segments[segments.length - 1]);
+          if (operation.op === "unset") delete cursor[last];
+          else cursor[last] = operation.value;
         }
         state.value = next;
-        state.revision = String(Date.now());
+        state.user = next;
+        state.revision = (Number(state.revision) || 0) + 1;
         state.snapshot = null;
         state.listeners.forEach(function (listener) {
           try {
@@ -410,6 +421,12 @@
           }
         });
         return Promise.resolve(true);
+      },
+      set: function (field, value) {
+        return state.mutate([{ op: "set", path: [field], value: value }]);
+      },
+      unset: function (field) {
+        return state.mutate([{ op: "unset", path: [field] }]);
       },
     };
     configFormStates.set(entryId, state);

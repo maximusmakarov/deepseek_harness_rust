@@ -58,7 +58,6 @@ function addTool(definition) {
 // with a plain Node `(req, res)` handler. The sidecar runs a loopback-only HTTP
 // server, and the dshr server proxies only the registered paths to it.
 // ---------------------------------------------------------------------------
-const routes = [];
 let httpServer = null;
 let httpPort = 0;
 const httpToken = randomBytes(16).toString("hex");
@@ -74,8 +73,12 @@ const reservedPrefixes = [
 ];
 
 function validRoutePath(candidate) {
-  if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 200) return false;
-  if (!candidate.startsWith("/") || candidate === "/" || candidate.includes("..")) return false;
+  if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 400) return false;
+  // Reference contract: an absolute pathname with no trailing slash, query or
+  // hash. "/" itself is the fallback seat, not a named route.
+  if (!candidate.startsWith("/") || candidate === "/") return false;
+  if (candidate.endsWith("/") || candidate.includes("?") || candidate.includes("#")) return false;
+  if (candidate.includes("..")) return false;
   return !reservedPrefixes.some(
     (prefix) => candidate === prefix || candidate.startsWith(prefix + "/"),
   );
@@ -94,15 +97,16 @@ function ensureHttpServer() {
       const pathname = new URL(req.url || "/", "http://127.0.0.1").pathname;
       // Exact routes win; a `kind: "prefix"` route matches itself and children,
       // longest prefix first (DSH asset/sub-path routes).
-      route = routes.find((candidate) => candidate.kind === "exact" && candidate.path === pathname);
+      route = webRoutes.exact.get(pathname);
       if (!route) {
-        route = routes
-          .filter(
-            (candidate) =>
-              candidate.kind === "prefix" &&
-              (pathname === candidate.path || pathname.startsWith(candidate.path + "/")),
-          )
-          .sort((left, right) => right.path.length - left.path.length)[0];
+        let best = null;
+        for (const candidate of webRoutes.prefix.values()) {
+          const matches = pathname === candidate.path || pathname.startsWith(candidate.path + "/");
+          if (matches && (best === null || candidate.path.length > best.path.length)) {
+            best = candidate;
+          }
+        }
+        route = best || undefined;
       }
     } catch {
       route = undefined;
@@ -131,33 +135,77 @@ function ensureHttpServer() {
   httpServer.listen(0, "127.0.0.1");
 }
 
+// Reference-shaped route tables: exact and prefix are independent namespaces,
+// and a duplicate (kind, path) is a composition error, not an override.
+const webRoutes = { exact: new Map(), prefix: new Map() };
+let bridgeTarget = null;
+
+function readBridgeTarget() {
+  if (bridgeTarget) return bridgeTarget;
+  try {
+    const parsed = JSON.parse(require("node:fs").readFileSync(hostBridgeFile, "utf8"));
+    if (parsed && typeof parsed.url === "string") bridgeTarget = parsed;
+  } catch {
+    bridgeTarget = null;
+  }
+  return bridgeTarget;
+}
+
+function unsupportedWebServerFeature(name) {
+  return function () {
+    throw new Error(`webServer.${name} is not supported by the dshr Cordis sidecar`);
+  };
+}
+
 const webServer = {
   register: (route) => {
     if (!route || typeof route !== "object" || typeof route.handler !== "function") {
       throw new Error("webServer.register: handler is required");
     }
     if (!validRoutePath(route.path)) {
-      throw new Error(`webServer.register: invalid or reserved path '${route.path}'`);
+      throw new Error(`webserver: invalid route path "${route.path}"`);
     }
     const kind = route.kind || "exact";
     if (kind !== "exact" && kind !== "prefix") {
-      throw new Error(`webServer.register: unsupported route kind '${kind}'`);
+      throw new Error(`webserver: unsupported route kind "${kind}"`);
     }
-    const entry = {
-      name: route.name || route.path,
-      kind,
-      path: route.path,
-      handler: route.handler,
-    };
-    const existing = routes.findIndex((candidate) => candidate.path === entry.path);
-    if (existing >= 0) routes[existing] = entry;
-    else routes.push(entry);
+    const table = webRoutes[kind];
+    if (table.has(route.path)) {
+      throw new Error(`webserver: duplicate ${kind} route "${route.path}"`);
+    }
+    table.set(route.path, { ...route, kind, name: route.name || route.path });
     ensureHttpServer();
     return function unregister() {
-      const index = routes.findIndex((candidate) => candidate.path === entry.path);
-      if (index >= 0) routes.splice(index, 1);
+      table.delete(route.path);
     };
   },
+  // Reference introspection: the origin local clients use. The sidecar serves
+  // loopback from its own listener, but the dshr server origin is what host
+  // halves need (e.g. for absolute URLs), so it comes from the host bridge file.
+  getOrigin: () => {
+    const target = readBridgeTarget();
+    if (!target) throw new Error("webserver: origin read before the host bridge is available");
+    return target.url;
+  },
+  get port() {
+    const target = readBridgeTarget();
+    if (!target) return undefined;
+    try {
+      return Number(new URL(target.url).port);
+    } catch {
+      return undefined;
+    }
+  },
+  get protocol() {
+    const target = readBridgeTarget();
+    try {
+      return target ? new URL(target.url).protocol : "http:";
+    } catch {
+      return "http:";
+    }
+  },
+  registerFallback: unsupportedWebServerFeature("registerFallback"),
+  registerUpgrade: unsupportedWebServerFeature("registerUpgrade"),
 };
 
 // DSH credential seam: environment only (the sidecar inherits the harness env).
@@ -289,12 +337,21 @@ function loadConfigForm(entryId) {
     status: "ready",
     writable: true,
     value,
+    base: {},
+    user: value,
     revision,
     listeners: new Set(),
     snapshot: null,
     getSnapshot: () => {
       if (!state.snapshot) {
-        state.snapshot = { status: state.status, writable: state.writable, value: state.value, revision: state.revision };
+        state.snapshot = {
+          status: state.status,
+          value: state.value,
+          base: state.base,
+          user: state.user,
+          revision: Number(state.revision) || 0,
+          writable: state.writable,
+        };
       }
       return state.snapshot;
     },
@@ -305,7 +362,12 @@ function loadConfigForm(entryId) {
     },
     mutate: async (operations, expectedRevision) => {
       if (!Array.isArray(operations)) return false;
-      if (expectedRevision !== undefined && String(expectedRevision) !== state.revision) return false;
+      if (
+        expectedRevision !== undefined &&
+        Number(expectedRevision) !== (Number(state.revision) || 0)
+      ) {
+        return false;
+      }
       let next;
       try {
         next = JSON.parse(JSON.stringify(state.value));
@@ -313,7 +375,7 @@ function loadConfigForm(entryId) {
         next = {};
       }
       for (const operation of operations) {
-        if (!operation || operation.op !== "set") return false;
+        if (!operation || (operation.op !== "set" && operation.op !== "unset")) return false;
         const pathSegments = Array.isArray(operation.path) ? operation.path : [operation.path];
         if (pathSegments.length === 0) return false;
         let cursor = next;
@@ -322,10 +384,13 @@ function loadConfigForm(entryId) {
           if (typeof cursor[segment] !== "object" || cursor[segment] === null) cursor[segment] = {};
           cursor = cursor[segment];
         }
-        cursor[String(pathSegments[pathSegments.length - 1])] = operation.value;
+        const last = String(pathSegments[pathSegments.length - 1]);
+        if (operation.op === "unset") delete cursor[last];
+        else cursor[last] = operation.value;
       }
       state.value = next;
-      state.revision = String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000));
+      state.user = next;
+      state.revision = (Number(state.revision) || 0) + 1;
       state.snapshot = null;
       try {
         if (configFormPath(entryId)) {
@@ -347,6 +412,9 @@ function loadConfigForm(entryId) {
       });
       return true;
     },
+    set: (field, value) =>
+      state.mutate([{ op: "set", path: [field], value: value }]),
+    unset: (field) => state.mutate([{ op: "unset", path: [field] }]),
   };
   configForms.set(entryId, state);
   return state;
@@ -384,6 +452,8 @@ if (hostBridgeFile) {
 }
 
 const ctx = {
+  // Reference loader context: the file URL the plugin package was loaded from.
+  baseUrl: pathToFileURL(root + path.sep).href,
   tool: (definition) => addTool(definition),
   get: (name) => serviceMap[name],
   webServer,
@@ -449,7 +519,10 @@ addTool({
     return {
       port: httpPort,
       token: httpToken,
-      routes: routes.map((route) => ({ path: route.path, kind: route.kind })),
+      routes: [
+        ...[...webRoutes.exact.values()].map((route) => ({ path: route.path, kind: "exact" })),
+        ...[...webRoutes.prefix.values()].map((route) => ({ path: route.path, kind: "prefix" })),
+      ],
     };
   },
 });

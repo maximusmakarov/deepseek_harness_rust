@@ -408,6 +408,27 @@ steps/usage-события, без содержимого сообщений) и
 loopback сервер отвечает 403, пока явно не передан
 `--allow-lan-plugin-routes`.
 
+### webServer и configForms по reference-контракту (C1.4)
+
+Host-сервисы выровнены по исходникам `deepseek-ai/deepseek-harness`:
+
+- **webServer** (`packages/host/webserver`): exact и prefix — независимые
+  таблицы; дубликат `(kind, path)` бросает `webserver: duplicate ... route`;
+  путь обязан быть абсолютным pathname без завершающего `/`, `?` и `#`;
+  `webServer.getOrigin()`/`port`/`protocol` отдают origin dshr-сервера из
+  host-bridge; `registerFallback`/`registerUpgrade` в sidecar не поддержаны и
+  бросают явную ошибку (записано как долг, реальным плагинам из набора не
+  нужны);
+- **ctx.baseUrl**: как loader-context reference — `file://` URL корня
+  пакета плагина (host-половины вроде `dsh-plugin-studio` читают его для
+  резолва путей);
+- **configForms** (`packages/client/ui-settings/src/client/config-form-types.ts`):
+  snapshot ровно `{status, value, base, user, revision: number, writable}` со
+  стабильной идентичностью между чтениями, `mutate(ops, expectedRevision?)` с
+  атомарными `set`/`unset`, `set`/`unset` хелперы, числовой revision-fence.
+  В кадре форма in-memory (правки не переживают reload), host-половинам —
+  файловая под `<home>/cordis/config-forms/`.
+
 ### Слот-контракт по референсному каталогу (C1.3, SlotMap-semantics)
 
 Регистрация слотов теперь проверяется по **реальному каталогу DSH**, а не по

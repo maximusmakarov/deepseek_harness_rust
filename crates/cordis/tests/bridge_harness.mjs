@@ -718,6 +718,44 @@ async function reactScenario() {
     { effectDisposed },
   );
 
+  // configForms parity with the reference ConfigForm contract.
+  const forms = dshr.get("configForms");
+  const form = forms.get("harness.settings");
+  const firstSnapshot = form.getSnapshot();
+  check(
+    "configForms snapshot matches the reference shape",
+    firstSnapshot &&
+      firstSnapshot.status === "ready" &&
+      firstSnapshot.writable === true &&
+      typeof firstSnapshot.revision === "number" &&
+      "base" in firstSnapshot &&
+      "user" in firstSnapshot,
+    firstSnapshot,
+  );
+  check(
+    "configForms snapshot keeps a stable identity between reads",
+    form.getSnapshot() === firstSnapshot,
+    form.getSnapshot() === firstSnapshot,
+  );
+  const setAccepted = await form.set("enable", true);
+  const afterSet = form.getSnapshot();
+  check(
+    "configForms set writes the value and bumps the numeric revision",
+    setAccepted === true &&
+      afterSet.value.enable === true &&
+      afterSet.revision === firstSnapshot.revision + 1,
+    { accepted: setAccepted, snapshot: afterSet },
+  );
+  const unsetAccepted = await form.unset("enable");
+  const afterUnset = form.getSnapshot();
+  check(
+    "configForms unset removes the field and bumps the revision",
+    unsetAccepted === true &&
+      !("enable" in afterUnset.value) &&
+      afterUnset.revision === afterSet.revision + 1,
+    { accepted: unsetAccepted, snapshot: afterUnset },
+  );
+
   const component = function KeyedSlot() {
     return null;
   };

@@ -428,3 +428,29 @@ single shadowing, standard kit, ownerProps, plain values), smoke 82/82
 Границы: `chain` select-диспетчеризация, `hoc`-вложение, store-seats и
 mounted session model остаются долгом; ownerProps от shell пока только seam.
 Полный C-full (design-system, store/renderer) — по [ADR-041](041-c-full-decision.md).
+
+## C1.4: webServer, baseUrl и configForms по reference-контракту (15.11.2026, раунд 92)
+
+Сверка с исходниками upstream (клон `deepseek-ai/deepseek-harness`) выявила
+расхождения в host-сервисах, которые закрыты:
+
+- **webServer** (`packages/host/webserver/src/index.ts`): exact/prefix —
+  независимые таблицы; duplicate `(kind, path)` бросает; путь — абсолютный
+  pathname без trailing slash/query/hash; `getOrigin()/port/protocol` отдают
+  origin dshr-сервера (из host-bridge), а не loopback-порт sidecar-прокси;
+  `registerFallback`/`registerUpgrade` не поддержаны в sidecar и явно бросают;
+- **ctx.baseUrl** — loader-context свойство (`file://` URL корня пакета), как в
+  reference Cordis; нужно host-половинам, которые резолвят пути от `baseUrl`;
+- **configForms** (`config-form-types.ts`): snapshot
+  `{status, value, base, user, revision: number, writable}` со стабильной
+  идентичностью, `mutate` с `set`/`unset`-операциями и числовым
+  revision-fence, хелперы `set`/`unset`; обе реализации (browser in-memory и
+  host-side file-backed) приведены к контракту.
+
+Проверка: bridge harness **102** (+4: форма-контракт, стабильный snapshot,
+set/unset и числовая ревизия), server proxy test расширен проверками duplicate
+route / trailing-slash; smoke 82/82, workspace 365+3, web-e2e 16/16.
+
+Осталось: `registerFallback`/`registerUpgrade` (нужны для чужих SPA/WS-плагинов),
+persistence browser-configForms, затем полный design-system — по
+[ADR-041](041-c-full-decision.md).
