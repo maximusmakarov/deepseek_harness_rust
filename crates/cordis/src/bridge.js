@@ -188,6 +188,89 @@
   // but `register(namespace, dicts)` is supported so components that declare
   // `locale` get a working `t()` prop.
   const localeDictionaries = new Map();
+  // Minimal browser-side `configForms` service (C1.2): real plugins register
+  // settings cards that read/mutate a form snapshot. dshr has no DSH config
+  // engine in the frame, so this is a per-frame in-memory writable form; the
+  // card renders/toggles and the mutation contract is honoured, but edits are
+  // not persisted across frame reloads (documented limitation).
+  const configFormStates = new Map();
+  function browserConfigForm(entryId) {
+    const existing = configFormStates.get(entryId);
+    if (existing) return existing;
+    const state = {
+      entryId,
+      status: "ready",
+      writable: true,
+      value: {},
+      revision: "0",
+      listeners: new Set(),
+      // `useSyncExternalStore` requires a stable snapshot object between
+      // notifications; a fresh object every read causes an update loop.
+      snapshot: null,
+      getSnapshot: function () {
+        if (!state.snapshot) {
+          state.snapshot = {
+            status: state.status,
+            writable: state.writable,
+            value: state.value,
+            revision: state.revision,
+          };
+        }
+        return state.snapshot;
+      },
+      subscribe: function (listener) {
+        if (typeof listener !== "function") return function () {};
+        state.listeners.add(listener);
+        return function () {
+          state.listeners.delete(listener);
+        };
+      },
+      mutate: function (operations, expectedRevision) {
+        if (!Array.isArray(operations)) return Promise.resolve(false);
+        if (expectedRevision !== undefined && String(expectedRevision) !== state.revision) {
+          return Promise.resolve(false);
+        }
+        let next = {};
+        try {
+          next = JSON.parse(JSON.stringify(state.value));
+        } catch (error) {
+          fail(error);
+          return Promise.resolve(false);
+        }
+        for (const operation of operations) {
+          if (!operation || operation.op !== "set") return Promise.resolve(false);
+          const segments = Array.isArray(operation.path) ? operation.path : [operation.path];
+          if (segments.length === 0) return Promise.resolve(false);
+          let cursor = next;
+          for (let index = 0; index < segments.length - 1; index += 1) {
+            const segment = String(segments[index]);
+            if (typeof cursor[segment] !== "object" || cursor[segment] === null) cursor[segment] = {};
+            cursor = cursor[segment];
+          }
+          cursor[String(segments[segments.length - 1])] = operation.value;
+        }
+        state.value = next;
+        state.revision = String(Date.now());
+        state.snapshot = null;
+        state.listeners.forEach(function (listener) {
+          try {
+            listener();
+          } catch (error) {
+            fail(error);
+          }
+        });
+        return Promise.resolve(true);
+      },
+    };
+    configFormStates.set(entryId, state);
+    return state;
+  }
+  const configFormsService = {
+    get: function (entryId) {
+      return browserConfigForm(String(entryId));
+    },
+  };
+
   const localeService = {
     getSnapshot: function () {
       return { active: "en", locale: "en" };
@@ -226,6 +309,65 @@
       });
     }
     return text;
+  }
+
+  function cordisDisposer(result) {
+    if (result === undefined || result === null) return null;
+    if (typeof result === "function") return result;
+    // Cordis inject/effect factories may be generators: call the factory body,
+    // then run yielded disposers (in reverse) on teardown.
+    if (typeof result === "object" && typeof result.next === "function") {
+      const yielded = [];
+      let step = result.next();
+      while (!step.done) {
+        if (typeof step.value === "function") yielded.push(step.value);
+        step = result.next();
+      }
+      return function () {
+        yielded
+          .slice()
+          .reverse()
+          .forEach(function (dispose) {
+            try {
+              dispose();
+            } catch (error) {
+              fail(error);
+            }
+          });
+      };
+    }
+    if (Array.isArray(result)) {
+      const disposers = result.filter(function (item) {
+        return typeof item === "function";
+      });
+      return function () {
+        disposers
+          .slice()
+          .reverse()
+          .forEach(function (dispose) {
+            try {
+              dispose();
+            } catch (error) {
+              fail(error);
+            }
+          });
+      };
+    }
+    return null;
+  }
+
+  function injectedProps(entry) {
+    if (!entry.inject) return {};
+    try {
+      const value = typeof entry.inject === "function" ? entry.inject() : entry.inject;
+      return value && typeof value === "object" ? value : {};
+    } catch (error) {
+      // A seat's injected props may legitimately reference host services dshr
+      // does not provide; render the component degraded instead of failing the
+      // whole plugin.
+      log("seat inject skipped: " + (error && error.message ? error.message : String(error)));
+      return {};
+    }
   }
 
   function translatorFor(namespace) {
@@ -519,6 +661,9 @@
       order: Number.isFinite(entry.order) ? Number(entry.order) : 0,
       priority: Number.isFinite(entry.priority) ? Number(entry.priority) : 0,
       locale: typeof entry.locale === "string" ? entry.locale : "",
+      // DSH slot registrations may provide the component's extra props with
+      // `inject: () => ({...})` (a framework seat); resolve it at mount time.
+      inject: typeof entry.inject === "function" || (entry.inject && typeof entry.inject === "object") ? entry.inject : null,
       render: render,
     };
   }
@@ -628,7 +773,7 @@
         null,
         React.createElement(
           entry.render,
-          Object.assign({}, props, hostPropsNow(), {
+          Object.assign({}, props, injectedProps(entry), hostPropsNow(), {
             t: translatorFor(entry.locale),
           }),
         ),
@@ -700,7 +845,10 @@
         clear();
         root.dataset.dshrSlot = entry.id;
         active = entry;
-        await entry.render(root, props);
+        await entry.render(
+          root,
+          Object.assign({}, props, injectedProps(entry)),
+        );
       }
       reportResize(entry);
     } catch (error) {
@@ -867,6 +1015,7 @@
     protocol: 1,
     name: plugin,
     locale: localeService,
+    configForms: configFormsService,
     // Fiber-style timers: registered in the frame so dispose() tears them down.
     interval: function (callback, milliseconds) {
       if (typeof callback !== "function") return function () {};
@@ -892,6 +1041,7 @@
       if (name === "sessions") return sessionsService;
       if (name === "slots") return slotsService;
       if (name === "locale") return localeService;
+      if (name === "configForms") return configFormsService;
       return undefined;
     },
     // Reference Cordis fiber helper: run `callback(inner)` only when every
@@ -906,9 +1056,8 @@
       });
       if (!resolved) return function () {};
       try {
-        const result = callback(ctx);
-        if (typeof result === "function") return result;
-        return function () {};
+        const disposer = cordisDisposer(callback(ctx));
+        return disposer || function () {};
       } catch (error) {
         fail(error);
         return function () {};
@@ -945,13 +1094,14 @@
         const added = Array.from(slots.keys()).filter(function (id) {
           return !before.has(id);
         });
+        const inner = cordisDisposer(result);
         const disposeGroup = function () {
           added.forEach(function (id) {
             if (slots.delete(id)) publish();
           });
-          if (typeof result === "function") {
+          if (inner) {
             try {
-              result();
+              inner();
             } catch (error) {
               fail(error);
             }
@@ -981,8 +1131,8 @@
     effect: function (factory) {
       const group = [];
       try {
-        const cleanup = factory();
-        track(cleanup, group);
+        const cleanup = cordisDisposer(factory());
+        if (cleanup) track(cleanup, group);
       } catch (error) {
         report("effect", error);
       }

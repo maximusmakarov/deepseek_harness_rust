@@ -41,7 +41,7 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | persistent bash, diff-view | `bash` — persistent shell на Unix (cwd/env между вызовами, изоляция сессий); Windows stateless; TUI diff-детали | ✅ |
 | MCP: stdio/HTTP, tools/resources/prompts/sampling, OAuth refresh, elicitation | elicitation в stdio, HTTP POST-SSE и фоновом GET-SSE | ✅ |
 | ACP v1: сессии, permissions, fs, terminal, image/audio/resource, MCP | есть; `session/list`, `session/set_mode`, `session/close`, `session/resume` | ✅ |
-| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина; экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/UI-стек, включая React; PoC тира B `dsh.client.host_modules` — половина опционально берёт React 18.3.1 и таблицу модулей от хоста одним immutable-артефактом `/v1/runtime/react-18.3.1.js`; module-table бандлы резолвят `require` из `window.__DSHR_MODULES__`; C-lite (раунд 79): при host React `ctx.slots.register(entry, Component)` — React-компонент (один React-root на кадр, перерисовка на host-state, error boundary), props с `useTheme()`/`useSession()`/`useSessions()`/`useHostState()`/`wide`, `ctx.get('sessions')` (подмножество референсного сервиса), частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives`; раунд 80: сервисы моста `ctx.get('slots')` (реестр + `entries(key)`), `ctx.get('locale')` и `ctx.inject(deps, callback)` для опциональных интеграций, диагностика `window.__DSHR_LAST_ERROR__`, conformance n=2 (`@kt11/dsh-deepseek-balance@0.2.1` + `dsh-remote@1.1.2`); раунд 81: React-контракт моста — принимаются типы `React.memo`/`forwardRef`, keyed-регистрации без `id` получают уникальный id `<slot>:<key>`, `ctx.get('slots').entries(key)` отдаёт `component`/`options`, `ctx.locale.register(ns, dicts)` + `t()` в props, `ctx.interval`/`ctx.timeout` снимаются вместе с фреймом, primitives шим расширен `JsonBlock`/`MarkdownText` (всего 7 компонентов), conformance n=4 (к прежним двум добавлены `@ruoyang/dsh-plugin-deepseek-balance@1.0.2`, `dsh-genui@0.3.3`); раунд 82: conformance n=6 — `dsh-session-superagent@0.10.12` коммитит composer dock (`conversation.composer.dock`), а крупный multi-region `dsh-mnemon@0.5.46` активируется, публикует слоты и сверяет свои shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot` (референсная поверхность слотов раунда 81 выдержала реальный плагин); раунд 83: conformance n=9 — цель ADR-013 §6 (8–12 реальных плагинов) достигнута, добавлены `@99galaxy/dsh-plugin-market@1.2.2` (`sidebar.panellist` → регион `sidebar.footer`), `dsh-plugin-codegraph-panel@0.6.5` (`settings.section`; upstream `immediately: true`) и `@goodandready/dsh-plugin-notify@0.4.9` (`plugins.item`/`plugins.row.config` → регион `plugins.detail`), все три активируются и публикуют слоты без ошибок, а eval-based бандлы (`@michengai/dsh-archive-manager`) требуют `'unsafe-eval'` в CSP (сознательно не включён), `@michengai/dsh-skills-manager` падает на инициализации — оба вне набора; раунд 84: **C1** — host HTTP-маршруты плагинов работают end-to-end (loopback-сервер sidecar с per-process токеном, allowlist-прокси dshr-сервера (exact-маршруты; раунд 86 добавил prefix), `connect-src` на origin сервера для кадров с `host_modules`), реальная host-половина `@kt11/dsh-deepseek-balance` отвечает своим JSON через кадр плагина; раунд 85 — **C2**: design-system шим вырос с 7 до 30+ экспортов по фактическим импортам (компоненты `Input`/`Switch`/`Checkbox`/`Tag`/`Pill`/`Menu`/`MenuSurface`/`Modal`/`Toast`/`SegmentedControl`/`SegmentedTabs`/`DisclosureRow`/`PathLabel`/`TextShimmer`, именованные `Icon*` с Proxy-fallback, `writeClipboard`, хуки `useAnchoredPosition`/`useDismissOnOutsidePointer`), conformance **n=11** (`dsh-plugin-debugging@0.8.1`, `dsh-plugin-studio@0.3.1` активируются без ошибок, но их UI на host-сервисах `pluginManager`/settings не монтируется); раунд 86 — **хардненинг C1**: prefix-маршруты (`kind: "exact"`/`"prefix"`, exact выигрывает, среди prefix — самый длинный), per-plugin `routes` в `GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) из реестра инструментов Cordis-плагина и loopback-only политика plugin-маршрутов (403 при bind вне loopback без `--allow-lan-plugin-routes`); раунд 87 — **C1.1**: sidecar получает DSH-shaped `sessions`/`sessionProjections` из внутреннего снимка сервера (`/v1/internal/session-snapshot`, токен в `<home>/cordis/host.json`, обновление раз в 5 с), поэтому usage-маршруты реальных плагинов считают статистику по сессиям dshr (проекции упрощены: `llmMs`=0, без истории тредов; содержимое сессий намеренно не мостится); остатки C1 — SSE/WebSocket/стриминг, отсутствие аутентификации на plugin-маршрутах (риск снижен loopback-only политикой); полного design-system, React-контекста шелла и SlotMap-семантики нет — тир C-full, решение владельца); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
+| Плагины: WASM core/component, Ed25519, Cordis-sidecar | Cordis: audit-log, fs-гранты, hot reload (watcher + endpoint) и клиентская половина (eager registry-кадр на каждую половину + отдельный sandboxed iframe на слот, полный словарь DSH 0.2.2-rc.2 (116 ключей) и legacy `panel`/`message.action` разложены по 17 регионам шелла, незнакомое имя — fallback в панель; протокол v1.2: токен фрейма, `region`, slot-режим, `context`; `inject`/`effect`-lifecycle, capability-ассеты, host-действия, перезагрузка всех фреймов плагина; экспериментальный `dsh.client.runtime` — половина приносит свою модульную таблицу/UI-стек, включая React; PoC тира B `dsh.client.host_modules` — половина опционально берёт React 18.3.1 и таблицу модулей от хоста одним immutable-артефактом `/v1/runtime/react-18.3.1.js`; module-table бандлы резолвят `require` из `window.__DSHR_MODULES__`; C-lite (раунд 79): при host React `ctx.slots.register(entry, Component)` — React-компонент (один React-root на кадр, перерисовка на host-state, error boundary), props с `useTheme()`/`useSession()`/`useSessions()`/`useHostState()`/`wide`, `ctx.get('sessions')` (подмножество референсного сервиса), частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives`; раунд 80: сервисы моста `ctx.get('slots')` (реестр + `entries(key)`), `ctx.get('locale')` и `ctx.inject(deps, callback)` для опциональных интеграций, диагностика `window.__DSHR_LAST_ERROR__`, conformance n=2 (`@kt11/dsh-deepseek-balance@0.2.1` + `dsh-remote@1.1.2`); раунд 81: React-контракт моста — принимаются типы `React.memo`/`forwardRef`, keyed-регистрации без `id` получают уникальный id `<slot>:<key>`, `ctx.get('slots').entries(key)` отдаёт `component`/`options`, `ctx.locale.register(ns, dicts)` + `t()` в props, `ctx.interval`/`ctx.timeout` снимаются вместе с фреймом, primitives шим расширен `JsonBlock`/`MarkdownText` (всего 7 компонентов), conformance n=4 (к прежним двум добавлены `@ruoyang/dsh-plugin-deepseek-balance@1.0.2`, `dsh-genui@0.3.3`); раунд 82: conformance n=6 — `dsh-session-superagent@0.10.12` коммитит composer dock (`conversation.composer.dock`), а крупный multi-region `dsh-mnemon@0.5.46` активируется, публикует слоты и сверяет свои shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot` (референсная поверхность слотов раунда 81 выдержала реальный плагин); раунд 83: conformance n=9 — цель ADR-013 §6 (8–12 реальных плагинов) достигнута, добавлены `@99galaxy/dsh-plugin-market@1.2.2` (`sidebar.panellist` → регион `sidebar.footer`), `dsh-plugin-codegraph-panel@0.6.5` (`settings.section`; upstream `immediately: true`) и `@goodandready/dsh-plugin-notify@0.4.9` (`plugins.item`/`plugins.row.config` → регион `plugins.detail`), все три активируются и публикуют слоты без ошибок, а eval-based бандлы (`@michengai/dsh-archive-manager`) требуют `'unsafe-eval'` в CSP (сознательно не включён), `@michengai/dsh-skills-manager` падает на инициализации — оба вне набора; раунд 84: **C1** — host HTTP-маршруты плагинов работают end-to-end (loopback-сервер sidecar с per-process токеном, allowlist-прокси dshr-сервера (exact-маршруты; раунд 86 добавил prefix), `connect-src` на origin сервера для кадров с `host_modules`), реальная host-половина `@kt11/dsh-deepseek-balance` отвечает своим JSON через кадр плагина; раунд 85 — **C2**: design-system шим вырос с 7 до 30+ экспортов по фактическим импортам (компоненты `Input`/`Switch`/`Checkbox`/`Tag`/`Pill`/`Menu`/`MenuSurface`/`Modal`/`Toast`/`SegmentedControl`/`SegmentedTabs`/`DisclosureRow`/`PathLabel`/`TextShimmer`, именованные `Icon*` с Proxy-fallback, `writeClipboard`, хуки `useAnchoredPosition`/`useDismissOnOutsidePointer`), conformance **n=11** (`dsh-plugin-debugging@0.8.1`, `dsh-plugin-studio@0.3.1` активируются без ошибок, их settings-UI оставался инертным без host-сервисов `pluginManager`/settings до C1.2); раунд 86 — **хардненинг C1**: prefix-маршруты (`kind: "exact"`/`"prefix"`, exact выигрывает, среди prefix — самый длинный), per-plugin `routes` в `GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) из реестра инструментов Cordis-плагина и loopback-only политика plugin-маршрутов (403 при bind вне loopback без `--allow-lan-plugin-routes`); раунд 87 — **C1.1**: sidecar получает DSH-shaped `sessions`/`sessionProjections` из внутреннего снимка сервера (`/v1/internal/session-snapshot`, токен в `<home>/cordis/host.json`, обновление раз в 5 с), поэтому usage-маршруты реальных плагинов считают статистику по сессиям dshr (проекции упрощены: `llmMs`=0, без истории тредов; содержимое сессий намеренно не мостится); раунд 89 — **C1.2**: seat-`inject` в регистрациях слотов, Cordis-генераторы в `slots.inject`/`ctx.inject`/`ctx.effect` и host-сервис `configForms` (in-memory writable-форма в кадре, файловая — у host-половин), поэтому settings-UI `dsh-plugin-studio` (реальные вкладки в Settings) и `dsh-plugin-debugging` (карточка в Plugins с рабочим переключателем и Save) реально рендерится, а не молча инертен; остатки C1 — SSE/WebSocket/стриминг, отсутствие аутентификации на plugin-маршрутах (риск снижен loopback-only политикой); полного design-system, React-контекста шелла и SlotMap-семантики нет — тир C-full, решение владельца: по [ADR-041](adr/041-c-full-decision.md) отложен, дальше точечные инкременты); Replica-паритет клиентской половины 98.1/100 (must 13/13); WASM: hot reload (fingerprint watcher и `/v1/plugins/reload`) | ✅ |
 | Плагин-маркет/экосистема (fabric/market) | CLI `plugin npm search/info` + UI-панель Plugins; серверный каталог с категориями/тегами/поиском и карточкой пакета (`/v1/plugins/catalog*`); установка через CLI/UI; внешней общей базы отзывов нет | ⚠️ |
 | Субагенты, teams, workflows, schedules, jobs (durable), LSP, Office, CUA | есть | ✅ |
 | Windows sandbox/network | AppContainer backend есть, включается `DSHR_WINDOWS_SANDBOX`; fail-closed; CI гоняет argv- и runtime-тест записи внутри/снаружи workspace | ⏸ |
@@ -93,8 +93,9 @@ exact-only и LAN-экспозиция закрыты в раунде 86),
 компоненты, именованные `Icon*` с Proxy-fallback, хуки
 `useAnchoredPosition`/`useDismissOnOutsidePointer`, `writeClipboard`), а
 conformance доведён до **n=11** (`dsh-plugin-debugging@0.8.1`,
-`dsh-plugin-studio@0.3.1` активируются без ошибок, но их UI на отсутствующих
-host-сервисах `pluginManager`/settings не монтируется), а раунд 86 —
+`dsh-plugin-studio@0.3.1` активируются без ошибок, их settings-UI оставался
+несмонтированным без host-сервисов `pluginManager`/settings до C1.2), а раунд
+86 —
 **хардненинг C1**: prefix-маршруты (`kind: "exact"`/`"prefix"`, exact
 выигрывает, среди prefix — самый длинный), per-plugin `routes` в
 `GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов и loopback-only
@@ -102,7 +103,9 @@ host-сервисах `pluginManager`/settings не монтируется), а 
 **C1.1**: мост `sessions`/`sessionProjections` (DSH-shaped сервисы из
 внутреннего снимка сервера, задержка ≤ 5 с, упрощённые проекции, содержимое
 сессий не мостится) — usage-маршруты реального balance-плагина считают
-статистику по сессиям dshr;
+статистику по сессиям dshr; раунд 89 — **C1.2**: seat-`inject`, генераторы
+Cordis и `configForms` (browser-форма in-memory, файловая — у host-половин),
+так что settings-UI `dsh-plugin-studio`/`dsh-plugin-debugging` рендерится;
 полной React-совместимости нет — полный
 design-system, React-контекст шелла и SlotMap-семантика ждут решения по
 тиру C-full [ADR-040](adr/040-react-client-half.md), это вопрос владельца, а не
@@ -130,7 +133,7 @@ shim'ы.
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
   состояние; `/v1/plugins/installed` следует за супервизором.
-- Клиентская половина: `python3 scripts/plugin-smoke.py` — 80
+- Клиентская половина: `python3 scripts/plugin-smoke.py` — 82
   проверок в headless Chrome: eager registry-кадры всех половин, монтаж слота в
   регион по таблице `slot key → регион` (17 регионов), fallback незнакомого имени
   в панель, `context` повторяющихся регионов, адресный `resize`, live-тема,
@@ -180,8 +183,8 @@ shim'ы.
   Menu/Modal/Toast), а реальные вклады `dsh-plugin-notify`/`dsh-mnemon`
   монтируются в диалоге Plugins без `__DSHR_LAST_ERROR__`; conformance n=11 —
   `dsh-plugin-debugging@0.8.1` и `dsh-plugin-studio@0.3.1` активируются без
-  ошибок, но UI на host-сервисах `pluginManager`/settings не монтируется; общий
-  рантайм-артефакт вырос до 176 725 байт (React + ReactDOM UMD + `bootstrap.js`
+  ошибок, их settings-UI оставался инертным без host-сервисов
+  `pluginManager`/settings до C1.2; общий рантайм-артефакт вырос до 176 725 байт (React + ReactDOM UMD + `bootstrap.js`
   + `primitives.js` с 30+ экспортами); раунд 86 (хардненинг C1): server
   integration tests покрывают prefix-маршруты (`/probe-prefix`, `/probe-prefix/a/b`),
   per-plugin `routes` в `GET /v1/plugins/status`, отсутствие MCP-псевдо-инструментов
@@ -189,7 +192,12 @@ shim'ы.
   `allow_plugin_routes_lan` → 200), smoke раунда 86 остался 79/79 (проверки не
   менялись); раунд 87 (C1.1) добавил проверку моста: smoke опрашивает
   `/dsh-usage/sessions?tz=UTC` из кадра реального balance-плагина и требует
-  `sessions` ≥ 1 и totals — всего 80/80.
+  `sessions` ≥ 1 и totals — всего 80/80; раунд 89 (C1.2) добавил две проверки
+  рендера реальных settings-UI: кадр `dsh-plugin-studio` в
+  `settings.plugins.tab` внутри диалога Settings рендерит вкладки через
+  seat-`inject` (и его собственный CSS), а карточка `dsh-plugin-debugging` в
+  `plugins.bundle.config` рендерится, переключается и сохраняется через
+  `configForms` — всего 82/82.
 - Server `plugins_live`: 16 (+1: `internal_session_snapshot_feeds_the_host_bridge` —
   снимок сессий с usage-полями, 401 при неверном токене и 404 без него;
   `plugin_routes_are_loopback_only_unless_opted_in`; `proxies_plugin_host_routes`
@@ -203,8 +211,9 @@ shim'ы.
   host-маршрутами, раунд 85 — C2 (30+ экспортов design-system шима и
   conformance n=11), раунд 86 — хардненингом C1 (prefix-маршруты, `routes` в
   статусе, фильтр MCP-псевдо-инструментов, loopback-only политика), раунд 87 —
-  мостом `sessions`/`sessionProjections` (C1.1, снимок сервера) — та же
-  строка, новых скоринговых строк не добавлено);
+  мостом `sessions`/`sessionProjections` (C1.1, снимок сервера), а раунд 89 —
+  C1.2 (seat-`inject`, Cordis-генераторы, `configForms` и оживший settings-UI
+  studio/debugging) — та же строка, новых скоринговых строк не добавлено);
   арифметика
   та же:
   must 13 × 3 = 39, should 6 × 2 = 12, should partial 1 × 2 × ½ = 1,
@@ -216,7 +225,7 @@ shim'ы.
   привязкой к инвариантам TLA+ и статусами; baseline покрытия —
   `cargo llvm-cov --workspace --summary-only`: 72.9% строк (66.9% функций).
 
-## Итог 87 раунда
+## Итог 89 раундов
 
 Закрыты: desktop (трей, профили/композиция бандлов, порт/LAN, папка/drag-and-drop,
 терминал с шимами, обновления stable/beta + установка, recovery-окно с профилями
@@ -231,14 +240,18 @@ React-контракт, conformance n=4, раунд 82 — n=6 (`dsh-session-sup
 (loopback-сервер sidecar, allowlist-прокси, `connect-src` origin для opt-in
 кадров) с записанными остатками, раунд 85 — C2: design-system шим вырос с 7 до
 30+ экспортов по фактическим импортам, conformance n=11
-(`dsh-plugin-debugging`, `dsh-plugin-studio` — активация без ошибок, UI на
-host-сервисах `pluginManager`/settings не монтируется), раунд 86 — хардненинг C1:
+(`dsh-plugin-debugging`, `dsh-plugin-studio` — активация без ошибок, их
+settings-UI был инертен без host-сервисов), раунд 86 — хардненинг C1:
 prefix-маршруты, per-plugin `routes` в `GET /v1/plugins/status`, фильтр
 MCP-псевдо-инструментов и loopback-only политика plugin-маршрутов с opt-in
 `--allow-lan-plugin-routes`, раунд 87 — C1.1: мост `sessions`/`sessionProjections`
 из внутреннего снимка сервера (usage-маршруты реального balance-плагина считают
 статистику по сессиям dshr; задержка ≤ 5 с, проекции упрощены, содержимое
-сессий не мостится); C-full — решение
+сессий не мостится), раунд 89 — C1.2: seat-`inject`, Cordis-генераторы и
+`configForms`, поэтому settings-UI `dsh-plugin-studio` (вкладки в Settings) и
+`dsh-plugin-debugging` (карточка в Plugins с переключателем и Save) теперь
+реально рендерится (browser-`configForms` in-memory, семантика
+DSH-конфигурации не воспроизведена); C-full — решение
 владельца), host (`ask_user` в
 TUI/Web/ACP, `apply_patch`,
 LLM-заголовки везде, elicitation stdio/HTTP/GET-SSE, DSH import, persistent bash,

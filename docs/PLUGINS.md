@@ -408,6 +408,31 @@ steps/usage-события, без содержимого сообщений) и
 loopback сервер отвечает 403, пока явно не передан
 `--allow-lan-plugin-routes`.
 
+### Slot-level `inject`, generators и `configForms` (C1.2)
+
+Реальные settings-плагины используют контракты слотов, которых не было в
+C-lite:
+
+- **seat `inject`**: `ctx.slots.register({ name, inject: () => ({...}) }, Component)`
+  — возвращённые props добавляются компоненту при монтировании; если фабрика
+  бросила (зависит от отсутствующего host-сервиса), компонент рендерится
+  деградированно, а плагин не помечается упавшим (событие пишется в лог кадра);
+- **Cordis-генераторы**: фабрики `slots.inject`, `ctx.inject` и `ctx.effect`
+  могут быть `function*`; тело выполняется, все `yield`-disposer'ы
+  сохраняются, а при teardown вызываются в обратном порядке. Это разблокировало
+  `dsh-plugin-studio`, который регистрирует вкладки генератором;
+- **`configForms`**: `ctx.get('configForms')`/`ctx.configForms` отдаёт
+  `get(entryId)` с формой (`getSnapshot`, `subscribe`, `mutate(ops, revision)`).
+  В кадре это in-memory writable-форма (карточка рендерится, переключается,
+  `mutate` соблюдает revision-контракт); правки **не переживают reload кадра**.
+  Host-половинам bootstrap дополнительно даёт файловый вариант
+  (`<home>/cordis/config-forms/<entry>.json`).
+
+Эффект: `dsh-plugin-studio` рендерит реальные вкладки в Settings
+(`settings.plugins.tab`, свой CSS, честные error-состояния при отсутствии
+host-маршрутов), а `dsh-plugin-debugging` — карточку настроек в Plugins
+(`plugins.bundle.config`) с рабочим переключателем и сохранением в форме.
+
 ### Общая модульная таблица хоста (`dsh.client.host_modules`)
 
 Вместо того чтобы вшивать React в каждый бандл, половина может попросить

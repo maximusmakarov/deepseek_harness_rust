@@ -253,6 +253,110 @@ async function refreshHostSessions() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// C1.2 `configForms` host service: plugins register settings cards that read and
+// mutate a form snapshot. dshr has no DSH configuration engine, so this shim
+// backs each entry with a small JSON file under <home>/cordis/config-forms/
+// (writable, revision-checked). It is enough for real settings cards to render,
+// toggle and persist; it is not the DSH configuration model.
+// ---------------------------------------------------------------------------
+const configFormsDir = hostBridgeFile
+  ? path.join(path.dirname(hostBridgeFile), "config-forms")
+  : "";
+const configForms = new Map();
+const configFormListeners = new Map();
+
+function configFormPath(entryId) {
+  if (!configFormsDir) return "";
+  return path.join(configFormsDir, encodeURIComponent(entryId) + ".json");
+}
+
+function loadConfigForm(entryId) {
+  if (configForms.has(entryId)) return configForms.get(entryId);
+  let value = {};
+  let revision = "0";
+  try {
+    const raw = JSON.parse(require("node:fs").readFileSync(configFormPath(entryId), "utf8"));
+    if (raw && typeof raw === "object") {
+      value = raw.value && typeof raw.value === "object" ? raw.value : value;
+      revision = String(raw.revision ?? revision);
+    }
+  } catch {
+    // No file yet: start from an empty writable form.
+  }
+  const state = {
+    entryId,
+    status: "ready",
+    writable: true,
+    value,
+    revision,
+    listeners: new Set(),
+    snapshot: null,
+    getSnapshot: () => {
+      if (!state.snapshot) {
+        state.snapshot = { status: state.status, writable: state.writable, value: state.value, revision: state.revision };
+      }
+      return state.snapshot;
+    },
+    subscribe: (listener) => {
+      if (typeof listener !== "function") return () => {};
+      state.listeners.add(listener);
+      return () => state.listeners.delete(listener);
+    },
+    mutate: async (operations, expectedRevision) => {
+      if (!Array.isArray(operations)) return false;
+      if (expectedRevision !== undefined && String(expectedRevision) !== state.revision) return false;
+      let next;
+      try {
+        next = JSON.parse(JSON.stringify(state.value));
+      } catch {
+        next = {};
+      }
+      for (const operation of operations) {
+        if (!operation || operation.op !== "set") return false;
+        const pathSegments = Array.isArray(operation.path) ? operation.path : [operation.path];
+        if (pathSegments.length === 0) return false;
+        let cursor = next;
+        for (let index = 0; index < pathSegments.length - 1; index += 1) {
+          const segment = String(pathSegments[index]);
+          if (typeof cursor[segment] !== "object" || cursor[segment] === null) cursor[segment] = {};
+          cursor = cursor[segment];
+        }
+        cursor[String(pathSegments[pathSegments.length - 1])] = operation.value;
+      }
+      state.value = next;
+      state.revision = String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000));
+      state.snapshot = null;
+      try {
+        if (configFormPath(entryId)) {
+          require("node:fs").mkdirSync(configFormsDir, { recursive: true });
+          require("node:fs").writeFileSync(
+            configFormPath(entryId),
+            JSON.stringify({ value: state.value, revision: state.revision }, null, 2),
+          );
+        }
+      } catch (error) {
+        console.error("[cordis] configForms persist failed:", error);
+      }
+      state.listeners.forEach((listener) => {
+        try {
+          listener();
+        } catch (error) {
+          console.error("[cordis] configForms listener failed:", error);
+        }
+      });
+      return true;
+    },
+  };
+  configForms.set(entryId, state);
+  return state;
+}
+
+const configFormsService = {
+  get: (entryId) => loadConfigForm(String(entryId)),
+  entries: () => [...configForms.keys()],
+};
+
 const sessionsService = {
   list: () => hostSessions,
   get: (id) => hostSessions.find((session) => session.id === id),
@@ -270,6 +374,7 @@ const serviceMap = {
   credentials: credentialsService,
   sessions: sessionsService,
   sessionProjections: sessionProjectionsService,
+  configForms: configFormsService,
 };
 
 if (hostBridgeFile) {
@@ -282,6 +387,7 @@ const ctx = {
   tool: (definition) => addTool(definition),
   get: (name) => serviceMap[name],
   webServer,
+  configForms: configFormsService,
   // Reference fiber helper: run the callback only when every dependency exists.
   inject: (dependencies, callback) => {
     if (typeof callback !== "function") return () => {};

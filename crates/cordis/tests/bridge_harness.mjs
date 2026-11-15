@@ -570,7 +570,13 @@ async function reactScenario() {
   const dshr = page.dshr;
   dshr.locale.register("harness", { en: { greet: "Hello {name}" } });
   dshr.slots.register(
-    { name: "sidebar.footer.action", id: "memo", title: "Memo", locale: "harness" },
+    {
+      name: "sidebar.footer.action",
+      id: "memo",
+      title: "Memo",
+      locale: "harness",
+      inject: () => ({ seatValue: "seat" }),
+    },
     MemoSlot,
   );
   dshr.__frameActivated();
@@ -595,6 +601,44 @@ async function reactScenario() {
     "React slot components get a working t() seat for their locale",
     Boolean(child) && child.props.t("greet", { name: "dshr" }) === "Hello dshr",
     child && typeof child.props.t === "function" && child.props.t("greet", { name: "dshr" }),
+  );
+
+  check(
+    "slot-level inject supplies seat props",
+    Boolean(child) && child.props.seatValue === "seat",
+    child && child.props.seatValue,
+  );
+
+  // Cordis generator factories: yielded disposers are registered and run.
+  let generatedDisposed = 0;
+  const generatorDisposer = dshr.slots.inject("panel", function* () {
+    yield dshr.slots.register({ name: "panel", id: "generated" }, function Generated() {
+      return null;
+    });
+    yield function () {
+      generatedDisposed += 1;
+    };
+  });
+  const generatedIds = dshr.slots.list().map((slot) => slot.id);
+  generatorDisposer();
+  check(
+    "generator slots.inject registers and disposes registrations",
+    generatedIds.includes("generated") && generatedDisposed === 1,
+    { generatedIds, generatedDisposed },
+  );
+
+  // Cordis effect may also be a generator.
+  let effectDisposed = 0;
+  const effectDisposer = dshr.effect(function* () {
+    yield function () {
+      effectDisposed += 1;
+    };
+  });
+  effectDisposer();
+  check(
+    "generator effect runs yielded cleanups on dispose",
+    effectDisposed === 1,
+    { effectDisposed },
   );
 
   const component = function KeyedSlot() {

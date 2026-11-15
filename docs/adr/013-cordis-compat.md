@@ -75,7 +75,7 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 - **Iframe на слот.** На каждую регистрацию (и на каждое вхождение повторяющегося региона: сообщение, карточка инструмента, строка сессии) создаётся отдельный iframe `mode=slot` с токеном фрейма, именем слота, id и `context`. Бандл в нём рендерит ровно эту регистрацию; `ctx.effect`/`inject` живут вместе с фреймом.
 - **Полный словарь.** Каталог слотов DSH `0.2.2-rc.2` (116 ключей `@deepseek-ai/dsh-client-ui-*`) плюс legacy `panel`/`message.action` разложен по 17 регионам шелла: `panel`, `sidebar.top`, `sidebar.footer`, `sidebar.session.action`, `settings.section`, `settings.icon`, `settings.action`, `message.action`, `tool.card`, `conversation.header`, `composer.actions`, `shell.leading`, `shell.bottom`, `shell.overlay`, `plugins.add`, `plugins.detail`, `approval.detail`; незнакомое имя — fallback в панель плагина.
 - **Протокол v1.2.** Токен фрейма и режим в каждом сообщении, `region` в `slots`/`resize`, `context` для повторяющихся регионов, адресный ответ на `ctx.action` тому фрейму, который спросил.
-- **Проверка.** Node-харнесс моста (покрытие всего каталога, slot mode, регионы), серверные тесты валидации `/host`, `scripts/plugin-smoke.py` — 80 проверок в headless Chrome (слоты по регионам, eager-registry, диалоги, сообщения, тема, действия, reload).
+- **Проверка.** Node-харнесс моста (покрытие всего каталога, slot mode, регионы), серверные тесты валидации `/host`, `scripts/plugin-smoke.py` — 82 проверки в headless Chrome (слоты по регионам, eager-registry, диалоги, сообщения, тема, действия, reload).
 
 Что по-прежнему **вне scope**: React-компоненты (`render` строит DOM сам), `ownerProps`/hooks/chain/hoc-семантика слотов DSH, произвольная инъекция в DOM шелла. Это сохраняет Leptos-архитектуру и попутно даёт изоляцию UI-плагина.
 
@@ -166,7 +166,7 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 уже реализованы), `dsh.client.external`. Host-маршруты плагинов закрыты
 частично в раунде 84 (**C1**: sidecar-proxy с allowlist, CORS, лимитами) и
 раунде 86 (prefix-маршруты, статус, фильтр MCP-псевдо-инструментов,
-loopback-only LAN-политика); сервисы `sessions`/`sessionProjections` закрыты снимком в раунде 87 (C1.1),
+loopback-only LAN-политика); сервисы `sessions`/`sessionProjections` закрыты снимком в раунде 87 (C1.1), seat-inject/генераторы/configForms закрыты в раунде 89 (C1.2),
 стриминг — остаётся,
 conformance-набор реальных пакетов достиг n=11 (цель 8–12).
 

@@ -2077,6 +2077,52 @@ def run(args: argparse.Namespace) -> int:
             and "settings.action" in settings_by_region.get("settings.action", []),
             settings_regions,
         )
+        # C1.2: a real plugin registers settings.plugins.tab entries with
+        # slot-level `inject` seat props; they must mount inside the Settings dialog.
+        wait_until(
+            lambda: bool(
+                shell.eval(
+                    """[...document.querySelectorAll('dialog iframe.slot-frame')]
+                        .some(f => f.dataset.plugin === 'dsh-plugin-studio'
+                            && f.dataset.slot === 'settings.plugins.tab')"""
+                )
+            ),
+            timeout=FRAME_TIMEOUT,
+            label="studio settings tab frames",
+        )
+        studio_target = frame_target(
+            debug_port, "dsh-plugin-studio", "slot", "settings.plugins.tab"
+        )
+        studio_state = {"error": "no studio frame"}
+        if studio_target is not None:
+            studio_frame = DevTools(studio_target["webSocketDebuggerUrl"])
+            try:
+                studio_frame.call("Runtime.enable")
+                raw = studio_frame.eval(
+                    """new Promise((resolve) => setTimeout(() => resolve(JSON.stringify({
+                        text: document.body.innerText,
+                        error: window.__DSHR_LAST_ERROR__ || null,
+                        dspm: document.querySelectorAll('[class*="dspm"]').length,
+                    })), 600))""",
+                    True,
+                )
+                studio_state = json.loads(str(raw))
+            except Exception as error:  # noqa: BLE001 - reported as a check detail
+                studio_state = {"error": str(error)}
+            finally:
+                studio_frame.close()
+        check(
+            "a real plugin settings tab renders with seat inject (C1.2)",
+            studio_state.get("error") is None
+            and (
+                (studio_state.get("dspm") or 0) > 0
+                or any(
+                    marker in (studio_state.get("text") or "")
+                    for marker in ("Plugin manager", "Plugin market", "Retry", "插件")
+                )
+            ),
+            studio_state,
+        )
         for slot, needle in [
             ("settings.section", "region:settings.section"),
             ("settings.section.icon", "region:settings.icon"),
@@ -2159,6 +2205,60 @@ def run(args: argparse.Namespace) -> int:
             and all(error is None for error in dialog_errors.values()),
             {"frames": dialog_plugin_frames, "errors": dialog_errors},
         )
+        # C1.2: dsh-plugin-debugging registers its settings card through the
+        # configForms host service; toggling + saving must persist to the shim.
+        wait_until(
+            lambda: bool(
+                shell.eval(
+                    """[...document.querySelectorAll('dialog iframe.slot-frame')]
+                        .some(f => f.dataset.plugin === 'dsh-plugin-debugging'
+                            && f.dataset.slot === 'plugins.bundle.config')"""
+                )
+            ),
+            timeout=FRAME_TIMEOUT,
+            label="debugging config card frame",
+        )
+        debug_target = frame_target(
+            debug_port, "dsh-plugin-debugging", "slot", "plugins.bundle.config"
+        )
+        debug_state = {"error": "no debugging card"}
+        if debug_target is not None:
+            debug_frame = DevTools(debug_target["webSocketDebuggerUrl"])
+            try:
+                debug_frame.call("Runtime.enable")
+                raw = debug_frame.eval(
+                    """new Promise((resolve) => {
+                        const switchButton = document.querySelector('button[role="switch"]');
+                        if (switchButton) switchButton.click();
+                        setTimeout(() => {
+                            const save = [...document.querySelectorAll("button")]
+                                .find((button) => button.textContent.trim() === "Save");
+                            if (save && !save.disabled) save.click();
+                            setTimeout(() => {
+                                const current = document.querySelector('button[role="switch"]');
+                                resolve(JSON.stringify({
+                                    text: document.body.innerText,
+                                    error: window.__DSHR_LAST_ERROR__ || null,
+                                    checked: current ? current.getAttribute("aria-checked") : null,
+                                }));
+                            }, 600);
+                        }, 250);
+                    })""",
+                    True,
+                )
+                debug_state = json.loads(str(raw))
+            except Exception as error:  # noqa: BLE001 - reported as a check detail
+                debug_state = {"error": str(error)}
+            finally:
+                debug_frame.close()
+        check(
+            "a real plugin config card renders and saves through configForms (C1.2)",
+            debug_state.get("error") is None
+            and "restart" in (debug_state.get("text") or "").lower()
+            and debug_state.get("checked") == "true",
+            debug_state,
+        )
+
         click("dialog button", "Close")
         wait_until(
             lambda: not shell.eval("!!document.querySelector('dialog h3')"),

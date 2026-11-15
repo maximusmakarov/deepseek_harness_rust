@@ -286,4 +286,45 @@
   SSE/WebSocket/streaming through the proxy. C-full (design-system/SlotMap/host
   React context) remains an owner decision.
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose UI stays inert without the `pluginManager`/settings host services) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: C1.1 now bridges `sessions`/`sessionProjections` from an internal server snapshot (≤ 5 s staleness, simplified projections: `llmMs=0`, no thread history; session content deliberately not bridged), so usage routes see real dshr sessions; there is still no SSE/WebSocket/streaming, and plugin routes still lack authentication. The bridge services are a subset (snapshot-based `sessions`/`sessionProjections` with simplified projections), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Docs: round 88 recorded the C-full decision as ADR-041 — C-full (the full
+  design-system, SlotMap semantics, host React context/state, the
+  `pluginManager`/`settings` host services and streaming) is **deferred**;
+  further work is targeted increments on demand, and the return criterion is
+  ≥3 real plugins that need those capabilities (there are none right now).
+  Candidate increments: the `pluginManager`/`settings` host services, a SlotMap
+  PoC for `conversation.*` and a streaming proxy. The full `scripts/check.sh`
+  gate suite passes, the reproducible build was verified and the release
+  artifacts were rebuilt and re-checked.
+
+- Plugins: C1.2 — seat inject, Cordis generator factories and the `configForms`
+  host service (the C1.2 section of ADR-040), the contracts without which the real
+  settings UIs stayed inert. Slot registrations may supply extra component props
+  with `inject: () => ({...})` (merged into the component at mount in both the
+  React and the imperative path); a throwing factory degrades the component,
+  logs into the frame and does **not** mark the plugin failed
+  (`injectedProps` in `crates/cordis/src/bridge.js`). `ctx.slots.inject`,
+  `ctx.inject` and `ctx.effect` accept `function*` factories: the body runs,
+  every yielded disposer is collected and run in reverse on teardown
+  (`cordisDisposer`) — this unblocked `dsh-plugin-studio`, which registers its
+  settings tabs through a generator. The browser bridge exposes
+  `ctx.get('configForms')`/`ctx.configForms` with `get(entryId)` returning a form
+  `{getSnapshot, subscribe, mutate(ops, revision)}`: the snapshot object is stable
+  between notifications (`useSyncExternalStore` requirement), the revision
+  contract is enforced (a stale revision returns `false`), and the in-frame form
+  is in-memory and writable — **edits do not survive a frame reload** (recorded
+  limit). Host halves additionally get a file-backed form from the bootstrap at
+  `<home>/cordis/config-forms/<entry>.json`. Effect: `dsh-plugin-studio@0.3.1`
+  now renders real tabs in the Settings dialog (`settings.plugins.tab`, its own
+  CSS, honest error states when host routes are stubbed) and
+  `dsh-plugin-debugging@0.8.1` renders its settings card in the Plugins dialog
+  (`plugins.bundle.config`) with a working toggle + Save round-trip through
+  `configForms`. Evidence: smoke 82/82 (+2: the real studio settings tab with
+  seat inject; the debugging config card renders and saves), bridge harness 90
+  (+3: seat props, generator `slots.inject`, generator `effect`), cordis lib 26,
+  server `plugins_live` 16, workspace 365 passed + 3 ignored (desktop 21,
+  total 386), web-e2e 16/16; the shared runtime artifact is unchanged
+  (176,725 bytes). C1.2 limits: browser `configForms` is in-memory (no reload
+  persistence), the DSH configuration-engine semantics are not reproduced, and
+  seat-inject failures are only logged; C-full stays deferred per ADR-041.
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose settings UI stayed inert without the `pluginManager`/settings host services until the round-89 C1.2 seat-inject/`configForms` work made it render — browser forms are in-memory and the DSH configuration engine is not reproduced) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: C1.1 now bridges `sessions`/`sessionProjections` from an internal server snapshot (≤ 5 s staleness, simplified projections: `llmMs=0`, no thread history; session content deliberately not bridged), so usage routes see real dshr sessions; there is still no SSE/WebSocket/streaming, and plugin routes still lack authentication. The bridge services are a subset (snapshot-based `sessions`/`sessionProjections` with simplified projections), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
