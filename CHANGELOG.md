@@ -228,4 +228,30 @@
   host services, SlotMap semantics, host React context and inter-plugin
   composition — an owner decision (ADR-040 C-full, still Proposed).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose UI stays inert without the `pluginManager`/settings host services) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work for exact paths (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame), but the remaining C1 limits are recorded too: no `sessions`/`sessionProjections` services for usage routes, no SSE/WebSocket/streaming, exact paths only, unauthenticated plugin routes reachable on the LAN interface, and MCP meta-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the tool list of host-only plugins. The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C1 hardening (the C1 hardening section of ADR-040). Route kinds:
+  `webServer.register` now accepts `kind: "exact"` and `kind: "prefix"`; the
+  sidecar matches exact before prefix and the longest prefix wins, and
+  `CordisManager::http_route` plus the server fallback proxy follow the same
+  rules (`crates/cordis/src/bootstrap.mjs`, `crates/cordis/src/manager.rs`,
+  `crates/server/src/lib.rs`). Diagnostics: `GET /v1/plugins/status` now exposes
+  a per-plugin `routes` list (the live host-route table) beside `tools` — also
+  useful when the host half registers a prefix route. MCP noise: the bridge
+  pseudo-tools `list_resources`/`read_resource`/`list_prompts`/`get_prompt` are
+  filtered out of a Cordis plugin's tool registry, next to the internal
+  `__dshr_*` tools (`crates/cordis/src/lib.rs`), so the agent sees only real
+  plugin tools. LAN policy: plugin routes are unauthenticated (the browser frame
+  has no token), so when the server binds a non-loopback address the proxy
+  answers 403 unless the new `--allow-lan-plugin-routes` flag /
+  `ServerConfig.allow_plugin_routes_lan` opts in (`crates/cli/src/serve_cmd.rs`,
+  `crates/server/src/lib.rs`) — this closes the recorded "plugin routes public
+  as DSH / LAN exposure" debt item instead of just documenting it. Evidence:
+  server `plugins_live` 15 (+1: `plugin_routes_are_loopback_only_unless_opted_in`;
+  `proxies_plugin_host_routes` gained prefix/status/meta-tool assertions), bridge
+  harness 87, cordis lib 26, workspace 364 passed + 3 ignored (desktop 21,
+  total 385), web-e2e 16/16, smoke 79/79 unchanged; the shared runtime artifact
+  is unchanged (176,725 bytes). Remaining after C1 hardening: the
+  `sessions`/`sessionProjections` bridge (C1.1), SSE/WebSocket/streaming through
+  the proxy, full design-system/SlotMap/host React context (C-full, owner
+  decision) and the `pluginManager`/settings host services.
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose UI stays inert without the `pluginManager`/settings host services) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: no `sessions`/`sessionProjections` services for usage routes, no SSE/WebSocket/streaming, and plugin routes still lack authentication. The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

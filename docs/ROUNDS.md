@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–85)
+# Журнал раундов паритета (1–86)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 363 root-теста
-(+3 ignored) и 21 desktop-тест = **384**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 364 root-теста
+(+3 ignored) и 21 desktop-тест = **385**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -509,11 +509,44 @@ release-бинарь воспроизводим.
     `dsh-plugin-studio` инертен), SlotMap-семантика, React-контекст шелла и
     композиция между плагинами остаются C-full — решение владельца.
 
+- 86: **Хардненинг C1** — prefix-маршруты, живая таблица маршрутов в статусе,
+  фильтр MCP-псевдо-инструментов и loopback-only политика для plugin-маршрутов
+  ([ADR-040](adr/040-react-client-half.md) §«Хардненинг C1», [PLUGINS.md](PLUGINS.md)):
+  - prefix-маршруты: `webServer.register` принимает `kind: "exact"` и
+    `kind: "prefix"`; sidecar матчит exact раньше prefix, среди prefix — самый
+    длинный; `CordisManager::http_route` и fallback-прокси сервера работают так
+    же (`crates/cordis/src/bootstrap.mjs`, `crates/cordis/src/manager.rs`,
+    `crates/server/src/lib.rs`); reserved-префиксы и неизвестные пути остаются
+    404;
+  - диагностика: `GET /v1/plugins/status` теперь отдаёт per-plugin `routes`
+    (живая таблица host-маршрутов) рядом с `tools` — `PluginStatus.routes`
+    (`crates/cordis/src/manager.rs`);
+  - шум MCP: псевдо-инструменты моста `list_resources`/`read_resource`/
+    `list_prompts`/`get_prompt` отфильтрованы из реестра инструментов
+    Cordis-плагина (рядом с внутренними `__dshr_*`) — `crates/cordis/src/lib.rs`;
+  - LAN-политика: plugin-маршруты неаутентифицированы (у iframe нет токена),
+    поэтому при bind вне loopback прокси отвечает 403, пока явно не передан
+    `--allow-lan-plugin-routes` / `ServerConfig.allow_plugin_routes_lan`
+    (`crates/cli/src/serve_cmd.rs`, `crates/server/src/lib.rs`). Это закрывает
+    записанный в TECH-DEBT пункт «plugin routes public as DSH / LAN exposure»;
+  - Проверки: server `plugins_live` 15 (+1:
+    `plugin_routes_are_loopback_only_unless_opted_in`; `proxies_plugin_host_routes`
+    расширен проверками prefix-маршрутов, таблицы `routes` в статусе и фильтра
+    meta-tools), workspace 364 passed + 3 ignored (desktop 21, итого 385),
+    smoke 79/79 без изменений, bridge harness 87, cordis lib 26, web-e2e 16/16;
+    общий рантайм-артефакт не менялся — 176 725 байт (React + ReactDOM UMD +
+    `bootstrap.js` + `primitives.js`).
+  - Остатки C1: сервисы `sessions`/`sessionProjections` (C1.1) для
+    usage-маршрутов отсутствуют, нет SSE/WebSocket/стриминга через прокси;
+    host-сервисов `pluginManager`/`settings` для UI `dsh-plugin-debugging`/
+    `dsh-plugin-studio` по-прежнему нет. Полный C-full (design-system,
+    SlotMap-семантика, React-контекст шелла) — решение владельца.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–85 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–86 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -540,7 +573,12 @@ host-половина `@kt11/dsh-deepseek-balance` отвечает своим J
 Proxy-fallback, хуки, `writeClipboard`), conformance доведён до **n=11**
 (`dsh-plugin-debugging@0.8.1`, `dsh-plugin-studio@0.3.1` активируются без
 ошибок, но их UI на отсутствующих host-сервисах `pluginManager`/settings
-остаётся несмонтированным).
+остаётся несмонтированным), а раунд 86 — **хардненинг C1**: prefix-маршруты
+(exact выигрывает, среди prefix — самый длинный), живая таблица `routes` в
+`GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов
+(`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) из реестра
+инструментов Cordis-плагина и loopback-only политика plugin-маршрутов (403 при
+bind вне loopback без явного `--allow-lan-plugin-routes`).
 
 Открыто и не заблокировано:
 
@@ -569,12 +607,13 @@ Proxy-fallback, хуки, `writeClipboard`), conformance доведён до **n
   а `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
   Дальнейшее расширение (полный design-system/SlotMap/React-контекст) — уже не
   C-lite, а C-full: решение владельца.
-- C1-остатки (раунд 84): сервисы `sessions`/`sessionProjections` для
-  usage-маршрутов отсутствуют, нет SSE/WebSocket/стриминга через прокси, только
-  exact-пути; plugin-маршруты не аутентифицированы (как в DSH) и в LAN-режиме
-  доступны с интерфейса сервера; meta-инструменты MCP (`list_resources`/
-  `read_resource`/`list_prompts`/`get_prompt`) видны в реестре инструментов
-  host-only плагина.
+- C1-остатки (раунды 84–86): сервисы `sessions`/`sessionProjections` для
+  usage-маршрутов отсутствуют (C1.1), нет SSE/WebSocket/стриминга через прокси
+  (fallback-прокси буферизует ответ). Раунд 86 закрыл ограничение exact-only
+  (появились prefix-маршруты), шум MCP-псевдо-инструментов в реестре и
+  LAN-экспозицию: plugin-маршруты по-прежнему неаутентифицированы (как в DSH),
+  поэтому при bind вне loopback прокси отвечает 403 без явного
+  `--allow-lan-plugin-routes` (`ServerConfig.allow_plugin_routes_lan`).
 
 Ожидает решения (ADR-040 Proposed, тир C/C-full):
 
@@ -590,12 +629,14 @@ Proxy-fallback, хуки, `writeClipboard`), conformance доведён до **n
   раунд 84: **C1** — host HTTP-маршруты плагинов работают end-to-end
   (loopback-сервер sidecar, allowlist-прокси, `connect-src` на origin сервера,
   реальная host-половина balance-плагина), с честно записанными остатками
-  (сервисы `sessions`/`sessionProjections`, стриминг, аутентификация/LAN-политика);
-  раунд 85: **C2** — design-system шим вырос с 7 до 30+ экспортов по фактическим
-  импортам (компоненты, именованные `Icon*` с Proxy-fallback, хуки,
-  `writeClipboard`), conformance n=11 (`dsh-plugin-debugging@0.8.1`,
-  `dsh-plugin-studio@0.3.1` активируются, но их UI ждёт host-сервисов
-  `pluginManager`/settings).
+  (сервисы `sessions`/`sessionProjections`, стриминг); раунд 85: **C2** —
+  design-system шим вырос с 7 до 30+ экспортов по фактическим импортам
+  (компоненты, именованные `Icon*` с Proxy-fallback, хуки, `writeClipboard`),
+  conformance n=11 (`dsh-plugin-debugging@0.8.1`, `dsh-plugin-studio@0.3.1`
+  активируются, но их UI ждёт host-сервисов `pluginManager`/settings); раунд
+  86 — хардненинг C1: prefix-маршруты, таблица `routes` в
+  `GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов и loopback-only
+  политика plugin-маршрутов с opt-in `--allow-lan-plugin-routes`.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии

@@ -61,6 +61,7 @@ fn state(dir: &std::path::Path) -> AppState {
             profile: "default".into(),
             cordis_plugins: Vec::new(),
             plugins: None,
+            allow_plugin_routes_lan: false,
             wasm: None,
         },
         provider,

@@ -154,7 +154,7 @@ serving-реестр инструментов (`ToolRegistry` — общий м�
   кнопка Reload в панели Plugins.
 
 Статус: `GET /v1/plugins/status` — `name`, `enabled`, `running`, `generation`,
-`tools`, `started_at`, `error`. Ошибка старта запоминается в статусе и
+`tools`, `routes` (живые host-маршруты C1), `started_at`, `error`. Ошибка старта запоминается в статусе и
 перепопытка происходит при следующем изменении или Reload. Отключить watcher:
 `dshr serve --no-watch-plugins`.
 
@@ -381,13 +381,22 @@ export function apply(ctx) {
 - для кадров с `host_modules` CSP открывает `connect-src` на origin сервера
   (внешняя сеть по-прежнему запрещена, `default-src 'none'`); кадры без
   `host_modules` остаются полностью network-free; CORS для opaque-origin кадров
-  разрешён только на plugin-маршрутах (и preflight обрабатывается до прокси).
+  разрешён только на plugin-маршрутах (и preflight обрабатывается до прокси);
+- `kind: "exact"` и `kind: "prefix"` (prefix матчит себя и детей, longest-prefix
+  выигрывает; exact всегда важнее prefix); маршруты видны в
+  `GET /v1/plugins/status` (`routes`), MCP-псевдо-инструменты
+  (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) больше не
+  попадают в реестр инструментов плагина;
+- публичные plugin-маршруты по умолчанию **не** публикуются в LAN: если сервер
+  слушает не loopback, прокси отвечает 403, пока явно не передан
+  `--allow-lan-plugin-routes`.
 
 Ограничения C1: нет сервисов `sessions`/`sessionProjections` (маршруты,
 которые строят статистику по сессиям, отдают пустые/ошибочные данные), нет
-SSE/WebSocket/стриминга и потоковых ответов через прокси, только exact-пути;
-plugin-маршруты не аутентифицированы (как в DSH — они публичные для локального
-web-профиля) и в LAN-режиме доступны с интерфейса сервера.
+SSE/WebSocket/стриминга и потоковых ответов через прокси; поддерживаются
+`kind: "exact"` и `kind: "prefix"` (longest-prefix), других kind нет.
+Plugin-маршруты не аутентифицированы (как в DSH), поэтому при bind вне loopback
+сервер отвечает 403, пока явно не передан `--allow-lan-plugin-routes`.
 
 ### Общая модульная таблица хоста (`dsh.client.host_modules`)
 

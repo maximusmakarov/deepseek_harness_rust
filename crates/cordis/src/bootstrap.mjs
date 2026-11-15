@@ -91,9 +91,19 @@ function ensureHttpServer() {
     }
     let route;
     try {
-      route = routes.find(
-        (candidate) => candidate.path === new URL(req.url || "/", "http://127.0.0.1").pathname,
-      );
+      const pathname = new URL(req.url || "/", "http://127.0.0.1").pathname;
+      // Exact routes win; a `kind: "prefix"` route matches itself and children,
+      // longest prefix first (DSH asset/sub-path routes).
+      route = routes.find((candidate) => candidate.kind === "exact" && candidate.path === pathname);
+      if (!route) {
+        route = routes
+          .filter(
+            (candidate) =>
+              candidate.kind === "prefix" &&
+              (pathname === candidate.path || pathname.startsWith(candidate.path + "/")),
+          )
+          .sort((left, right) => right.path.length - left.path.length)[0];
+      }
     } catch {
       route = undefined;
     }
@@ -129,9 +139,13 @@ const webServer = {
     if (!validRoutePath(route.path)) {
       throw new Error(`webServer.register: invalid or reserved path '${route.path}'`);
     }
+    const kind = route.kind || "exact";
+    if (kind !== "exact" && kind !== "prefix") {
+      throw new Error(`webServer.register: unsupported route kind '${kind}'`);
+    }
     const entry = {
       name: route.name || route.path,
-      kind: route.kind || "exact",
+      kind,
       path: route.path,
       handler: route.handler,
     };

@@ -58,6 +58,10 @@ pub struct ServerConfig {
     pub cordis_plugins: Vec<(String, bool)>,
     /// Live plugin supervisor; `None` in tests and one-shot embeddings.
     pub plugins: Option<Arc<dshr_cordis::CordisManager>>,
+    /// Allow plugin host routes (C1) when the server binds a non-loopback
+    /// address. Off by default: those routes are unauthenticated (like DSH), so
+    /// a LAN-exposed server would publish them to the network.
+    pub allow_plugin_routes_lan: bool,
     /// WASM plugin hot-reload manager.
     pub wasm: Option<Arc<dshr_wasm::WasmManager>>,
 }
@@ -1329,6 +1333,14 @@ async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> R
     if reserved_plugin_path(&path) {
         return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
     }
+    // Plugin routes are unauthenticated by design (the browser frame has no
+    // token), so a non-loopback bind must opt in explicitly.
+    if !state.config.bind.ip().is_loopback() && !state.config.allow_plugin_routes_lan {
+        return plugin_proxy_error(
+            StatusCode::FORBIDDEN,
+            "plugin routes are loopback-only; serve on 127.0.0.1 or pass --allow-lan-plugin-routes",
+        );
+    }
     let Some(manager) = state.config.plugins.as_ref() else {
         return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
     };
@@ -2351,6 +2363,7 @@ mod tests {
                 profile: "default".into(),
                 cordis_plugins: Vec::new(),
                 plugins: None,
+                allow_plugin_routes_lan: false,
                 wasm: None,
             },
             provider,

@@ -69,6 +69,14 @@ export default function activate(ctx) {
 }
 
 async fn state(dir: &Path) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::CordisManager>) {
+    state_with(dir, "127.0.0.1:0", false).await
+}
+
+async fn state_with(
+    dir: &Path,
+    bind: &str,
+    allow_plugin_routes_lan: bool,
+) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::CordisManager>) {
     let registry = Arc::new(ToolRegistry::new());
     let home = dir.join("home");
     std::fs::create_dir_all(&home).expect("home");
@@ -103,7 +111,7 @@ async fn state(dir: &Path) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::Cor
     ));
     let state = AppState::new(
         ServerConfig {
-            bind: "127.0.0.1:0".parse().expect("addr"),
+            bind: bind.parse().expect("addr"),
             token: TOKEN.into(),
             workspace: dir.to_path_buf(),
             mode: PermissionMode::DangerFull,
@@ -117,6 +125,7 @@ async fn state(dir: &Path) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::Cor
             profile: "default".into(),
             cordis_plugins: vec![("demo".into(), true)],
             plugins: Some(Arc::clone(&manager)),
+            allow_plugin_routes_lan,
             wasm: None,
         },
         provider,
@@ -785,6 +794,26 @@ export default {
           res.end(JSON.stringify({ ok: true, url: req.url, method: req.method, body }));
         },
       });
+      scope.webServer.register({
+        name: "probe-prefix",
+        kind: "prefix",
+        path: "/probe-prefix",
+        handler: async (req, res) => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: true, url: req.url }));
+        },
+      });
+      try {
+        // Reserved paths must be refused by the sidecar, never proxied.
+        scope.webServer.register({
+          name: "reserved",
+          kind: "exact",
+          path: "/v1/probe-route",
+          handler: async (_req, res) => res.end("x"),
+        });
+      } catch (error) {
+        void error;
+      }
     });
   },
 };
@@ -849,6 +878,49 @@ async fn proxies_plugin_host_routes() {
     );
     assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
 
+    // Prefix routes match themselves and their children.
+    for uri in ["/probe-prefix", "/probe-prefix/a/b"] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request");
+        let response = app.clone().oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+    }
+
+    // Status exposes the live route table and hides MCP pseudo-tools.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/plugins/status")
+        .header("authorization", format!("Bearer {TOKEN}"))
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let status: Value = serde_json::from_slice(&body).expect("json");
+    let plugin = &status["plugins"][0];
+    assert!(
+        plugin["routes"]
+            .as_array()
+            .is_some_and(|routes| routes.iter().any(|route| route == "/probe-route")),
+        "{status}"
+    );
+    let tools = plugin["tools"].as_array().expect("tools");
+    assert!(
+        tools.iter().any(|tool| tool == "cordis__demo__probe"),
+        "{status}"
+    );
+    assert!(
+        !tools.iter().any(|tool| matches!(
+            tool.as_str(),
+            Some("list_resources" | "read_resource" | "list_prompts" | "get_prompt")
+        )),
+        "MCP pseudo-tools leaked into the registry: {status}"
+    );
+
     // Unregistered and reserved paths keep the normal 404.
     for uri in ["/probe-missing", "/v1/probe-route"] {
         let request = Request::builder()
@@ -869,6 +941,35 @@ async fn proxies_plugin_host_routes() {
         .expect("request");
     let response = app.oneshot(request).await.expect("response");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn plugin_routes_are_loopback_only_unless_opted_in() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("plugin.mjs"), WEB_ROUTE_PLUGIN).expect("plugin");
+    let (state, _registry, _manager) = state_with(dir.path(), "0.0.0.0:0", false).await;
+    let app = router(state);
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-route")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let (state, _registry, _manager) = state_with(dir.path(), "0.0.0.0:0", true).await;
+    let app = router(state);
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-route")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[tokio::test]

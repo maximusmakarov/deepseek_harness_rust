@@ -64,6 +64,10 @@ pub struct ServeArgs {
     /// Disable Cordis plugin hot reload (entry and config watching)
     #[arg(long)]
     pub no_watch_plugins: bool,
+
+    /// Allow plugin host routes (C1) when binding a non-loopback address
+    #[arg(long)]
+    pub allow_lan_plugin_routes: bool,
 }
 
 pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
@@ -198,6 +202,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
                 .map(|plugin| (plugin.name.clone(), plugin.enabled))
                 .collect(),
             plugins: manager,
+            allow_plugin_routes_lan: args.allow_lan_plugin_routes,
             wasm: Some(wasm),
         },
         provider,

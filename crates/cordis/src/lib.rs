@@ -201,7 +201,14 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
         .filter(|tool| {
             let prefix = format!("mcp__cordis-{}__", spec.name);
             let short = tool.name().strip_prefix(&prefix).unwrap_or(tool.name());
+            // `__dshr_*` is host control, and the MCP bridge exposes its
+            // resources/prompts as pseudo-tools — neither belongs in the agent
+            // tool registry for a Cordis plugin.
             !short.starts_with("__dshr_")
+                && !matches!(
+                    short,
+                    "list_resources" | "read_resource" | "list_prompts" | "get_prompt"
+                )
         })
         .map(|tool| {
             let prefix = format!("mcp__cordis-{}__", spec.name);

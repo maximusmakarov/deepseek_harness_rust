@@ -14,7 +14,9 @@
 - should: 6 done, 1 partial; could: 1 done в скоринге + 4 dshr-дополнения вне
   скоринга (deep link, plugin-shipped runtime, shared host module table и
   C-lite React-компоненты слотов); раунд 84 добавил C1 host HTTP-маршруты плагинов,
-  а раунд 85 — C2 (design-system шим с 30+ экспортами и conformance n=11) в ту же
+  раунд 85 — C2 (design-system шим с 30+ экспортами и conformance n=11), а
+  раунд 86 — хардненинг C1 (prefix-маршруты, `routes` в статусе, фильтр
+  MCP-псевдо-инструментов, loopback-only LAN-политика) в ту же
   строку — новых скоринговых строк нет, additions по-прежнему `original=no`
 - сознательно вне скоупа (`skip`): полный React-компонентный контракт, инъекция в
   DOM шелла, внешние модули (`dsh.client.external`) — следствие ADR-013 §5, а не
@@ -139,7 +141,7 @@ module table, C-lite) по-прежнему `original=no`, поэтому зна
 host HTTP-маршруты плагинов стали работать end-to-end (**C1**). Sidecar поднимает
 loopback-only HTTP-сервер (`127.0.0.1`, случайный порт, per-process токен), половина
 регистрирует маршруты через `ctx.inject(['webServer'])`/`webServer.register({name,
-kind: 'exact', path, handler})`, менеджер читает внутренний `__dshr_routes`
+kind: 'exact'/'prefix', path, handler})`, менеджер читает внутренний `__dshr_routes`
 (`__dshr_*`-инструменты отфильтрованы из реестра) и отдаёт `http_route(path)`, а
 dshr-сервер проксирует только allowlist-пути (method/query/body, request ≤ 1 МиБ,
 response ≤ 8 МиБ, таймаут 15 с, permissive CORS для opaque-origin кадров, reserved
@@ -186,6 +188,25 @@ Menu/Modal/Toast), а реальные вклады `dsh-plugin-notify`/`dsh-mne
 Накопленные dshr-дополнения (deep link, plugin-shipped runtime, shared host module
 table, C-lite) по-прежнему `original=no`, поэтому знаменатель не растёт.
 
+Раунд 86 расширил **ту же строку** C1/C-lite, не добавляя новых скоринговых
+строк: хардненинг C1. `webServer.register` принимает `kind: "exact"` и
+`kind: "prefix"` (exact выигрывает, среди prefix — самый длинный; так же в
+`CordisManager::http_route` и fallback-прокси), `GET /v1/plugins/status` отдаёт
+per-plugin `routes` — живую таблицу host-маршрутов рядом с `tools`,
+MCP-псевдо-инструменты (`list_resources`/`read_resource`/`list_prompts`/
+`get_prompt`) отфильтрованы из реестра инструментов плагина, а plugin-маршруты
+при bind вне loopback отвечают 403, пока явно не передан
+`--allow-lan-plugin-routes` (`ServerConfig.allow_plugin_routes_lan`) — это
+закрывает ранее записанный долг «routes public as DSH / LAN exposure». Строка
+по-прежнему **dshr-дополнение** (`original=no`, could/yes), новых строк в
+матрице нет, поэтому арифметика не меняется: must 13/13 (13 × 3 = 39 из 39),
+should 6 done (6 × 2 = 12 из 12) и 1 partial (1 × 2 × ½ = 1 из 2), could 1 done
+(1 × 1 = 1 из 1) — **39 + 12 + 1 + 1 = 53 из 54 = 98.15 → 98.1**. Если бы
+хардненинг C1 считался фичей оригинала, знаменатель вырос бы; в матрице строка
+намеренно помечена `original=no`. Накопленные dshr-дополнения (deep link,
+plugin-shipped runtime, shared host module table, C-lite) по-прежнему
+`original=no`, поэтому знаменатель не растёт.
+
 Что осталось из should (не блокирует):
 
 | Фича | Состояние | Чем отличается |
@@ -209,14 +230,14 @@ table, C-lite) по-прежнему `original=no`, поэтому знамен�
 | react slots / host state | `crates/cordis/src/bridge.js`: React-режим `ctx.slots.register(entry, Component)`, один React-root на кадр, `host-state` (`theme`/`wide`/`session`/`sessions`), hooks `useTheme`/`useSession`/`useSessions`/`useHostState`, `ctx.get('sessions')`, error boundary; `crates/web/src/main.rs`: `push_host_state_all`; `crates/cordis/src/client.rs`: `HOST_MODULES` с id примитивов; тесты: bridge harness 87 checks (host-state/`ctx.get`/`ctx.get('slots')`/`locale`/`ctx.inject`/`__DSHR_LAST_ERROR__` + раунд-81 `reactScenario`: memo-тип, host-props/hooks, `t()`-место, keyed-ids, форма `slots.entries`), smoke 79/79 (фикстуры `hooks`, `hosted`, `ui-kit`, `dsh-remote`, `ruoyang-balance`, `dsh-genui`, `dsh-session-superagent`, `dsh-mnemon`, `dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`, `dsh-plugin-debugging`, `dsh-plugin-studio`; C1 host-маршруты — через реальную host-половину `@kt11/dsh-deepseek-balance`) |
 | design-system primitives | `crates/server/assets/runtime/primitives.js` — независимый **частичный** шим `@deepseek-ai/dsh-client-ui-primitives` (`Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`; с раунда 81 — ещё `JsonBlock`/`MarkdownText`; с раунда 85 (C2) — 30+ экспортов: `Input`/`Switch`/`Checkbox`/`Tag`/`Pill`/`Menu`/`MenuSurface`/`Modal`/`Toast`/`SegmentedControl`/`SegmentedTabs`/`DisclosureRow`/`PathLabel`/`TextShimmer`, `writeClipboard`, `useAnchoredPosition`/`useDismissOnOutsidePointer` и 18 именованных `Icon*` с Proxy-fallback) на host React и CSS-переменных темы, в `checksums.txt`/`README.md`; smoke: фикстура `ui-kit` резолвит его из общего рантайма, genui использует `JsonBlock`/`MarkdownText`, а C2-проба рендерит дерево всех смоделированных примитивов (12 маркеров, портальные Menu/Modal/Toast) |
 | conformance | **Одиннадцать** реальных MIT-плагинов в `crates/cordis/tests/fixtures/` (n=11 — цель ADR-013 §6 8–12 достигнута с запасом; клиентские половины upstream без изменений, sha256 в `package.json`, host-половины — заглушки, кроме `@kt11/dsh-deepseek-balance` с раунда 84): `@kt11/dsh-deepseek-balance@0.2.1` — smoke: React-карточка в `sidebar.footer.action`, инжект собственного CSS, popup по клику; с раунда 84 (C1) host-половина реальная (upstream без изменений, host sha256 `8771ae90…`), и её маршруты отвечают через прокси: 500 `not-configured` без ключа и 200 JSON для usage-маршрута; `dsh-remote@1.1.2` (раунд 80) — smoke: discovery с примитивами в `host_modules`, registry-кадр без ошибок при отсутствии опциональных сервисов, React-слот `conversation.session.header.actions` монтируется в регион `conversation.header`; `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (раунд 81, sha256 `ca700695…`) — плавающий бейдж в `shell.overlay` через `ctx.effect`/`ctx.interval`/`ctx.locale`, рендерится без ошибок; `dsh-genui@0.3.3` (раунд 81, sha256 `8f0500ad…`) — тумблер GenUI в `conversation.input.left` и keyed-регистрация `conversation.chat.node` через `React.memo`, рендерится без ошибок; `dsh-session-superagent@0.10.12` (раунд 82, sha256 `d58f0fa2…`) — composer dock `conversation.composer.dock` монтируется в регион `composer.actions` без ошибок; `dsh-mnemon@0.5.46` (раунд 82, sha256 `d967402b…`) — крупный multi-region плагин: активируется, публикует слоты и сверяет собственные shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot`; `@99galaxy/dsh-plugin-market@1.2.2` (раунд 83, sha256 `27abb2db…`) — запись в сайдбаре (`sidebar.panellist` → регион `sidebar.footer`), smoke: кадр монтируется; `dsh-plugin-codegraph-panel@0.6.5` (раунд 83, sha256 `f834fadb…`) — панель `settings.section` (upstream-флаг `immediately: true`), активируется и публикует слот; `@goodandready/dsh-plugin-notify@0.4.9` (раунд 83, sha256 `7a2843fa…`) — строки `plugins.item`/`plugins.row.config` (регион `plugins.detail`), primitives + react, активируется и публикует слоты; `dsh-plugin-debugging@0.8.1` (раунд 85, C2, client sha256 `9b828160…`) и `dsh-plugin-studio@0.3.1` (раунд 85, C2, client sha256 `1194c18b…`) — примитивы-heavy половины (30+ экспортов шима): активируются без ошибок, но их UI гейтится host-сервисами `pluginManager`/settings и не монтируется. Не входят в набор: `@michengai/dsh-archive-manager` (нужен `'unsafe-eval'` в CSP) и `@michengai/dsh-skills-manager` (падение на инициализации бандла) |
-| host routes (C1) | `crates/cordis/src/bootstrap.mjs`: loopback-only `node:http`-сервер (`127.0.0.1`, случайный порт), per-process токен, `webServer.register({name, kind, path, handler})` с валидацией пути (package/reserved-префиксы), `ctx.inject(['webServer'])`, `credentials.resolve` из env, внутренний `__dshr_routes`; `crates/cordis/src/lib.rs`: `SidecarHttp`/`sidecar_http` (порт, токен, таблица маршрутов) и фильтр `__dshr_*`-инструментов из реестра; `crates/cordis/src/manager.rs`: `http_route(path)` (только exact) и `http_routes()`; `crates/server/src/lib.rs`: fallback `plugin_http_proxy` (allowlist, method/query/body, 1 МиБ request / 8 МиБ response / 15 с, reserved → 404, permissive CORS) и `client_host_csp(allow_connect)` — `connect-src <origin>` только для кадров с `host_modules`; тесты: `plugins_live` 14 (+2: `proxies_plugin_host_routes` — GET/query/POST/OPTIONS/404/reserved/снятие маршрутов, `plain_frames_stay_network_free`), smoke 75/75 (+3: реальная host-половина `@kt11/dsh-deepseek-balance` через кадр плагина) |
+| host routes (C1) | `crates/cordis/src/bootstrap.mjs`: loopback-only `node:http`-сервер (`127.0.0.1`, случайный порт), per-process токен, `webServer.register({name, kind, path, handler})` с валидацией пути (package/reserved-префиксы) и `kind: "exact"`/`kind: "prefix"` (раунд 86: exact выигрывает, среди prefix — самый длинный, так же в менеджере и прокси), `ctx.inject(['webServer'])`, `credentials.resolve` из env, внутренний `__dshr_routes`; `crates/cordis/src/lib.rs`: `SidecarHttp`/`sidecar_http` (порт, токен, таблица маршрутов), фильтр `__dshr_*`-инструментов и (раунд 86) MCP-псевдо-инструментов (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) из реестра; `crates/cordis/src/manager.rs`: `http_route(path)` (exact→prefix, longest-prefix) и `http_routes()`, `PluginStatus.routes` — live-таблица маршрутов в `GET /v1/plugins/status` (раунд 86); `crates/server/src/lib.rs`: fallback `plugin_http_proxy` (allowlist, method/query/body, 1 МиБ request / 8 МиБ response / 15 с, reserved → 404, permissive CORS), loopback-only LAN-политика (раунд 86: 403 при bind вне loopback без `allow_plugin_routes_lan`/`--allow-lan-plugin-routes`, `crates/cli/src/serve_cmd.rs`) и `client_host_csp(allow_connect)` — `connect-src <origin>` только для кадров с `host_modules`; тесты: `plugins_live` 15 (+1: `plugin_routes_are_loopback_only_unless_opted_in`; `proxies_plugin_host_routes` — GET/query/POST/OPTIONS/prefix/404/reserved/снятие маршрутов/status `routes`/meta-tools, `plain_frames_stay_network_free`), smoke 79/79 (реальная host-половина `@kt11/dsh-deepseek-balance` через кадр плагина) |
 | layout | smoke: `resize` выставляет высоту конкретного кадра (кламп 24–640 px) |
 
 Команды:
 
 ```sh
 cargo test -p dshr-cordis          # bridge harness (каталог слотов, регионы, slot-режим, React-режим/host-state, сервисы моста, React-контракт) + assets + runtime + shared host runtime + manager
-cargo test -p dshr-server --test plugins_live   # 14 checks incl. the C1 host-route proxy
+cargo test -p dshr-server --test plugins_live   # 15 checks incl. the C1 host-route proxy + hardening (prefix/status/meta-tools/LAN)
 python3 scripts/plugin-smoke.py    # 79 проверок в headless Chrome (включая hooks, ui-kit и одиннадцать реальных плагинов: deepseek-balance, dsh-remote, ruoyang-balance, dsh-genui, dsh-session-superagent, dsh-mnemon, dsh-plugin-market, dsh-plugin-codegraph-panel, dsh-plugin-notify, dsh-plugin-debugging, dsh-plugin-studio)
 ```
 
@@ -235,11 +256,13 @@ python3 scripts/plugin-smoke.py    # 79 проверок в headless Chrome (в�
    расширил шим до 30+ экспортов и довёл conformance до n=11.
 2. Host-маршруты DSH-плагинов: C1 (раунд 84) сделал их работающими
    (sidecar-сервер + allowlist-прокси + `connect-src`, реальная host-половина
-   `@kt11/dsh-deepseek-balance` отвечает своим JSON); остатки — сервисы
-   `sessions`/`sessionProjections` для usage-статистики, SSE/WebSocket/стриминг,
-   только exact-пути, отсутствие аутентификации/LAN-политики, MCP meta-инструменты
-   в реестре host-only плагина. `wide` в host-state должен отражать фактическую
-   ширину сайдбара.
+   `@kt11/dsh-deepseek-balance` отвечает своим JSON), а раунд 86 (хардненинг C1)
+   добавил prefix-маршруты, `routes` в `GET /v1/plugins/status`, фильтр
+   MCP-псевдо-инструментов и loopback-only LAN-политику с opt-in
+   `--allow-lan-plugin-routes`; остатки — сервисы
+   `sessions`/`sessionProjections` для usage-статистики (C1.1), SSE/WebSocket/
+   стриминг, отсутствие аутентификации на plugin-маршрутах. `wide` в host-state
+   должен отражать фактическую ширину сайдбара.
 3. Conformance-набор из реальных npm-пакетов: цель M5b 8–12 плагинов
    **достигнута с запасом** — n=11 (`@kt11/dsh-deepseek-balance@0.2.1`,
    `dsh-remote@1.1.2`, `@ruoyang/dsh-plugin-deepseek-balance@1.0.2`,

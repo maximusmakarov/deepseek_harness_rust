@@ -164,8 +164,10 @@ ADR-003 фиксирует Leptos для Web UI, а клиентские пла�
 шелла, SlotMap-семантика — **тир C-full** по
 [ADR-040](040-react-client-half.md), решение ожидается; тиры A, B-PoC, C-lite
 уже реализованы), `dsh.client.external`. Host-маршруты плагинов закрыты
-частично в раунде 84 (**C1**: sidecar-proxy с allowlist, CORS, лимитами;
-сервисы `sessions`/`sessionProjections`, стриминг и LAN-политика — остаются),
+частично в раунде 84 (**C1**: sidecar-proxy с allowlist, CORS, лимитами) и
+раунде 86 (prefix-маршруты, статус, фильтр MCP-псевдо-инструментов,
+loopback-only LAN-политика); сервисы `sessions`/`sessionProjections` и
+стриминг — остаются,
 conformance-набор реальных пакетов достиг n=11 (цель 8–12).
 
 ## Региональный монтаж слотов (14.11.2026, раунд 76)

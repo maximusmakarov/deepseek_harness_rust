@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); 15.11.2026 (раунд 85) — **C2**: design-system шим расширен до 30+ экспортов по реальным импортам, conformance **n=11**; полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); 15.11.2026 (раунд 85) — **C2**: design-system шим расширен до 30+ экспортов по реальным импортам, conformance **n=11**; 15.11.2026 (раунд 86) — хардненинг C1: prefix-маршруты, статус с таблицей маршрутов, фильтр MCP-псевдо-инструментов, loopback-only политика для LAN; полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -324,3 +324,23 @@ Conformance **n=11**: добавлены `dsh-plugin-debugging@0.8.1` и
 
 Осталось от C2: полный design-system (тир C-full), больше компонентов по мере
 роста набора, точные визуальные токены upstream.
+
+## Хардненинг C1 (15.11.2026, раунд 86)
+
+- **Prefix-маршруты:** `webServer.register` принимает `kind: "exact"` и
+  `kind: "prefix"`; sidecar матчит exact раньше prefix, среди prefix — самый
+  длинный; менеджер и прокси ведут себя так же.
+- **Диагностика:** `GET /v1/plugins/status` теперь отдаёт per-plugin `routes`
+  (живая таблица host-маршрутов), рядом с `tools`.
+- **Шум MCP:** псевдо-инструменты моста (`list_resources`, `read_resource`,
+  `list_prompts`, `get_prompt`) больше не регистрируются для Cordis-плагинов;
+  в реестре остаются только реальные инструменты плагина (и `__dshr_*`
+  по-прежнему скрыт).
+- **LAN-политика:** plugin-маршруты неаутентифицированы (у iframe нет токена),
+  поэтому при bind вне loopback прокси отвечает 403; явный opt-in —
+  `--allow-lan-plugin-routes` (ServerConfig.allow_plugin_routes_lan). Это
+  закрывает записанный в TECH-DEBT пункт «routes public as DSH / LAN».
+
+Проверка: server integration tests 15 (proxy: exact/prefix/query/POST/preflight/
+404/reserved/route-removal/status/meta-tools; loopback-only policy), smoke 79/79
+без изменений, workspace tests 364 + 3 ignored.

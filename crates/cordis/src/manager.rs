@@ -44,6 +44,9 @@ pub struct PluginStatus {
     pub generation: u64,
     /// Tool names currently served for this plugin.
     pub tools: Vec<String>,
+    /// Host HTTP paths this plugin registered through `webServer` (C1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub routes: Vec<String>,
     /// Unix seconds when the sidecar started.
     pub started_at: u64,
     /// Last start/reload error, cleared on the next successful start.
@@ -197,6 +200,10 @@ impl CordisManager {
                     running: live.is_some(),
                     generation: live.map(|live| live.generation).unwrap_or(0),
                     tools: live.map(|live| live.tool_names.clone()).unwrap_or_default(),
+                    routes: live
+                        .and_then(|live| live.http.as_ref())
+                        .map(|http| http.routes.iter().map(|route| route.path.clone()).collect())
+                        .unwrap_or_default(),
                     started_at: live.map(|live| live.started_at).unwrap_or(0),
                     error: errors.get(&name).cloned(),
                     name,
@@ -480,6 +487,12 @@ impl CordisManager {
     #[must_use]
     pub fn http_route(&self, path: &str) -> Option<HttpTarget> {
         let running = lock(&self.running);
+        let target = |name: &str, http: &SidecarHttp| HttpTarget {
+            plugin: name.to_owned(),
+            port: http.port,
+            token: http.token.clone(),
+        };
+        // Exact routes win over prefix routes; among prefixes the longest one wins.
         for (name, state) in running.iter() {
             let Some(http) = state.http.as_ref() else {
                 continue;
@@ -489,14 +502,26 @@ impl CordisManager {
                 .iter()
                 .any(|route| route.kind == "exact" && route.path == path)
             {
-                return Some(HttpTarget {
-                    plugin: name.clone(),
-                    port: http.port,
-                    token: http.token.clone(),
-                });
+                return Some(target(name, http));
             }
         }
-        None
+        let mut best: Option<(usize, HttpTarget)> = None;
+        for (name, state) in running.iter() {
+            let Some(http) = state.http.as_ref() else {
+                continue;
+            };
+            for route in http.routes.iter().filter(|route| route.kind == "prefix") {
+                let matches = path == route.path || path.starts_with(&(route.path.clone() + "/"));
+                if matches
+                    && best
+                        .as_ref()
+                        .is_none_or(|(length, _)| route.path.len() > *length)
+                {
+                    best = Some((route.path.len(), target(name, http)));
+                }
+            }
+        }
+        best.map(|(_, target)| target)
     }
 
     /// Every registered plugin HTTP route (`plugin`, `path`), for diagnostics.
