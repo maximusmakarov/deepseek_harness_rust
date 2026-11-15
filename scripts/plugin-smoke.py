@@ -561,8 +561,12 @@ window.__ModuleLoader__.load({
         "div",
         { id: "ui-kit" },
         React.createElement(primitives.Button, null, "Kit button"),
-        React.createElement(primitives.StateDot, { state: "success", label: "ok" }),
-        React.createElement(primitives.Tooltip, { label: "tip" }, "hover me"),
+        React.createElement(primitives.StateDot, { state: "done" }),
+        React.createElement(
+          primitives.Tooltip,
+          { label: "tip" },
+          React.createElement("span", null, "hover me"),
+        ),
       );
     }
     return {
@@ -1945,7 +1949,7 @@ def run(args: argparse.Namespace) -> int:
                     debug_port,
                     """JSON.stringify({
                         button: !!document.querySelector('.dshr-button'),
-                        dot: !!document.querySelector('.dshr-state-dot-success'),
+                        dot: !!document.querySelector('[data-state="done"]'),
                         text: (document.getElementById('dshr-slot-root')?.textContent || ''),
                     })""",
                     lambda value: json.loads(str(value))["button"],
@@ -2009,7 +2013,11 @@ def run(args: argparse.Namespace) -> int:
                                 }),
                                 e(primitives.PathLabel, { path: "/tmp/c2-path" }),
                                 e(primitives.TextShimmer, { active: true }, "C2 shimmer"),
-                                e(primitives.Tooltip, { content: "C2 tooltip" }, "C2 tt"),
+                                e(
+                                    primitives.Tooltip,
+                                    { label: "C2 tooltip" },
+                                    e("span", null, "C2 tt"),
+                                ),
                                 e(primitives.Modal, { open: false }),
                                 e(primitives.Toast, { text: "C2 toast", holdMs: 100000, onDone() {} }),
                                 e(primitives.Menu, {
@@ -2022,7 +2030,13 @@ def run(args: argparse.Namespace) -> int:
                             setTimeout(() => resolve(JSON.stringify({
                                 text: document.body.innerText,
                                 error: window.__DSHR_LAST_ERROR__ || null,
-                            })), 400);
+                                switch: !!document.querySelector('[role="switch"][aria-label="C2 switch"]'),
+                                tag: !!document.querySelector('[data-tone="info"]'),
+                                tabs: document.querySelectorAll('[role="tab"]').length,
+                                icon: document.querySelectorAll('svg').length,
+                                checkbox: !!document.querySelector('label.dshr-checkbox'),
+                                path: (document.querySelector('[data-path-label]') || {}).textContent || '',
+                            })), 500);
                         } catch (error) {
                             resolve(JSON.stringify({ error: String(error) }));
                         }
@@ -2037,22 +2051,31 @@ def run(args: argparse.Namespace) -> int:
         c2_text = c2_state.get("text") or ""
         c2_markers = [
             "C2 button",
-            "C2 switch",
             "C2 checkbox",
             "C2 tag",
             "C2 pill",
             "C2 segment",
             "C2 tab",
             "C2 disclosure",
-            "/tmp/c2-path",
             "C2 shimmer",
             "C2 toast",
             "C2 menu item",
         ]
         check(
             "expanded design-system primitives render with host React (C2)",
-            all(marker in c2_text for marker in c2_markers),
-            {"missing": [marker for marker in c2_markers if marker not in c2_text], **c2_state},
+            all(marker in c2_text for marker in c2_markers)
+            and c2_state.get("switch") is True
+            and c2_state.get("tag") is True
+            and (c2_state.get("tabs") or 0) >= 2
+            and (c2_state.get("icon") or 0) >= 2
+            and c2_state.get("checkbox") is True
+            and c2_state.get("path") == "/tmp/c2-path",
+            {
+                "missing": [marker for marker in c2_markers if marker not in c2_text],
+                **{key: c2_state.get(key) for key in ("switch", "tag", "tabs", "icon", "checkbox", "error")},
+                "text": c2_text[:400],
+                "path": c2_state.get("path"),
+            },
         )
 
         # Settings dialog: region frames exist only while it is open. ------

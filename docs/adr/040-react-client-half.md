@@ -454,3 +454,30 @@ route / trailing-slash; smoke 82/82, workspace 365+3, web-e2e 16/16.
 Осталось: `registerFallback`/`registerUpgrade` (нужны для чужих SPA/WS-плагинов),
 persistence browser-configForms, затем полный design-system — по
 [ADR-041](041-c-full-decision.md).
+
+## C2.1: атомы design-system по reference-исходникам (15.11.2026, раунд 93)
+
+Раньше `primitives.js` был независимым «похожим» шимом. Теперь он портирован из
+`deepseek-ai/deepseek-harness @ 39163dd`,
+`packages/client/ui-primitives/src`:
+
+- **атомы** — `Button`, `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`,
+  `SegmentedControl`, `SegmentedTabs`, `DisclosureRow`, `TextShimmer`,
+  `StateDot`, `PathLabel`, `Toast`, `Modal`, `Menu`, `MenuSurface`,
+  `Tooltip` повторяют reference DOM/ARIA/props/поведение (см. PLUGINS C2.1);
+- **иконки** — все 204 export'а `Icon*` сгенерированы из upstream
+  `icons/artwork.ts` (точные SVG-пути, regular/medium stroke), инлайн вместо
+  спрайта; Proxy-fallback оставлен для будущих имён;
+- **стили** — те же `--dsw-alias-*` токены, что использует reference
+  (с fallback'ами), поэтому тема dshr управляет видом;
+- **совместимость** — synthetic fixtures приведены к reference-контрактам
+  (`StateDot state:"done"`, `Tooltip` с element-child), C2-probe проверяет
+  структурные признаки (role switch, data-tone, tablist, svg, path-label).
+
+Проверка: smoke 82/82 (два прогона подряд), harness 102, workspace 365+3,
+web-e2e 16/16; общий рантайм-артефакт вырос до 375 894 байт (cached immutable
+один раз на страницу).
+
+Осталось: полный `Menu` (submenu/focus-движок) и `Tooltip` (placement-engine),
+`MarkdownText`/`JsonBlock` (тяжёлые markdown-зависимости), `store`-seats/
+renderer-семантика, `chain`-диспетчеризация/`hoc`-вложение.

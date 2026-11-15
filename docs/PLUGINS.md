@@ -429,6 +429,43 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   В кадре форма in-memory (правки не переживают reload), host-половинам —
   файловая под `<home>/cordis/config-forms/`.
 
+### Примитивы портированы из reference (C2.1)
+
+`@deepseek-ai/dsh-client-ui-primitives` больше не «похожий шим»: компоненты
+переписаны по исходникам `deepseek-ai/deepseek-harness @ 39163dd`
+(`packages/client/ui-primitives/src`) — совпадают DOM-структура, props, ARIA и
+поведение:
+
+- `Button` (variant `primary`/`ghost`/`outline`/`toolbar`, size `md`/`sm`,
+  leading `icon`, `forwardRef`), `Input` (wrapper + leading icon),
+  `Switch` (role switch, `aria-label`, thumb без видимого текста),
+  `Checkbox` (native input + label, `data-modal-autofocus`), `Tag`
+  (`data-tone`: outline/solid/neutral/quiet/success/info/warning/danger),
+  `Pill` (span/button по наличию `onClick`, `active`);
+- `SegmentedControl` (tablist с indicator, roving tabindex, walk-клавиши,
+  `<id>-<value>`/`-panel`) и `SegmentedTabs` (Pill-табы, grid, indicator,
+  Left/Right/Home/End с переносом фокуса);
+- `DisclosureRow` (полная структура: header/row, expand-on-row-click,
+  previewChevron, `collapsedContent`, `headerAccessory`, `running`-shimmer),
+  `TextShimmer` (nested-context, decoration/sweep), `StateDot`
+  (done/warning/ongoing/error/idle, SVG-spinner, `appearance: "step"`),
+  `PathLabel` (directory/name split, clipped-маска, `title`);
+- `Toast` (portal, `role=alert`, success check-circle, `holdMs` + fade,
+  actions, anchor-центрирование), `Modal` (portal, mask, Escape, focus,
+  warning tone, headless, footer), `Menu` (data-rows/separators/labels,
+  fixed-позиционирование, outside/Escape, selectedId(s), portal; полный
+  submenu/focus-движок не портирован), `MenuSurface` (forwardRef,
+  `data-menu-material`/`phase`), `Tooltip` (label-based клон якоря,
+  hover/focus-бабл; placement-движок упрощён);
+- **иконки**: все **204** reference-экспорта `Icon*` сгенерированы из
+  upstream `icons/artwork.ts` — те же SVG-пути/stroke (regular 1, medium 1.3),
+  инлайн вместо document-спрайта; для неизвестных `Icon*` остаётся Proxy-global.
+
+Остаются расширения dshr (не из reference): `Spinner`, упрощённые
+`JsonBlock`/`MarkdownText` (upstream зависит от shiki/katex/mdast),
+`useAnchoredPosition`. `writeClipboard` и `useDismissOnOutsidePointer`
+портированы по reference-алгоритмам.
+
 ### Слот-контракт по референсному каталогу (C1.3, SlotMap-semantics)
 
 Регистрация слотов теперь проверяется по **реальному каталогу DSH**, а не по
@@ -583,7 +620,8 @@ Host-state приходит от шелла сообщением `host-state` (`
 
 **Дизайн-система:** host-рантайм публикует
 `@deepseek-ai/dsh-client-ui-primitives` — **частичный независимый шим**
-(не пакет upstream): `Button`, `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`,
+(не пакет upstream; с раунда 93 атомы портированы из reference-исходников,
+см. C2.1): `Button`, `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`,
 `Menu`, `MenuSurface`, `Modal`, `Toast`, `Tooltip`, `SegmentedControl`,
 `SegmentedTabs`, `DisclosureRow`, `PathLabel`, `TextShimmer`, `StateDot`,
 `Spinner`, `JsonBlock`, `MarkdownText`, `Icon` + именованные иконки

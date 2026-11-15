@@ -170,7 +170,8 @@ loopback-only LAN-политика); сервисы `sessions`/`sessionProjectio
 стриминг — остаётся,
 conformance-набор реальных пакетов достиг n=11 (цель 8–12). Slot-контракт
 переведён на сгенерированный каталог DSH в раунде 91 (C1.3); webServer/
-configForms/baseUrl выровнены по reference в раунде 92 (C1.4).
+configForms/baseUrl выровнены по reference в раунде 92 (C1.4); атомы design-system и
+204 иконки портированы из reference в раунде 93 (C2.1).
 
 ## Региональный монтаж слотов (14.11.2026, раунд 76)
 
