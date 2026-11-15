@@ -481,3 +481,25 @@ web-e2e 16/16; общий рантайм-артефакт вырос до 375 89
 Осталось: полный `Menu` (submenu/focus-движок) и `Tooltip` (placement-engine),
 `MarkdownText`/`JsonBlock` (тяжёлые markdown-зависимости), `store`-seats/
 renderer-семантика, `chain`-диспетчеризация/`hoc`-вложение.
+
+## C2.2: полный Tooltip (15.11.2026, раунд 94)
+
+Единственный упрощённый атом из C2.1 доведён до reference:
+
+- `Tooltip` портирован из `ui-primitives/src/Tooltip.tsx`: label-резолвер
+  (вычисляется только при показе), независимые hover/focus-триггеры с
+  `delayMs`/`focusDelayMs`, `openOnClick`-pinning с outside/Escape/Tab-dismiss,
+  `onlyWhenClipped`, `maxWidth`, `portal`, `data-side`/`data-pinned`,
+  nested-suppression через контекст, `aria-describedby` при pinning,
+  pointer-modality (фокус после указателя не поднимает бабл), touch-hover
+  исключён, forward ref сквозь клон якоря;
+- `tooltip-placement.ts` портирован как есть: side → opposite → perpendicular,
+  viewport-clamp, fallback с `overflow`;
+- `ShortcutKeys` (keycaps с `+`-разделителями) и `input-modality.ts`
+  (`data-input-modality`, pointerModality) портированы и экспортированы.
+
+Проверка: smoke 82/82 (C2-probe + ui-kit fixture с `Tooltip`; `ShortcutKeys`
+экспортирован и рендерится внутри бабла),
+bridge harness 102, workspace 365+3, web-e2e 16/16; общий рантайм-артефакт —
+387 613 байт. Осталось: полный `Menu`
+(submenu/focus-машинерия), markdown-стек, store/renderer, chain/hoc.

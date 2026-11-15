@@ -134,8 +134,13 @@
       ".dshr-menu-separator{height:1px;margin:4px 6px;background:var(--dsw-alias-border-l4,#3a3a3a);list-style:none}",
       ".dshr-menu-label{padding:4px 8px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#9b9b9b);list-style:none}",
       ".dshr-menu-surface{background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);border-radius:var(--dshr-radius-md);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:8px;outline:none}",
-      ".dshr-tooltip-anchor{display:inline-flex;min-width:0}",
-      ".dshr-tooltip-bubble{position:fixed;z-index:110;max-width:min(320px,calc(100vw - 24px));padding:6px 8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary,#e6e6e6);pointer-events:none}",
+      ".dshr-tooltip-bubble{position:fixed;z-index:110;display:inline-flex;align-items:center;gap:6px;max-width:min(320px,calc(100vw - 24px));padding:5px 8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary,#e6e6e6);pointer-events:none}",
+      ".dshr-tooltip-bubble[data-pinned]{pointer-events:auto;max-height:min(70vh,480px);overflow:auto}",
+      ".dshr-tooltip-label{min-width:0}",
+      ".dshr-shortcut-keys{display:inline-flex;align-items:center;gap:2px;font-size:11px;line-height:16px}",
+      ".dshr-shortcut-key{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:4px;border:0.5px solid var(--dsw-alias-border-l4,#3a3a3a);background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12));color:var(--dsw-alias-label-secondary,#bbb);font:inherit;font-size:11px}",
+      ".dshr-shortcut-separator{border:0;background:transparent;min-width:0;padding:0;color:var(--dsw-alias-label-tertiary,#9b9b9b)}",
+      ".dshr-shortcut-keys-tooltip .dshr-shortcut-key{background:transparent;border-color:var(--dsw-alias-border-l3,#454545)}",
       ".dshr-spinner{display:inline-block;width:12px;height:12px;border:2px solid var(--dsw-alias-border-l3,#454545);border-top-color:var(--dsw-alias-brand-primary,#4da3ff);border-radius:50%;animation:dshr-spin .8s linear infinite}",
       ".dshr-json-block{margin:6px 0;padding:8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,.12));overflow-x:auto;font:12px/1.4 ui-monospace,monospace}",
       ".dshr-markdown-text{white-space:pre-wrap;overflow-wrap:anywhere}",
@@ -921,104 +926,402 @@
     return h(React.Fragment, null, anchor, panel);
   }
 
-  // ----- Tooltip (reference Tooltip.tsx: hover/focus bubble; the full placement
-  // engine is not ported) -----------------------------------------------------
+  // ----- Input modality (reference input-modality.ts) ------------------------
+  var INPUT_MODALITY_ATTRIBUTE = "data-input-modality";
+  var FOCUS_NAVIGATION = { Tab: true, Home: true, End: true, PageUp: true, PageDown: true };
+  var pointerInput = false;
+  var pointerOwnsFocus = false;
+  var keyFocusOrigin;
+  function publishInputModality() {
+    if (typeof document === "undefined" || !document.documentElement) return;
+    document.documentElement.setAttribute(
+      INPUT_MODALITY_ATTRIBUTE,
+      pointerOwnsFocus ? "pointer" : "keyboard",
+    );
+  }
+  function pointerModality() {
+    return pointerInput;
+  }
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener(
+      "pointerdown",
+      function () {
+        pointerInput = true;
+        pointerOwnsFocus = true;
+        keyFocusOrigin = undefined;
+        publishInputModality();
+      },
+      true,
+    );
+    window.addEventListener(
+      "keydown",
+      function (event) {
+        pointerInput = false;
+        if (event.isComposing) {
+          keyFocusOrigin = undefined;
+          return;
+        }
+        var path = typeof event.composedPath === "function" ? event.composedPath() : [];
+        keyFocusOrigin = path[0];
+        if (!FOCUS_NAVIGATION[event.key] && String(event.key).indexOf("Arrow") !== 0) return;
+        pointerOwnsFocus = false;
+        publishInputModality();
+      },
+      true,
+    );
+    window.addEventListener(
+      "focusin",
+      function (event) {
+        if (keyFocusOrigin === undefined) return;
+        var path = typeof event.composedPath === "function" ? event.composedPath() : [];
+        if (path[0] === keyFocusOrigin) return;
+        keyFocusOrigin = undefined;
+        if (!pointerOwnsFocus) return;
+        pointerOwnsFocus = false;
+        publishInputModality();
+      },
+      true,
+    );
+    window.addEventListener(
+      "blur",
+      function () {
+        keyFocusOrigin = undefined;
+      },
+    );
+  }
+
+  // ----- Tooltip placement (reference tooltip-placement.ts) -----------------
+  var TOOLTIP_OPPOSITE = { right: "left", left: "right", top: "bottom", bottom: "top" };
+
+  function placeTooltip(input) {
+    var anchor = input.anchor;
+    var viewportWidth = input.viewportWidth;
+    var viewportHeight = input.viewportHeight;
+    var margin = 12;
+    var maxWidth = Math.max(0, viewportWidth - margin * 2);
+    var maxHeight = Math.max(0, viewportHeight - margin * 2);
+    var width = Math.min(input.width, maxWidth);
+    var height = Math.min(input.height, maxHeight);
+    function clampX(x) {
+      return Math.max(margin, Math.min(x, viewportWidth - margin - width));
+    }
+    function clampY(y) {
+      return Math.max(margin, Math.min(y, viewportHeight - margin - height));
+    }
+    var side = input.side;
+    var align = input.align;
+    var gap = input.gap;
+    var horizontal = side === "right" || side === "left";
+    var candidates = [side, TOOLTIP_OPPOSITE[side]].concat(horizontal ? ["bottom", "top"] : ["right", "left"]);
+    var positions = {
+      right: { left: anchor.right + 10, top: clampY((anchor.top + anchor.bottom - height) / 2) },
+      left: { left: anchor.left - 10 - width, top: clampY((anchor.top + anchor.bottom - height) / 2) },
+      bottom: {
+        left: clampX(align === "end" ? anchor.right - width : (anchor.left + anchor.right - width) / 2),
+        top: anchor.bottom + gap,
+      },
+      top: {
+        left: clampX(align === "end" ? anchor.right - width : (anchor.left + anchor.right - width) / 2),
+        top: anchor.top - gap - height,
+      },
+    };
+    for (var index = 0; index < candidates.length; index += 1) {
+      var candidate = candidates[index];
+      var position = positions[candidate];
+      if (
+        position.left >= margin &&
+        position.top >= margin &&
+        position.left + width <= viewportWidth - margin &&
+        position.top + height <= viewportHeight - margin
+      ) {
+        return { left: position.left, top: position.top, side: candidate, width: width, height: height, overflow: false };
+      }
+    }
+    var fallback = positions[side];
+    return { left: clampX(fallback.left), top: clampY(fallback.top), side: side, width: width, height: height, overflow: true };
+  }
+
+  // ----- ShortcutKeys (reference ShortcutKeys.tsx) --------------------------
+  function ShortcutKeys(props) {
+    var keys = Array.isArray(props.keys) ? props.keys : [];
+    var tooltip = props.variant === "tooltip";
+    return h(
+      "span",
+      {
+        className: classNames(
+          "dshr-shortcut-keys",
+          tooltip && "dshr-shortcut-keys-tooltip",
+          tooltip && keys.indexOf("+") !== -1 && "dshr-shortcut-keys-joined",
+          props.className,
+        ),
+      },
+      keys.map(function (key, index) {
+        return h(
+          "kbd",
+          { key: index, className: key === "+" ? "dshr-shortcut-separator" : "dshr-shortcut-key" },
+          key,
+        );
+      }),
+    );
+  }
+
+  // ----- Tooltip (reference Tooltip.tsx) ------------------------------------
+  var TooltipSuppression = React.createContext(null);
+
+  function tooltipClipped(anchor) {
+    var nodes = [anchor].concat(Array.prototype.slice.call(anchor.querySelectorAll("*")));
+    return nodes.some(function (node) {
+      return node instanceof HTMLElement && node.scrollWidth > node.clientWidth;
+    });
+  }
+
   function Tooltip(props) {
+    var id = React.useId ? React.useId() : "dshr-tooltip";
     var label = props.label !== undefined ? props.label : props.content;
-    var disabled = props.disabled === true;
-    var idState = React.useId ? React.useId() : React.useState("tooltip")[0];
-    var visibleState = React.useState(false);
-    var visible = visibleState[0];
-    var setVisible = visibleState[1];
-    var anchorRef = React.useRef(null);
-    var timerRef = React.useRef(null);
+    var shortcutKeys = props.shortcutKeys;
     var side = props.side || "right";
+    var align = props.align || "center";
+    var delayMs = typeof props.delayMs === "number" ? props.delayMs : 0;
+    var focusDelayMs = typeof props.focusDelayMs === "number" ? props.focusDelayMs : 0;
+    var gap = typeof props.gap === "number" ? props.gap : 8;
+    var disabled = props.disabled === true;
+    var portal = props.portal === true;
+    var maxWidth = props.maxWidth;
+    var openOnClick = props.openOnClick === true;
+    var onlyWhenClipped = props.onlyWhenClipped === true;
+    var pinnedPair = React.useState(false);
+    var pinned = pinnedPair[0];
+    var setPinned = pinnedPair[1];
+    var anchor = React.useRef(null);
+    var positionPair = React.useState(null);
+    var pos = positionPair[0];
+    var setPos = positionPair[1];
+    var bubble = React.useRef(null);
+    var showTimer = React.useRef(null);
+    var triggers = React.useRef({ hover: false, focus: false });
+    var suppressAncestors = React.useContext(TooltipSuppression);
+    var suppressedPair = React.useState(false);
+    var suppressed = suppressedPair[0];
+    var setSuppressed = suppressedPair[1];
+    var announce = React.useCallback(
+      function (active) {
+        if (typeof suppressAncestors === "function") suppressAncestors(active);
+      },
+      [suppressAncestors],
+    );
+    var visible = pos !== null && !disabled;
+    var resolvedLabel = pos === null ? null : typeof label === "function" ? label() : label;
+    var childRef = props.children ? props.children.ref : undefined;
+    var mergedRef = React.useCallback(
+      function (el) {
+        anchor.current = el;
+        if (typeof childRef === "function") childRef(el);
+        else if (childRef != null) childRef.current = el;
+      },
+      [childRef],
+    );
+    React.useEffect(function () {
+      var el = bubble.current;
+      if (pos === null || !visible || suppressed || el === null) return undefined;
+      var size;
+      var anchorRect = pos;
+      function fit() {
+        if (size === undefined) return;
+        var placement = placeTooltip({
+          anchor: anchorRect,
+          width: size.inlineSize,
+          height: size.blockSize,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          side: side,
+          align: align,
+          gap: gap,
+        });
+        var horizontal = placement.side === "right" || placement.side === "left";
+        var offsetX = horizontal ? 0 : align === "end" ? placement.width : placement.width / 2;
+        var offsetY = horizontal ? placement.height / 2 : placement.side === "top" ? placement.height : 0;
+        el.style.left = placement.left + offsetX + "px";
+        el.style.top = placement.top + offsetY + "px";
+        el.dataset.side = placement.side;
+        el.style.visibility = "visible";
+      }
+      function onResize() {
+        if (anchor.current !== null) anchorRect = anchor.current.getBoundingClientRect();
+        fit();
+      }
+      var observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(function (entries) {
+        var entry = entries[0];
+        if (entry && entry.borderBoxSize && entry.borderBoxSize[0]) size = entry.borderBoxSize[0];
+        else if (entry) size = { inlineSize: entry.contentRect.width, blockSize: entry.contentRect.height };
+        fit();
+      });
+      if (observer) observer.observe(el, { box: "border-box" });
+      window.addEventListener("resize", onResize);
+      return function () {
+        if (observer) observer.disconnect();
+        window.removeEventListener("resize", onResize);
+      };
+    }, [align, gap, pos, side, suppressed, visible]);
+    React.useEffect(function () {
+      announce(visible);
+      return function () {
+        announce(false);
+      };
+    }, [announce, visible]);
+    var cancelShow = React.useCallback(function () {
+      if (showTimer.current === null) return;
+      clearTimeout(showTimer.current);
+      showTimer.current = null;
+    }, []);
+    React.useEffect(function () {
+      if (pinned && (disabled || !openOnClick)) setPinned(false);
+      if (disabled) {
+        cancelShow();
+        triggers.current = { hover: false, focus: false };
+        setPos(null);
+      }
+      return cancelShow;
+    }, [cancelShow, disabled, openOnClick, pinned]);
     function show() {
       if (disabled) return;
-      clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(function () {
-        setVisible(true);
-      }, typeof props.delayMs === "number" ? props.delayMs : 0);
+      var el = anchor.current;
+      if (el === null) return;
+      if (onlyWhenClipped && !tooltipClipped(el)) return;
+      setPos(el.getBoundingClientRect());
+      announce(true);
     }
-    function hide() {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-      setVisible(false);
-    }
-    React.useEffect(function () {
-      return function () {
-        clearTimeout(timerRef.current);
-      };
-    }, []);
-    var text = typeof label === "function" ? (visible ? label() : "") : label;
-    if (text === "" || text === undefined || text === null) {
-      return props.children || null;
-    }
-    var anchor = React.Children.only(props.children);
-    var bubble = null;
-    if (visible && typeof text === "string") {
-      var rect = anchorRef.current && typeof anchorRef.current.getBoundingClientRect === "function"
-        ? anchorRef.current.getBoundingClientRect()
-        : null;
-      var style = { position: "fixed", zIndex: 110, maxWidth: "min(320px, calc(100vw - 24px))" };
-      if (rect) {
-        if (side === "bottom") {
-          style.top = rect.bottom + 8;
-          style.left = props.align === "end" ? undefined : rect.left + rect.width / 2;
-          style.transform = props.align === "end" ? "translateX(-100%)" : "translateX(-50%)";
-          if (props.align === "end") style.right = window.innerWidth - rect.right;
-        } else if (side === "top") {
-          style.bottom = window.innerHeight - rect.top + 8;
-          style.left = rect.left + rect.width / 2;
-          style.transform = "translateX(-50%)";
-        } else if (side === "left") {
-          style.top = rect.top;
-          style.right = window.innerWidth - rect.left + 10;
-        } else {
-          style.top = rect.top;
-          style.left = rect.right + 10;
-        }
-      }
-      bubble = ReactDOM
-        ? ReactDOM.createPortal(
-            h("div", { className: "dshr-tooltip-bubble", role: "tooltip", id: idState }, text),
-            document.body,
-          )
-        : h("div", { className: "dshr-tooltip-bubble", role: "tooltip", id: idState }, text);
-    }
-    var enhancedAnchor = React.cloneElement(anchor, {
-      ref: function (node) {
-        anchorRef.current = node;
-        var original = anchor.ref;
-        if (typeof original === "function") original(node);
-        else if (original && typeof original === "object") original.current = node;
-      },
-      "aria-describedby": visible ? idState : anchor.props["aria-describedby"],
-      onPointerEnter: function (event) {
-        if (anchor.props.onPointerEnter) anchor.props.onPointerEnter(event);
+    function showAfterDelay(delay) {
+      cancelShow();
+      if (delay <= 0) {
         show();
+        return;
+      }
+      showTimer.current = setTimeout(function () {
+        showTimer.current = null;
+        show();
+      }, delay);
+    }
+    var withdraw = React.useCallback(function () {
+      setPinned(false);
+      setPos(null);
+      announce(false);
+    }, [announce]);
+    function hide() {
+      cancelShow();
+      if (!triggers.current.hover && !triggers.current.focus && !pinned) withdraw();
+    }
+    var dismiss = React.useCallback(function () {
+      cancelShow();
+      triggers.current = { hover: false, focus: false };
+      withdraw();
+    }, [cancelShow, withdraw]);
+    useDismissOnOutsidePointer(anchor, openOnClick && visible, dismiss, bubble);
+    React.useEffect(function () {
+      if (!openOnClick || !visible) return undefined;
+      function onKeyDown(event) {
+        if (event.key !== "Escape" && event.key !== "Tab") return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        dismiss();
+      }
+      document.addEventListener("keydown", onKeyDown, true);
+      return function () {
+        document.removeEventListener("keydown", onKeyDown, true);
+      };
+    }, [dismiss, openOnClick, visible]);
+    var content = null;
+    if (visible && !suppressed) {
+      content = h(
+        "span",
+        {
+          ref: bubble,
+          id: openOnClick ? id : undefined,
+          className: "dshr-tooltip-bubble",
+          "data-side": side,
+          "data-portal": portal ? "" : undefined,
+          "data-pinned": pinned ? "" : undefined,
+          "data-align": align,
+          "data-has-shortcut": shortcutKeys && shortcutKeys.length ? "" : undefined,
+          style: Object.assign(
+            { left: pos.left, top: pos.top, visibility: "hidden" },
+            maxWidth === undefined ? {} : { maxWidth: "min(" + maxWidth + "px, calc(100vw - 24px))" },
+          ),
+          role: "tooltip",
+          "aria-label":
+            shortcutKeys && shortcutKeys.length
+              ? [resolvedLabel, shortcutKeys.join(" ")].filter(Boolean).join(" ")
+              : undefined,
+        },
+        resolvedLabel ? h("span", { className: "dshr-tooltip-label" }, resolvedLabel) : null,
+        shortcutKeys !== undefined && shortcutKeys.length > 0
+          ? h(ShortcutKeys, { keys: shortcutKeys, variant: "tooltip" })
+          : null,
+      );
+    }
+    var anchorElement = React.cloneElement(props.children, {
+      ref: mergedRef,
+      "aria-describedby":
+        openOnClick && visible
+          ? [props.children.props["aria-describedby"], id].filter(Boolean).join(" ")
+          : props.children.props["aria-describedby"],
+      onPointerEnter: function (event) {
+        if (props.children.props.onPointerEnter) props.children.props.onPointerEnter(event);
+        if (event.pointerType === "touch") return;
+        if (
+          event.pointerType === "mouse" &&
+          typeof window.matchMedia === "function" &&
+          !window.matchMedia("(any-hover: hover)").matches
+        ) {
+          return;
+        }
+        triggers.current.hover = true;
+        showAfterDelay(delayMs);
       },
       onPointerLeave: function (event) {
-        if (anchor.props.onPointerLeave) anchor.props.onPointerLeave(event);
-        hide();
+        if (props.children.props.onPointerLeave) props.children.props.onPointerLeave(event);
+        triggers.current.hover = false;
+        cancelShow();
+        if (!pinned) withdraw();
       },
-      onFocus: function (event) {
-        if (anchor.props.onFocus) anchor.props.onFocus(event);
-        show();
-      },
-      onBlur: function (event) {
-        if (anchor.props.onBlur) anchor.props.onBlur(event);
-        hide();
+      onPointerDown: function (event) {
+        if (props.children.props.onPointerDown) props.children.props.onPointerDown(event);
+        if (event.pointerType === "touch" && !pinned) dismiss();
       },
       onClick: function (event) {
-        if (anchor.props.onClick) anchor.props.onClick(event);
-        if (props.openOnClick === true) {
-          if (visible) hide();
-          else show();
+        if (props.children.props.onClick) props.children.props.onClick(event);
+        triggers.current.focus = false;
+        cancelShow();
+        if (openOnClick && !disabled && !pinned) {
+          setPinned(true);
+          show();
+        } else {
+          withdraw();
         }
       },
+      onFocus: function (event) {
+        if (props.children.props.onFocus) props.children.props.onFocus(event);
+        if (pointerModality()) return;
+        triggers.current.focus = true;
+        showAfterDelay(focusDelayMs);
+      },
+      onBlur: function (event) {
+        if (props.children.props.onBlur) props.children.props.onBlur(event);
+        triggers.current.focus = false;
+        hide();
+      },
     });
-    return h(React.Fragment, null, enhancedAnchor, bubble);
+    var renderedBubble = content;
+    if (content !== null) {
+      renderedBubble = portal && ReactDOM ? ReactDOM.createPortal(content, document.body) : content;
+    }
+    return h(
+      TooltipSuppression.Provider,
+      { value: setSuppressed },
+      anchorElement,
+      renderedBubble,
+    );
   }
 
   // ----- Extensions kept by dshr (not part of the reference export set) ------
@@ -1374,6 +1677,7 @@
     StateDot: StateDot,
     PathLabel: PathLabel,
     Toast: Toast,
+    ShortcutKeys: ShortcutKeys,
     Modal: Modal,
     Menu: Menu,
     MenuSurface: MenuSurface,

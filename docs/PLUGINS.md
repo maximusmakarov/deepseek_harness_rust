@@ -455,8 +455,12 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   warning tone, headless, footer), `Menu` (data-rows/separators/labels,
   fixed-позиционирование, outside/Escape, selectedId(s), portal; полный
   submenu/focus-движок не портирован), `MenuSurface` (forwardRef,
-  `data-menu-material`/`phase`), `Tooltip` (label-based клон якоря,
-  hover/focus-бабл; placement-движок упрощён);
+  `data-menu-material`/`phase`), `Tooltip` — **полный порт**: label-резолвер,
+  hover/focus-триггеры с независимыми задержками, `openOnClick`-pinning,
+  Escape/Tab/outside-dismiss, `onlyWhenClipped`, `maxWidth`, portal,
+  nested-suppression, `ShortcutKeys`, детерминированный placement-engine
+  (reference `tooltip-placement.ts`: side → opposite → perpendicular, viewport
+  clamp) и `pointerModality` (reference `input-modality.ts`);
 - **иконки**: все **204** reference-экспорта `Icon*` сгенерированы из
   upstream `icons/artwork.ts` — те же SVG-пути/stroke (regular 1, medium 1.3),
   инлайн вместо document-спрайта; для неизвестных `Icon*` остаётся Proxy-global.

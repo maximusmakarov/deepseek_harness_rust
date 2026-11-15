@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–93)
+# Журнал раундов паритета (1–94)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -773,11 +773,36 @@ streaming-прокси.
     `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
     shell-сайтов остаются C-full.
 
+- 94: **C2.2** — полный Tooltip
+  ([ADR-040](adr/040-react-client-half.md) §«C2.2», [PLUGINS.md](PLUGINS.md)).
+  Единственный упрощённый атом из C2.1 доведён до reference-порта
+  `packages/client/ui-primitives/src/Tooltip.tsx`:
+  - `Tooltip` — label-резолвер (вычисляется только при показе), независимые
+    hover/focus-триггеры с `delayMs`/`focusDelayMs`, `openOnClick`-pinning с
+    outside-pointer/Escape/Tab-dismiss, `onlyWhenClipped`, `maxWidth`,
+    `portal`, `data-side`/`data-pinned`, nested-suppression через контекст,
+    `aria-describedby` при pinning, pointer-modality (фокус после указателя не
+    поднимает бабл), touch-hover исключён, forward ref сквозь клон якоря;
+  - `tooltip-placement.ts` портирован как есть: requested side → opposite →
+    perpendicular, viewport-clamp и overflow-fallback;
+  - `input-modality.ts` (`data-input-modality`, `pointerModality`) и
+    `ShortcutKeys` (keycaps с `+`-разделителями) портированы и экспортированы;
+  - C2-probe дополнен узлом `Tooltip` в synthetic-фикстуре (`ShortcutKeys` экспортирован и отрисовывается внутри Tooltip);
+  - Проверки: smoke **82/82**, bridge harness 102, cordis lib 26, server
+    `plugins_live` 16, workspace 365 passed + 3 ignored (desktop 21, итого 386),
+    web-e2e 16/16; общий рантайм-артефакт вырос с **375 894** до
+    **387 613 байт**.
+  - Границы C2.2: полный `Menu` (submenu/focus-машинерия) по-прежнему не
+    портирован; `MarkdownText`/`JsonBlock` остаются упрощёнными
+    dshr-расширениями (upstream требует shiki/katex/mdast); store
+    seats/renderer, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
+    реальных shell-сайтов — C-full.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–93 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–94 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -830,8 +855,11 @@ origin-аксессоры из host-bridge, `file://`-baseUrl, snapshot
 design-system шим портированными атомами и всеми 204 иконками из
 `deepseek-ai/deepseek-harness` @ `39163dd`
 (`packages/client/ui-primitives/src`), поэтому `@deepseek-ai/dsh-client-ui-primitives`
-больше не «похожий» шим, а reference-порт (остаток — полные Menu/Tooltip и
-markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps`).
+больше не «похожий» шим, а reference-порт; раунд 94 (**C2.2**) довёл до
+полного reference-порта `Tooltip` (placement-engine, `ShortcutKeys`,
+`input-modality`), поэтому остаток — полный `Menu` (submenu/focus),
+markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps` от реальных
+shell-сайтов.
 
 Открыто и не заблокировано:
 
@@ -841,7 +869,7 @@ markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps`).
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite/C2/C2.1-ограничения: с раунда 93 (C2.1) design-system **портирован из
+- C-lite/C2/C2.1/C2.2-ограничения: с раунда 93 (C2.1) design-system **портирован из
   reference-исходников** (`deepseek-ai/deepseek-harness` @ `39163dd`,
   `packages/client/ui-primitives/src`): атомы `Button`, `Input`, `Switch`,
   `Checkbox`, `Tag`, `Pill`, `SegmentedControl`, `SegmentedTabs`,
@@ -849,8 +877,8 @@ markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps`).
   `Menu`, `MenuSurface`, `Tooltip` и **204** `Icon*` (точные SVG-пути,
   regular/medium stroke) — вместо прежней независимой реализации 30+
   экспортов с 18 иконками. Частичным остаётся: полный `Menu`
-  (submenu/focus-машинерия) и полный `Tooltip` (placement-engine) не
-  портированы, `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
+  (submenu/focus-машинерия) не портирован (полный `Tooltip` закрыт в C2.2,
+  раунд 94), `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
   (upstream требует shiki/katex/mdast), `Spinner`/`useAnchoredPosition` —
   тоже dshr-расширения; `wide`
   в host-state сейчас всегда true, conformance-набор — **n=11**
@@ -885,13 +913,13 @@ markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps`).
   in-memory — правки не переживают reload кадра, живого RPC-зеркала настроек
   нет (in-memory/файловые stand-in'ы, семантика конфигурационного движка DSH не
   воспроизведена). Порт `ui-primitives` закрыт в C2.1 (раунд 93): атомы и все
-  204 иконки портированы из reference, но полные `Menu`/`Tooltip` и
-  markdown-компоненты остаются dshr-версиями; следующий кандидат
+  204 иконки портированы из reference, а в C2.2 (раунд 94) доведён полный
+  `Tooltip`, но полный `Menu` и markdown-компоненты остаются dshr-версиями; следующий кандидат
   reference-работы — store seats/renderer, chain dispatch/hoc-nesting и
   ownerProps от реальных shell-сайтов.
-- C2.1-остатки (раунд 93): портированы атомы и все 204 иконки, но полный
-  `Menu` (submenu/focus-машинерия) и полный `Tooltip` (placement-engine) не
-  портированы — работают упрощённые варианты; `MarkdownText`/`JsonBlock`
+- C2.1/C2.2-остатки (раунды 93–94): портированы атомы и все 204 иконки;
+  полный `Tooltip` доведён в C2.2, а полный `Menu` (submenu/focus-машинерия)
+  не портирован — работает упрощённый вариант; `MarkdownText`/`JsonBlock`
   остаются упрощёнными dshr-расширениями (upstream зависит от
   shiki/katex/mdast), `Spinner`/`useAnchoredPosition` — dshr-расширения;
   store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
@@ -947,10 +975,14 @@ markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps`).
   sidecar не поддержаны); раунд 93 — **C2.1**: атомы design-system и все 204
   иконки портированы из `deepseek-ai/deepseek-harness` @ `39163dd`
   (`packages/client/ui-primitives/src`), поэтому шим примитивов стал
-  reference-портом, а не независимой реализацией (рантайм-артефакт 375 894
-  байт).
+  reference-портом, а не независимой реализацией (рантайм-артефакт на конец
+  раунда — 375 894 байта); раунд 94 — **C2.2**: полный reference-порт `Tooltip` (`Tooltip.tsx`: label-резолвер,
+  `delayMs`/`focusDelayMs`, `openOnClick`-pinning, `onlyWhenClipped`/
+  `maxWidth`, portal, nested-suppression, `aria-describedby`, pointer-modality,
+  forward ref; `tooltip-placement.ts` и `input-modality.ts` портированы как
+  есть, `ShortcutKeys` экспортирован), рантайм-артефакт — 387 613 байт.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
-  (C2.1 закрыл атомы и иконки, но полные `Menu`/`Tooltip` и
+  (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, но полный `Menu` и
   markdown-компоненты остаются упрощёнными),
   SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
   ownerProps от реальных shell-сайтов),
