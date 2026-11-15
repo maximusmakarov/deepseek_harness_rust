@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–97)
+# Журнал раундов паритета (1–101)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
-(+3 ignored) и 21 desktop-тест = **386**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 366 root-тестов
+(+3 ignored) и 21 desktop-тест = **387**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -895,11 +895,67 @@ streaming-прокси.
     `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
     shell-сайтов — C-full; `Spinner`/`useAnchoredPosition` — dshr-расширения.
 
+- 98–101: **C2.6/C3.1/C1.5 и ownerProps**
+  ([ADR-040](adr/040-react-client-half.md) §«C2.6/C3.1/C1.5», [PLUGINS.md](PLUGINS.md)).
+  Четыре контракта, у которых был точный reference-ориентир:
+  - **C2.6 submenu-механика** (`primitives.js`): side-card vs single-page
+    выбирается по измеренной ширине дочерней карточки
+    (`menu-submenu-position.ts`), submenu позиционируется `fixed` с
+    flip/clamp относительно родительской карточки (right/left, top-clamp по
+    viewport), клавиатура маршрутизируется через `activeList` (родительский
+    список или дочерняя страница), Escape/ArrowLeft из дочерней страницы
+    возвращают фокус на родительский ряд и закрывают submenu, hover grace
+    200 мс между уровнями, наведение на другой ряд сворачивает открытый
+    submenu, `data-menu-back`/`submenuBackLabel` — как в reference; hover
+    проверяется через `menuHoverAllowed` (не touch, `any-hover: hover`);
+  - **C3.1 store-seats**: в общую module-таблицу добавлен
+    `@deepseek-ai/dsh-client-store` (`createSnapshotStore`, `defineStore`,
+    `shallowEqual`; reference `packages/client/store`) — `zustand`/`immer`-
+    семантика воспроизведена plain deep-copied draft'ом, `persist`-ключ
+    принимается, но не персистится; регистрация слота может объявить
+    `store: handle|factory`, фрейм владеет одним instance на scope-key
+    (`session`/`session-maybe` → id сессии, остальное — root), компонент
+    получает `useStore(selector, eq)` и baked `actions`, а `inject`-фабрика
+    для session-scope получает reference-аргументы `(sessionId, actions)`;
+    instance переиспользуется по `(id, scopeKey)`;
+  - **C1.5 fallback-маршруты**: `webServer.registerFallback(handler)`
+    реализован как в reference (одно fallback-место; второй владелец
+    бросает `webserver: fallback already registered`), sidecar отдаёт флаг
+    `fallback` в `__dshr_routes`, `CordisManager::http_fallback()` находит
+    единственного владельца, dshr проксирует в fallback только
+    не-зарезервированные несовпавшие пути (reserved-префиксы dshr API/UI
+    по-прежнему 404); `registerUpgrade` остаётся явно не поддержанным;
+  - **ownerProps plumbing**: шелл может передать render-site owner props в
+    кадр (`?ownerProps={...}` в `/v1/plugins/{name}/host`) — сервер
+    валидирует JSON-объект и лимит длины как у `context`, встраивает в
+    `window.__DSHR_FRAME__.ownerProps`, мост мержит их в props после
+    store/seat share (порядок reference `PropsRuntime`); реальные
+    render-сайты шелла (`conversation.chat.node` и т.п.) данных пока не
+    поставляют — нужна chat/turn-модель Leptos-шелла (записано в долг).
+  - Проверки: smoke **82/82** (C2-probe получил store-engine check:
+    `defineStore` → `create` → `actions.inc` → snapshot `n === 1`), bridge
+    harness **105** (+3 store-seat: `useStore`/`actions` в props, мутация
+    framework-owned instance, inject-аргументы `(sessionId, actions)`),
+    server `plugins_live` **17** (+1 fallback-маршрут, reserved-путь не
+    уходит в fallback; frame-config тест проверяет `ownerProps` и
+    отклонение не-объекта), cordis lib 26, workspace **366** passed +
+    3 ignored (desktop 21, итого **387**), web-e2e 16/16; общий
+    рантайм-артефакт вырос с **424 801** до **430 139 байт**.
+  - Границы: C2.6 закрыл submenu-механику (side-card/single-page,
+    focus-transition/page-anchor, hover grace) — упрощённых остатков
+    submenu больше нет; C3.1 закрыл store seats, но draft — plain deep-copy
+    (без `immer`-патчей) и `persist` не персистится; C1.5 закрыл
+    `registerFallback`, а `registerUpgrade` (WebSocket) остаётся явно не
+    поддержанным; ownerProps работает как plumbing (frame-seam), но
+    реальные shell-сайты данных не дают; upstream markdown-стек
+    (mdast/shiki/KaTeX/footnotes/streaming) и chain dispatch/hoc nesting в
+    frame-per-slot архитектуре остаются как записано выше.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–97 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–101 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -964,11 +1020,21 @@ IntersectionObserver/ResizeObserver; рантайм-артефакт 415 972 б�
 97 (**C2.5**) портировал `JsonBlock` из reference и заменил упрощённый
 markdown-шим API-совместимым dependency-free подмножеством `MarkdownText`
 (GFM-подмножество, sanitize URL, reference-поверхность props; рантайм-артефакт
-424 801 байт), поэтому остаток — упрощённая детальная `useMenuSubmenu`-механика
-focus-transition/page-anchor, upstream markdown-стек
+424 801 байт), поэтому на конец C2.5 остаток — упрощённая детальная
+`useMenuSubmenu`-механика focus-transition/page-anchor, upstream markdown-стек
 (mdast/shiki/KaTeX/footnotes/streaming не входит),
 store/renderer, `chain`/`hoc`, `ownerProps` от реальных
-shell-сайтов.
+shell-сайтов. Раунды 98–101 одним блоком закрыли submenu-механику (C2.6:
+side-card/single-page по измеренной ширине, `fixed`-flip/clamp,
+`activeList`-маршрутизация клавиатуры, Escape/ArrowLeft, 200-мс hover grace),
+store seats (C3.1: `@deepseek-ai/dsh-client-store` в module-таблице и
+`store: handle|factory` в регистрациях слотов), fallback-маршруты (C1.5:
+`webServer.registerFallback` с одним местом и проксированием несовпавших
+не-зарезервированных путей) и ownerProps-plumbing (`?ownerProps={...}` →
+`frame.ownerProps` → props компонента, порядок reference `PropsRuntime`);
+рантайм-артефакт — 430 139 байт. Итоговый остаток: upstream markdown-стек,
+renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных shell-сайтов
+(`registerUpgrade` — явно не поддержан).
 
 Открыто и не заблокировано:
 
@@ -978,7 +1044,7 @@ shell-сайтов.
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite/C2/C2.1–C2.5-ограничения: с раунда 93 (C2.1) design-system **портирован из
+- C-lite/C2/C2.1–C2.6-ограничения: с раунда 93 (C2.1) design-system **портирован из
   reference-исходников** (`deepseek-ai/deepseek-harness` @ `39163dd`,
   `packages/client/ui-primitives/src`): атомы `Button`, `Input`, `Switch`,
   `Checkbox`, `Tag`, `Pill`, `SegmentedControl`, `SegmentedTabs`,
@@ -993,8 +1059,10 @@ shell-сайтов.
   возможно без upstream-стека: `JsonBlock` — порт из reference, `MarkdownText` —
   API-совместимое dependency-free GFM-подмножество с reference-поверхностью
   props (upstream micromark/mdast, shiki, KaTeX, footnotes и инкрементальный
-  streaming **не** входят), поэтому остаётся только упрощённая детальная
-  `useMenuSubmenu`-механика focus-transition/page-anchor; `Spinner`/`useAnchoredPosition` —
+  streaming **не** входят), поэтому C2.6 (раунды 98–101) закрыл и detail-механику submenu
+  (side-card/single-page по измеренной ширине, focus-transition, hover grace,
+  `activeList`-маршрутизация), упрощённых остатков submenu больше нет;
+  `Spinner`/`useAnchoredPosition` —
   dshr-расширения; `wide`
   в host-state сейчас всегда true, conformance-набор — **n=11**
   (цель ADR-013 §6 8–12 достигнута; остальные smoke-половины синтетические),
@@ -1003,10 +1071,10 @@ shell-сайтов.
   `configForms`: studio отдаёт вкладки в Settings, debugging — карточку в
   Plugins с рабочим переключателем и Save; при отсутствии host-маршрутов
   плагины показывают честные error-состояния, а не молча инертны,
-  SlotMap-остатки (`chain` select-диспетчеризация, `hoc`-вложение, store seats,
-  ownerProps от реальных shell-сайтов; каталог слотов, регистрация, kinds,
-  winners, `children`/deferred inject закрыты в C1.3) и React-контекст шелла
-  по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (проекции
+  SlotMap-остатки (`chain` select-диспетчеризация, `hoc`-вложение,
+  ownerProps от реальных shell-сайтов; store seats закрыты в C3.1, раунды
+  98–101; каталог слотов, регистрация, kinds, winners, `children`/deferred
+  inject закрыты в C1.3) и React-контекст шелла по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (проекции
   `sessionStats` упрощены: `llmMs`=0, без истории тредов), eval-based бандлы
   требуют ослабления CSP,
   а `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
@@ -1019,12 +1087,17 @@ shell-сайтов.
   только логируются в лог кадра — плагин при этом остаётся живым.
 - C1.3-остатки (раунд 91): `chain` не диспатчится по `select`, а монтируется
   слоями; `hoc` не вкладывает `children` между кадрами; store-seats
-  (`PropsStore`/`BoundActions`) и mounted-model сессий отсутствуют; ownerProps
-  поставляет только frame-seam (harness/расширения shell) — реальные
-  render-сайты шелла (`conversation.chat.node` и т.п.) данных пока не дают.
-- C1.4-остатки (раунд 92): `webServer.registerFallback`/`registerUpgrade` в
-  sidecar не поддержаны и бросают явную ошибку (нужны для чужих SPA/WS-плагинов;
-  реальным плагинам набора не нужны); browser-`configForms` по-прежнему
+  (`PropsStore`/`BoundActions`) закрыты в C3.1 (раунды 98–101: framework-owned
+  instance на scope-key, `useStore(selector, eq)`, baked `actions`,
+  reference-аргументы `inject`), остаются renderer-семантика и mounted-model
+  сессий; ownerProps — plumbing `?ownerProps={...}` → `frame.ownerProps` →
+  props есть, но реальные render-сайты шелла (`conversation.chat.node` и
+  т.п.) данных пока не дают (нужна chat/turn-модель Leptos-шелла).
+- C1.4-остатки (раунд 92): `webServer.registerFallback` поддержан с C1.5
+  (раунды 98–101: одно fallback-место, второй владелец бросает, dshr
+  проксирует только не-зарезервированные несовпавшие пути), `registerUpgrade`
+  (WebSocket) по-прежнему явно не поддержан (нужен чужим SPA/WS-плагинам;
+  реальным плагинам набора не нужен); browser-`configForms` по-прежнему
   in-memory — правки не переживают reload кадра, живого RPC-зеркала настроек
   нет (in-memory/файловые stand-in'ы, семантика конфигурационного движка DSH не
   воспроизведена). Порт `ui-primitives` закрыт в C2.1 (раунд 93): атомы и все
@@ -1033,12 +1106,12 @@ shell-сайтов.
   (раунд 96) — submenu page-layout с hover grace и `MenuGroup`/
   `observeStickyMenuGroups`, а в C2.5 (раунд 97) — `JsonBlock` из reference и
   dependency-free GFM-подмножество `MarkdownText` с reference-поверхностью props;
-  остаются упрощённая детальная
-  `useMenuSubmenu`-механика focus-transition/page-anchor и upstream markdown-стек
-  (mdast/shiki/KaTeX/footnotes/streaming);
-  следующий кандидат reference-работы — store seats/renderer,
-  chain dispatch/hoc-nesting и ownerProps от реальных shell-сайтов.
-- C2.1–C2.5-остатки (раунды 93–97): портированы атомы и все 204 иконки;
+  submenu-механика закрыта в C2.6 (раунды 98–101), остаются upstream
+  markdown-стек (mdast/shiki/KaTeX/footnotes/streaming) и renderer; store
+  seats закрыты в C3.1 (раунды 98–101), fallback-маршруты — в C1.5; следующий
+  кандидат reference-работы — renderer, chain dispatch/hoc-nesting и ownerProps
+  от реальных shell-сайтов.
+- C2.1–C2.6-остатки (раунды 93–101): портированы атомы и все 204 иконки;
   полный `Tooltip` доведён в C2.2, а в C2.3 — ядро `Menu`
   (`MenuItemButton`, data/компонентные ряды, separators/labels, reserve-icon,
   selection `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,
@@ -1052,14 +1125,20 @@ shell-сайтов.
   (collapsible, cap 20 000 символов, `truncatedLabel`) и API-совместимое
   dependency-free GFM-подмножество `MarkdownText` (заголовки/списки/fenced
   code/blockquote/hr/inline-стили, sanitize URL, raw HTML не рендерится).
-  Остаётся упрощённой детальная
-  `useMenuSubmenu`-механика focus-transition/page-anchor (у нас CSS/JS-позиции);
-  upstream markdown-стек (micromark/mdast, shiki, KaTeX, footnotes,
-  инкрементальный streaming) **не** входит в `MarkdownText`,
-  `Spinner`/`useAnchoredPosition` — dshr-расширения;
-  store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
-  `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
-  shell-сайтов остаются C-full.
+  С C2.6 (раунды 98–101) submenu-механика закрыта: side-card/single-page
+  выбирается по измеренной ширине, submenu позиционируется `fixed` с
+  flip/clamp, клавиатура идёт через `activeList` (родитель/дочерняя
+  страница), Escape/ArrowLeft возвращают фокус на родительский ряд, hover
+  grace 200 мс действует между уровнями, наведение на другой ряд сворачивает
+  submenu; остаются upstream markdown-стек (micromark/mdast, shiki, KaTeX,
+  footnotes, инкрементальный streaming) **не** входящий в `MarkdownText`,
+  `Spinner`/`useAnchoredPosition` — dshr-расширения; store-seats
+  (`PropsStore`/`BoundActions`) закрыты в C3.1 (раунды 98–101:
+  `@deepseek-ai/dsh-client-store` в module-таблице, `store: handle|factory`,
+  instance на scope-key, `useStore(selector, eq)` + baked `actions`,
+  reference-аргументы `inject`), fallback-маршруты — в C1.5; остаются
+  renderer-семантика, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
+  реальных shell-сайтов — C-full.
 - C1-остатки (раунды 84–87): раунд 87 (C1.1) закрыл отсутствие сервисов
   `sessions`/`sessionProjections` — sidecar строит их из снимка сервера
   (задержка ≤ 5 с, упрощённые проекции: `llmMs`=0, без истории тредов,
@@ -1131,15 +1210,26 @@ shell-сайтов.
   безопасный `JSON.stringify`), а `MarkdownText` получил reference-поверхность
   props и dependency-free рендерер GFM-подмножества (заголовки, абзацы, списки,
   fenced code, blockquote, hr, inline-стили, ссылки/изображения только
-  `http(s)`/`mailto`, raw HTML не рендерится), рантайм-артефакт — 424 801 байт.
+  `http(s)`/`mailto`, raw HTML не рендерится), рантайм-артефакт — 424 801 байт;
+  раунды 98–101 — **C2.6/C3.1/C1.5 + ownerProps**: submenu-механика
+  (`menu-submenu-position.ts`, `--dsh-submenu`-позиционирование с flip/clamp,
+  `activeList`, Escape/ArrowLeft, 200-мс hover grace, `data-menu-back`),
+  store-seats (`@deepseek-ai/dsh-client-store` в module-таблице:
+  `createSnapshotStore`/`defineStore`/`shallowEqual`, `store: handle|factory`,
+  instance на scope-key, `useStore`/`actions`, inject-аргументы
+  `(sessionId, actions)`), fallback-маршруты (`webServer.registerFallback`,
+  одно место, проксирование не-зарезервированных несовпавших путей) и
+  ownerProps-plumbing (`?ownerProps={...}` → `frame.ownerProps` → props после
+  store/seat share); рантайм-артефакт — 430 139 байт.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
   (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, C2.3 — ядро Menu,
   C2.4 — submenu page-layout/hover grace/MenuGroup, C2.5 — reference JsonBlock и
-  markdown-подмножество; остаются упрощённая
-  детальная `useMenuSubmenu`-механика focus-transition/page-anchor и
-  upstream markdown-стек: mdast/shiki/KaTeX/footnotes/streaming),
-  SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
-  ownerProps от реальных shell-сайтов),
+  markdown-подмножество, C2.6 — позиционирование/`activeList`/focus-transition
+  механика submenu; остаются upstream markdown-стек:
+  mdast/shiki/KaTeX/footnotes/streaming),
+  SlotMap-остатков (chain select-диспетчеризация, hoc-вложение,
+  ownerProps от реальных shell-сайтов; store seats закрыты в C3.1),
+  `registerUpgrade` (WebSocket; `registerFallback` закрыт в C1.5),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии
   React и настоящего `@dshr/cordis-compat`-шима. Это вопрос объёма/приоритета
   для владельца (C-full по ADR-040 остаётся Proposed); D не рекомендуется.
