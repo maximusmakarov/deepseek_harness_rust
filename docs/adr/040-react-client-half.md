@@ -607,3 +607,25 @@ ownerProps из shell-сайтов, registerFallback/registerUpgrade.
 Проверка: smoke 82/82 (store-engine check), harness **105** (+3 store-seat:
 `useStore`/`actions`, мутация instance, inject-аргументы), server
 plugins_live **17** (+1 fallback), workspace **366** passed + 3 ignored.
+
+## C4.1: chat/turn-модель в шелле и chain-элекция (15.11.2026, раунд 102)
+
+- **Шелл (Leptos)**: user-сообщение открывает новый turn; ordinal пишется в
+  `data-turn` каждого сообщения и в owner share. `SlotFrame`/`SlotRegion`
+  получили `owner_props` (URL `&ownerProps=`), реальные сайты:
+  `sidebar.session.action` → `{wide:true}`; `message.action` для user →
+  `{source:{role,index}, kind:"user"}` (`UserBeforeOwnerProps`);
+  `composer.actions` → `ComposerChainProps`
+  `{sessionId, session:{id,model,turns}, pendingInteraction:null}`.
+- **Bridge chain-элекция**: кадр chain-слота вызывает `select(ownerProps)`
+  своей регистрации; `false` → `clear()`, пустой DOM и репорт
+  `chain-unselected` (owner-специфичный dispatch без серверной логики).
+- **Проверки**: bridge harness **107** (+2 chain-select false/true), web-e2e
+  **18** (+2: turn ordinal у сообщений, смонтированные `composer.actions` /
+  `message.action` регионы), server ownerProps-валидация — в
+  `plugins_live` 17.
+- **Ограничения**: owner props с функциями (например
+  `settings.section.close`) не передаются (нет callback-моста); при нескольких
+  `select === true` рендерятся все (per-frame фильтрация, не единый
+  owner-renderer); `conversation.chat.node` и остальные conversation-слоты
+  ждут полного chat-view.

@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–101)
+# Журнал раундов паритета (1–102)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 366 root-тестов
@@ -951,11 +951,41 @@ streaming-прокси.
     (mdast/shiki/KaTeX/footnotes/streaming) и chain dispatch/hoc nesting в
     frame-per-slot архитектуре остаются как записано выше.
 
+- 102: **C4.1** — chat/turn-модель в Leptos-шелле и chain-элекция по owner
+  props ([ADR-040](adr/040-react-client-half.md) §«C4.1»,
+  [PLUGINS.md](PLUGINS.md)). Шелл начал поставлять реальный render-site
+  owner-контекст, а мост — owner-специфичный dispatch:
+  - **chat/turn-модель** (`crates/web/src/main.rs`): каждое user-сообщение
+    открывает новый turn, ordinal пишется в `data-turn` каждого сообщения и в
+    owner share; `SlotFrame`/`SlotRegion` получили `owner_props`, который едет
+    в кадр как `&ownerProps=...` (URL-encoded JSON);
+  - **реальные owner shares**: `sidebar.session.action` → `{wide:true}`;
+    `message.action` для user-сообщений → `{source:{role,index}, kind:"user"}`
+    (референсный `UserBeforeOwnerProps`); `composer.actions` →
+    `ComposerChainProps` `{sessionId, session:{id,model,turns},
+    pendingInteraction:null}`;
+  - **chain-элекция** (`crates/cordis/src/bridge.js`): кадр chain-слота
+    вызывает `select(ownerProps)` своей регистрации; `false` → `clear()`,
+    пустой DOM и репорт `chain-unselected`, `true` → рендерится выбранная
+    запись, то есть owner-специфичный dispatch без серверного JS;
+  - Проверки: bridge harness **107** (+2: chain-select `false`/`true`),
+    web-e2e **18** (+2: turn ordinal у сообщений, смонтированные
+    `composer.actions`/`message.action` регионы), server `plugins_live` 17
+    (ownerProps-валидация), smoke 82/82, cordis lib 26, workspace 366 passed
+    + 3 ignored (desktop 21, итого 387); общий рантайм-артефакт не менялся —
+    430 139 байт (общих правок рантайма в раунде не было).
+  - Границы: owner props с функциями (например `settings.section.close`) не
+    передаются — нет callback-моста; при нескольких `select === true`
+    рендерятся все кадры (per-frame фильтрация, а не единый owner-renderer);
+    `conversation.chat.node` и остальные conversation-слоты ждут полного
+    chat-view; upstream markdown-стек, `registerUpgrade` (WebSocket) и
+    детальная renderer-механика остаются как записано выше.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–101 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–102 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -1032,8 +1062,16 @@ store seats (C3.1: `@deepseek-ai/dsh-client-store` в module-таблице и
 `webServer.registerFallback` с одним местом и проксированием несовпавших
 не-зарезервированных путей) и ownerProps-plumbing (`?ownerProps={...}` →
 `frame.ownerProps` → props компонента, порядок reference `PropsRuntime`);
-рантайм-артефакт — 430 139 байт. Итоговый остаток: upstream markdown-стек,
-renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных shell-сайтов
+рантайм-артефакт — 430 139 байт. Раунд 102 (C4.1) добавил chat/turn-модель
+Leptos-шелла (user-сообщение открывает turn, ordinal в `data-turn` и owner
+share), реальные owner shares трёх render-сайтов (`sidebar.session.action`,
+`message.action` для user-сообщений, `composer.actions` с
+`ComposerChainProps`) и chain-элекцию в мосте (`select(ownerProps)`, `false` →
+пустой DOM + `chain-unselected`), поэтому owner-специфичный dispatch теперь
+есть без серверного JS. Итоговый остаток: upstream markdown-стек,
+renderer-семантика, `hoc`-вложение, owner props с функциями (нет
+callback-моста), per-frame фильтрация цепочек (несколько `select === true`
+рендерят несколько кадров) и полный chat-view для `conversation.chat.node`
 (`registerUpgrade` — явно не поддержан).
 
 Открыто и не заблокировано:
@@ -1071,8 +1109,11 @@ renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных
   `configForms`: studio отдаёт вкладки в Settings, debugging — карточку в
   Plugins с рабочим переключателем и Save; при отсутствии host-маршрутов
   плагины показывают честные error-состояния, а не молча инертны,
-  SlotMap-остатки (`chain` select-диспетчеризация, `hoc`-вложение,
-  ownerProps от реальных shell-сайтов; store seats закрыты в C3.1, раунды
+  SlotMap-остатки (`hoc`-вложение и renderer-семантика; `chain`-элекция по
+  `select(ownerProps)` и owner shares трёх реальных сайтов поставлены в C4.1,
+  раунд 102, но несколько `select === true` рендерят несколько кадров, owner
+  props с функциями не передаются, а полный chat-view для
+  `conversation.chat.node` ещё нужен; store seats закрыты в C3.1, раунды
   98–101; каталог слотов, регистрация, kinds, winners, `children`/deferred
   inject закрыты в C1.3) и React-контекст шелла по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (проекции
   `sessionStats` упрощены: `llmMs`=0, без истории тредов), eval-based бандлы
@@ -1085,14 +1126,22 @@ renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных
   host-половин в `<home>/cordis/config-forms/`); семантика конфигурационного
   движка DSH (схемы, слои, миграции) не воспроизведена; провалы seat-inject
   только логируются в лог кадра — плагин при этом остаётся живым.
-- C1.3-остатки (раунд 91): `chain` не диспатчится по `select`, а монтируется
-  слоями; `hoc` не вкладывает `children` между кадрами; store-seats
+- C1.3-остатки (раунд 91): chain-элекция реализована в C4.1 (раунд 102):
+  кадр chain-слота вызывает `select(ownerProps)` регистрации, `false` даёт
+  пустой DOM и репорт `chain-unselected`, но это per-frame фильтрация —
+  единого owner-renderer нет, и несколько `select === true` рендерят
+  несколько кадров. `hoc` по-прежнему не вкладывает `children` между
+  кадрами; store-seats
   (`PropsStore`/`BoundActions`) закрыты в C3.1 (раунды 98–101: framework-owned
   instance на scope-key, `useStore(selector, eq)`, baked `actions`,
   reference-аргументы `inject`), остаются renderer-семантика и mounted-model
   сессий; ownerProps — plumbing `?ownerProps={...}` → `frame.ownerProps` →
-  props есть, но реальные render-сайты шелла (`conversation.chat.node` и
-  т.п.) данных пока не дают (нужна chat/turn-модель Leptos-шелла).
+  props и с C4.1 (раунд 102) реальные render-сайты шелла поставляют
+  `{wide:true}` (`sidebar.session.action`), `{source,kind:"user"}`
+  (`message.action`) и `ComposerChainProps` (`composer.actions`), но owner
+  props с функциями (например `settings.section.close`) не передаются (нет
+  callback-моста), а `conversation.chat.node` и остальные conversation-слоты
+  ждут полного chat-view.
 - C1.4-остатки (раунд 92): `webServer.registerFallback` поддержан с C1.5
   (раунды 98–101: одно fallback-место, второй владелец бросает, dshr
   проксирует только не-зарезервированные несовпавшие пути), `registerUpgrade`
@@ -1108,9 +1157,11 @@ renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных
   dependency-free GFM-подмножество `MarkdownText` с reference-поверхностью props;
   submenu-механика закрыта в C2.6 (раунды 98–101), остаются upstream
   markdown-стек (mdast/shiki/KaTeX/footnotes/streaming) и renderer; store
-  seats закрыты в C3.1 (раунды 98–101), fallback-маршруты — в C1.5; следующий
-  кандидат reference-работы — renderer, chain dispatch/hoc-nesting и ownerProps
-  от реальных shell-сайтов.
+  seats закрыты в C3.1 (раунды 98–101), fallback-маршруты — в C1.5; C4.1
+  (раунд 102) добавил chain-элекцию по owner props и owner shares трёх
+  реальных сайтов, поэтому следующий кандидат reference-работы — renderer,
+  `hoc`-вложение, callback-мост для функциональных owner props и полный
+  chat-view.
 - C2.1–C2.6-остатки (раунды 93–101): портированы атомы и все 204 иконки;
   полный `Tooltip` доведён в C2.2, а в C2.3 — ядро `Menu`
   (`MenuItemButton`, data/компонентные ряды, separators/labels, reserve-icon,
@@ -1136,9 +1187,11 @@ renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных
   (`PropsStore`/`BoundActions`) закрыты в C3.1 (раунды 98–101:
   `@deepseek-ai/dsh-client-store` в module-таблице, `store: handle|factory`,
   instance на scope-key, `useStore(selector, eq)` + baked `actions`,
-  reference-аргументы `inject`), fallback-маршруты — в C1.5; остаются
-  renderer-семантика, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
-  реальных shell-сайтов — C-full.
+  reference-аргументы `inject`), fallback-маршруты — в C1.5; C4.1 (раунд 102)
+  закрыл chain-элекцию (`select(ownerProps)` в кадре chain-слота) и поставил
+  owner shares трёх реальных сайтов шелла, так что остаются
+  renderer-семантика, `hoc`-вложение, callback-мост для функциональных owner
+  props и полный chat-view (`conversation.chat.node`) — C-full.
 - C1-остатки (раунды 84–87): раунд 87 (C1.1) закрыл отсутствие сервисов
   `sessions`/`sessionProjections` — sidecar строит их из снимка сервера
   (задержка ≤ 5 с, упрощённые проекции: `llmMs`=0, без истории тредов,
@@ -1220,15 +1273,22 @@ renderer-семантика, `chain`/`hoc` и `ownerProps` от реальных
   `(sessionId, actions)`), fallback-маршруты (`webServer.registerFallback`,
   одно место, проксирование не-зарезервированных несовпавших путей) и
   ownerProps-plumbing (`?ownerProps={...}` → `frame.ownerProps` → props после
-  store/seat share); рантайм-артефакт — 430 139 байт.
+  store/seat share); рантайм-артефакт — 430 139 байт; раунд 102 — **C4.1**:
+  chat/turn-модель Leptos-шелла (turn ordinal в `data-turn` и owner share),
+  реальные owner shares (`sidebar.session.action`, `message.action` для user,
+  `composer.actions`) и chain-элекция в мосте (`select(ownerProps)` → пустой
+  DOM + `chain-unselected` при `false`), рантайм-артефакт не менялся.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
   (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, C2.3 — ядро Menu,
   C2.4 — submenu page-layout/hover grace/MenuGroup, C2.5 — reference JsonBlock и
   markdown-подмножество, C2.6 — позиционирование/`activeList`/focus-transition
   механика submenu; остаются upstream markdown-стек:
   mdast/shiki/KaTeX/footnotes/streaming),
-  SlotMap-остатков (chain select-диспетчеризация, hoc-вложение,
-  ownerProps от реальных shell-сайтов; store seats закрыты в C3.1),
+  SlotMap-остатков (`hoc`-вложение, renderer-семантика; chain-элекция и owner
+  shares трёх реальных сайтов поставлены в C4.1, раунд 102, но несколько
+  `select === true` рендерят несколько кадров, owner props с функциями не
+  передаются (нет callback-моста), полного chat-view для
+  `conversation.chat.node` нет; store seats закрыты в C3.1),
   `registerUpgrade` (WebSocket; `registerFallback` закрыт в C1.5),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии
   React и настоящего `@dshr/cordis-compat`-шима. Это вопрос объёма/приоритета

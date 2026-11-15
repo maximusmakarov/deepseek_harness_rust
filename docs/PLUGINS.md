@@ -491,12 +491,19 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
 проксирует в fallback только не-зарезервированные пути, `registerUpgrade`
 по-прежнему явно не поддержан.
 
-**ownerProps plumbing.** Shell может передать render-site owner props в кадр
-(`?ownerProps={...}` → `window.__DSHR_FRAME__.ownerProps`); значения
-валидируются как JSON-объект и мержатся в props компонента после store/seat
-share, как в reference `PropsRuntime`. Реальные shell-сайты (`chat.node` и
-т.п.) пока не поставляют данные — нужен chat/turn-модель в Leptos-шелле
-(записано в долг).
+**ownerProps plumbing + chat/turn-модель (C4.1).** Shell передаёт render-site
+owner props в кадр (`?ownerProps={...}` → `window.__DSHR_FRAME__.ownerProps`),
+значения валидируются как JSON-объект и мержатся в props после store/seat
+share, как в reference `PropsRuntime`. Реальные сайты:
+`sidebar.session.action` → `{wide}`; `message.action` для user-сообщений →
+`{source:{role,index}, kind:"user"}` (reference `UserBeforeOwnerProps`);
+`composer.actions` → `ComposerChainProps` `{sessionId, session:{id,model,turns},
+pendingInteraction:null}`. Chat/turn-модель: user-сообщение открывает новый
+turn, ordinal едет в `data-turn` и owner share. Chain-слоты электятся:
+bridge вызывает `select(ownerProps)` регистрации, при `false` кадр ничего не
+рендерит и репортит `chain-unselected`. Не поддержано: owner props с
+функциями (`settings.section.close`) — нет callback-моста; не все
+conversation-слоты смонтированы (у шелла нет полного chat-view).
 
 `JsonBlock` портирован из reference (collapsible, cap 20 000 символов,
 `truncatedLabel`). `MarkdownText` — API-совместимый dependency-free рендерер:
@@ -541,11 +548,14 @@ slot-`inject`. Host-страница публикует его как `window.__
   возвращают `undefined`, `sessionId` — из host-state) → seat
   `inject` → **ownerProps** (из `window.__DSHR_FRAME__.ownerProps`) → `t`.
 
-Отличия от reference, зафиксированные как долг: `chain` не диспатчится по
-`select`, а монтируется слоями; `hoc` не вкладывает `children` между кадрами;
-store-seats (`PropsStore`/`BoundActions`) и mounted-model сессий не
-реализованы; ownerProps пока передаются только через harness/расширения shell
-(реальные shell-сайты вроде `conversation.chat.node` ещё не поставляют данные).
+Отличия от reference, зафиксированные как долг: `hoc` не вкладывает
+`children` между кадрами (каждый кадр рендерится плоско); owner props с
+функциями (например `settings.section.close`) не доставляются — нет
+callback-моста; при нескольких `select === true` в chain рендерятся все кадры
+(per-frame фильтрация, не единый owner-renderer); `conversation.chat.node` и
+остальные conversation-слоты ждут полного chat-view. Chain-элекция по
+`select(ownerProps)` и реальные owner shares (`wide`, `message.action`,
+`ComposerChainProps`) реализованы в C4.1; store-seats — в C3.1.
 
 ### Slot-level `inject`, generators и `configForms` (C1.2)
 

@@ -616,6 +616,7 @@ fn SlotFrame(
     entry: ClientSlot,
     token: String,
     #[prop(default = String::new())] context: String,
+    #[prop(default = String::new())] owner_props: String,
 ) -> impl IntoView {
     let ui = expect_context::<UiState>();
     let frame_id = frame_dom_id(&token);
@@ -628,8 +629,13 @@ fn SlotFrame(
     } else {
         "dark"
     };
+    let owner_query = if owner_props.is_empty() {
+        String::new()
+    } else {
+        format!("&ownerProps={}", encode(&owner_props))
+    };
     let base = format!(
-        "/v1/plugins/{plugin}/host?token={token}&theme={theme}&frame={frame}&mode=slot&slot={name}&id={id}&context={context}",
+        "/v1/plugins/{plugin}/host?token={token}&theme={theme}&frame={frame}&mode=slot&slot={name}&id={id}&context={context}{owner_query}",
         plugin = encode(&entry.plugin),
         token = encode(&ui.token.get_untracked()),
         theme = encode(theme),
@@ -671,10 +677,12 @@ fn SlotRegion(
     region: &'static str,
     #[prop(optional)] occurrence: Option<String>,
     #[prop(optional)] context: Option<String>,
+    #[prop(optional)] owner_props: Option<String>,
 ) -> impl IntoView {
     let ui = expect_context::<UiState>();
     let occurrence = occurrence.unwrap_or_default();
     let context = context.unwrap_or_default();
+    let owner_props = owner_props.unwrap_or_default();
     let each_occurrence = occurrence.clone();
     let each = move || {
         let occurrence = each_occurrence.clone();
@@ -694,7 +702,7 @@ fn SlotRegion(
                 each=each
                 key=|(slot, token)| (token.clone(), slot.plugin.clone(), slot.id.clone())
                 children=move |(slot, token)| {
-                    view! { <SlotFrame entry=slot token=token context=context.clone() /> }
+                    view! { <SlotFrame entry=slot token=token context=context.clone() owner_props=owner_props.clone() /> }
                 }
             />
         </div>
@@ -1862,6 +1870,7 @@ fn App() -> impl IntoView {
                                     region="sidebar.session.action"
                                     occurrence=occurrence
                                     context=context
+                                    owner_props="{\"wide\":true}".to_string()
                                 />
                             </div>
                         }
@@ -1901,8 +1910,34 @@ fn App() -> impl IntoView {
                             } else {
                                 format!("message {role}")
                             };
+                            // Chat/turn model: a user message opens a new turn; the
+                            // ordinal travels to plugins as a data attribute and in
+                            // the owner share (reference UserBeforeOwnerProps carries
+                            // the durable source and row kind).
+                            let turn = {
+                                let items = messages.get_untracked();
+                                let mut ordinal = 0usize;
+                                for (position, item) in items.iter().enumerate() {
+                                    if item.role == "user" && position > 0 {
+                                        ordinal += 1;
+                                    }
+                                    if position == index_now {
+                                        break;
+                                    }
+                                }
+                                ordinal
+                            };
+                            let owner_share = if role == "user" {
+                                serde_json::json!({
+                                    "source": {"role": role, "index": index},
+                                    "kind": "user",
+                                })
+                                .to_string()
+                            } else {
+                                String::new()
+                            };
                             view! {
-                                <div class=class>
+                                <div class=class data-turn=turn.to_string()>
                                     {text}
                                     {if tool {
                                         view! {
@@ -1919,6 +1954,7 @@ fn App() -> impl IntoView {
                                                 region="message.action"
                                                 occurrence=occurrence
                                                 context=context
+                                                owner_props=owner_share.clone()
                                             />
                                         }
                                             .into_any()
@@ -1941,7 +1977,25 @@ fn App() -> impl IntoView {
                     <div class="row">
                         <button type="submit" prop:disabled=move || busy.get()>"Send"</button>
                         <button type="button" on:click=move |_| cancel()>"Cancel"</button>
-                        <SlotRegion region="composer.actions" />
+                        {move || {
+                            let session_id = current.get();
+                            let session = sessions.get().into_iter().find(|summary| {
+                                Some(&summary.id) == session_id.as_ref()
+                            });
+                            let owner = serde_json::json!({
+                                "sessionId": session_id,
+                                "session": session.map(|summary| serde_json::json!({
+                                    "id": summary.id,
+                                    "model": summary.model,
+                                    "turns": summary.turns,
+                                })),
+                                "pendingInteraction": null,
+                            })
+                            .to_string();
+                            view! {
+                                <SlotRegion region="composer.actions" owner_props=owner />
+                            }
+                        }}
                     </div>
                 </form>
             </section>

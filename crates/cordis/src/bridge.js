@@ -1276,7 +1276,26 @@
     });
   }
 
+  // Chain election (reference chain slots): the owner share is the argument of
+  // the registration's `select`; a false election renders nothing in this frame.
+  function chainElected(entry) {
+    if (entry.kind !== "chain" || typeof entry.select !== "function") return true;
+    try {
+      return Boolean(entry.select(frameOwnerProps, { slot: entry.name, id: entry.id }));
+    } catch (error) {
+      report("select " + entry.id, error);
+      return false;
+    }
+  }
+
   async function mount(entry, props) {
+    if (!chainElected(entry)) {
+      clear();
+      root.dataset.dshrSlot = entry.id;
+      active = null;
+      post({ type: "chain-unselected", slot: entry.name, id: entry.id });
+      return;
+    }
     try {
       const reactPropsHost = Object.assign({}, props, {
         theme: theme,

@@ -258,6 +258,36 @@ def run(args: argparse.Namespace) -> int:
         )
         check("streamed answer is rendered", True)
 
+        # Chat/turn model: the shell tags each message with its turn ordinal and
+        # keeps the composer/message slot regions mounted for chain entries.
+        turns = evaluate(
+            smoke,
+            dt,
+            """(() => [...document.querySelectorAll('#messages .message')]
+                .map(node => node.dataset.turn ?? null))()""",
+        )
+        check(
+            "messages carry the shell turn ordinal",
+            isinstance(turns, list)
+            and len(turns) >= 2
+            and turns[0] is not None
+            and turns[0] == turns[1],
+            turns,
+        )
+        regions = evaluate(
+            smoke,
+            dt,
+            """(() => ({
+                composer: !!document.querySelector('[data-region="composer.actions"]'),
+                messageAction: !!document.querySelector('[data-region="message.action"]'),
+            }))()""",
+        )
+        check(
+            "shell mounts composer and message action regions",
+            isinstance(regions, dict) and regions.get("composer") is True and regions.get("messageAction") is True,
+            regions,
+        )
+
         messages = evaluate(smoke, dt, "document.querySelector('#messages')?.textContent || ''")
         check("tool card is rendered for bash", "bash" in messages, messages)
 

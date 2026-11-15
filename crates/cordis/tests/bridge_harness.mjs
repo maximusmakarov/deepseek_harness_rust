@@ -667,6 +667,68 @@ async function reactScenario() {
     storeState.count === 1,
     storeState,
   );
+  // Chain slots: the owner share elects via the registration's select.
+  {
+    const unselectedPage = createPage({
+      frameConfig: {
+        plugin: "harness",
+        frame: "slot:harness:chain:0",
+        mode: "slot",
+        slot: "conversation.composer",
+        id: "chain-a",
+        theme: "dark",
+        ownerProps: { sessionId: "ses_x" },
+      },
+    });
+    unselectedPage.window.__DSHR_MODULES__ = { react: React, "react-dom/client": ReactDOM };
+    unselectedPage.dshr.slots.register(
+      {
+        name: "conversation.composer",
+        id: "chain-a",
+        kind: "chain",
+        select: (owner) => owner.sessionId === "ses_y",
+      },
+      MemoSlot,
+    );
+    unselectedPage.dshr.__frameActivated();
+    await tick();
+    check(
+      "chain select false renders nothing for the owner share",
+      unselectedPage.root.__reactElement == null,
+      {elementType: unselectedPage.root.__reactElement && unselectedPage.root.__reactElement.type, posted: unselectedPage.posted.map(x=>x.type)},
+    );
+
+    const selectedPage = createPage({
+      frameConfig: {
+        plugin: "harness",
+        frame: "slot:harness:chain:1",
+        mode: "slot",
+        slot: "conversation.composer",
+        id: "chain-b",
+        theme: "dark",
+        ownerProps: { sessionId: "ses_y" },
+      },
+    });
+    selectedPage.window.__DSHR_MODULES__ = { react: React, "react-dom/client": ReactDOM };
+    selectedPage.dshr.slots.register(
+      {
+        name: "conversation.composer",
+        id: "chain-b",
+        kind: "chain",
+        select: (owner) => owner.sessionId === "ses_y",
+      },
+      MemoSlot,
+    );
+    selectedPage.dshr.__frameActivated();
+    await tick();
+    const selectedTree = selectedPage.root.__reactElement;
+    check(
+      "chain select true renders the elected entry",
+      Boolean(selectedTree) && selectedTree.props.children.type === MemoSlot,
+      selectedTree && selectedTree.props && selectedTree.props.children && selectedTree.props.children.type,
+    );
+  }
+
   check(
     "session-scope store inject receives (sessionId, actions)",
     Array.isArray(injectArguments) &&
