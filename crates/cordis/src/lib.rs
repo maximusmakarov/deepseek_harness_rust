@@ -115,6 +115,8 @@ pub struct SidecarHttp {
     pub port: u16,
     pub token: String,
     pub routes: Vec<SidecarHttpRoute>,
+    /// The plugin claimed the reference fallback seat (serves unmatched paths).
+    pub fallback: bool,
 }
 
 /// Reads the sidecar's internal route table (`__dshr_routes`).
@@ -139,6 +141,10 @@ pub async fn sidecar_http(connection: &CordisConnection) -> Option<SidecarHttp> 
         return None;
     }
     let token = value.get("token")?.as_str()?.to_owned();
+    let fallback = value
+        .get("fallback")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
     let routes = value
         .get("routes")?
         .as_array()?
@@ -158,6 +164,7 @@ pub async fn sidecar_http(connection: &CordisConnection) -> Option<SidecarHttp> 
         port,
         token,
         routes,
+        fallback,
     })
 }
 

@@ -583,3 +583,27 @@ harness 102, workspace 365+3, web-e2e 16/16. Рантайм-артефакт —
 
 Осталось: upstream markdown-стек, store/seats/renderer, chain/hoc,
 ownerProps из shell-сайтов, registerFallback/registerUpgrade.
+
+## C2.6/C3.1/C1.5: submenu-механика, store-seats, fallback, ownerProps (раунды 98–101)
+
+- **C2.6 submenu**: side-card vs single-page решение по измеренной ширине,
+  `--dsh-submenu`-позиционирование с flip/clamp, `activeList` для клавиатуры
+  (родитель/дочерняя страница), Escape/ArrowLeft возвращают фокус на
+  родительский ряд (и закрывают submenu), hover-grace 200 мс между уровнями,
+  сворачивание при наведении на другой ряд, `data-menu-back`,
+  `submenuBackLabel`.
+- **C3.1 store-seats** (`packages/client/store`): в module table опубликован
+  `@deepseek-ai/dsh-client-store` (`createSnapshotStore`, `defineStore`,
+  `shallowEqual`); регистрация слота с `store: handle|factory` получает
+  framework-owned instance на scope-key, компоненту — `useStore(selector, eq)`
+  и `actions`, `inject` получает reference-аргументы `(sessionId, actions)`.
+- **C1.5 fallback-маршруты**: `webServer.registerFallback` (одно место, второй
+  владелец — ошибка) и проксирование не-зарезервированных путей; `registerUpgrade`
+  остаётся явно не поддержанным.
+- **ownerProps**: plumbing `?ownerProps={...}` → `frame.ownerProps` с
+  валидацией JSON-объекта и merge в props после store/seat share; реальные
+  shell-сайты ждут chat/turn-модель Leptos-шелла.
+
+Проверка: smoke 82/82 (store-engine check), harness **105** (+3 store-seat:
+`useStore`/`actions`, мутация instance, inject-аргументы), server
+plugins_live **17** (+1 fallback), workspace **366** passed + 3 ignored.

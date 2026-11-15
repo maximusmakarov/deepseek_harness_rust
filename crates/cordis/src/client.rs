@@ -58,6 +58,9 @@ pub struct FrameSpec {
     pub slot: String,
     pub id: String,
     pub context: String,
+    /// Owner props supplied by the shell render site (reference `renderSlot`
+    /// owner share), serialized as a JSON object string.
+    pub owner_props: String,
     pub theme: String,
 }
 
@@ -69,13 +72,14 @@ pub struct FrameSpec {
 pub const HOST_RUNTIME_VERSION: &str = "18.3.1";
 
 /// Module ids the shared host runtime publishes in `window.__DSHR_MODULES__`.
-pub const HOST_MODULES: [&str; 6] = [
+pub const HOST_MODULES: [&str; 7] = [
     "react",
     "react/jsx-runtime",
     "react/jsx-dev-runtime",
     "react-dom",
     "react-dom/client",
     "@deepseek-ai/dsh-client-ui-primitives",
+    "@deepseek-ai/dsh-client-store",
 ];
 
 /// URL of the shared host runtime, relative to the server origin.
@@ -705,6 +709,8 @@ struct FrameConfig<'a> {
     slot: &'a str,
     id: &'a str,
     context: &'a str,
+    #[serde(rename = "ownerProps")]
+    owner_props: &'a str,
     theme: &'a str,
 }
 
@@ -738,6 +744,7 @@ fn page(
             slot: &spec.slot,
             id: &spec.id,
             context: &spec.context,
+            owner_props: &spec.owner_props,
             theme: theme_value,
         })
         .unwrap_or_default(),
@@ -1028,6 +1035,7 @@ mod host_page_tests {
             slot: "panel".into(),
             id: "demo-panel".into(),
             context: r#"{"index":0}"#.into(),
+            owner_props: String::new(),
             theme: "dark".into(),
         };
         let page = host_page(
@@ -1055,6 +1063,7 @@ mod host_page_tests {
             slot: "panel".into(),
             id: "x</script><script>alert(1)</script>".into(),
             context: r#"{"html":"</script>"}"#.into(),
+            owner_props: String::new(),
             theme: "light".into(),
         };
         let page = host_page(&half("demo"), b"", &spec, PageRuntime::default());
@@ -1074,6 +1083,7 @@ mod host_page_tests {
             slot: "settings.section".into(),
             id: "x".into(),
             context: r#"{"a":1}"#.into(),
+            owner_props: String::new(),
             theme: "dark".into(),
         };
         let value = serde_json::to_value(&spec).expect("serialize");
@@ -1091,6 +1101,7 @@ mod host_page_tests {
                 "slot": "",
                 "id": "",
                 "context": "",
+                "owner_props": "",
                 "theme": "",
             })
         );

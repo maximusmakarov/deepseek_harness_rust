@@ -60,6 +60,9 @@ function addTool(definition) {
 // ---------------------------------------------------------------------------
 let httpServer = null;
 let httpPort = 0;
+// Reference webServer owns exactly one fallback seat (the shipped composition
+// puts the SPA dist server there). A second registration throws.
+let fallbackHandler = null;
 const httpToken = randomBytes(16).toString("hex");
 // Paths that collide with the dshr HTTP API/embedded UI must never be proxied.
 const reservedPrefixes = [
@@ -112,8 +115,21 @@ function ensureHttpServer() {
       route = undefined;
     }
     if (!route) {
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: false, error: "no such plugin route" }));
+      if (fallbackHandler === null) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "no such plugin route" }));
+        return;
+      }
+      try {
+        await fallbackHandler(req, res);
+      } catch (error) {
+        if (!res.headersSent) {
+          res.writeHead(500, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
+        } else if (!res.writableEnded) {
+          res.end();
+        }
+      }
       return;
     }
     try {
@@ -204,7 +220,26 @@ const webServer = {
       return "http:";
     }
   },
-  registerFallback: unsupportedWebServerFeature("registerFallback"),
+  // Reference `registerFallback`: one owner for every unmatched request. The
+  // handler receives the normal Node (req, res) pair; dshr only proxies paths it
+  // does not reserve for its own API/UI.
+  registerFallback: (fallback) => {
+    if (fallbackHandler !== null) {
+      throw new Error("webserver: fallback already registered");
+    }
+    const handler =
+      typeof fallback === "function"
+        ? fallback
+        : fallback && typeof fallback.handler === "function"
+          ? fallback.handler
+          : null;
+    if (handler === null) throw new Error("webServer.registerFallback: handler is required");
+    fallbackHandler = handler;
+    ensureHttpServer();
+    return function unregister() {
+      if (fallbackHandler === handler) fallbackHandler = null;
+    };
+  },
   registerUpgrade: unsupportedWebServerFeature("registerUpgrade"),
 };
 
@@ -519,6 +554,7 @@ addTool({
     return {
       port: httpPort,
       token: httpToken,
+      fallback: fallbackHandler !== null,
       routes: [
         ...[...webRoutes.exact.values()].map((route) => ({ path: route.path, kind: "exact" })),
         ...[...webRoutes.prefix.values()].map((route) => ({ path: route.path, kind: "prefix" })),

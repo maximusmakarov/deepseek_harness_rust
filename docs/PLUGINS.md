@@ -477,6 +477,27 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   upstream `icons/artwork.ts` — те же SVG-пути/stroke (regular 1, medium 1.3),
   инлайн вместо document-спрайта; для неизвестных `Icon*` остаётся Proxy-global.
 
+**Store-seats (C3.1).** Host-модуль `@deepseek-ai/dsh-client-store` публикуется
+в module table (reference `packages/client/store`): `createSnapshotStore` и
+`defineStore` (init + actions, baked callback'и, `shallowEqual`); `zod`/`immer`
+семантика воспроизведена plain deep-copy draft'ом, `persist` принимается но не
+персистится (ограничение). Регистрация слота может объявить `store: handle`
+или фабрику; фрейм создаёт instance на scope-key (`session` → id сессии) и
+передаёт компоненту `useStore(selector, eq)` + `actions`, а
+`inject`-фабрика для session-scope получает `(sessionId, actions)`.
+
+**Fallback-маршруты (C1.5).** `webServer.registerFallback(handler)` реализован
+как в reference (одно fallback-место; второй владелец — ошибка); dshr
+проксирует в fallback только не-зарезервированные пути, `registerUpgrade`
+по-прежнему явно не поддержан.
+
+**ownerProps plumbing.** Shell может передать render-site owner props в кадр
+(`?ownerProps={...}` → `window.__DSHR_FRAME__.ownerProps`); значения
+валидируются как JSON-объект и мержатся в props компонента после store/seat
+share, как в reference `PropsRuntime`. Реальные shell-сайты (`chat.node` и
+т.п.) пока не поставляют данные — нужен chat/turn-модель в Leptos-шелле
+(записано в долг).
+
 `JsonBlock` портирован из reference (collapsible, cap 20 000 символов,
 `truncatedLabel`). `MarkdownText` — API-совместимый dependency-free рендерер:
 принимает `text`/`labels`/`variant`/`omitHtml`/`textInteractionSource`/

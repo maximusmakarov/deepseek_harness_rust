@@ -1193,6 +1193,10 @@ struct ClientHostQuery {
     /// URL-encoded JSON object handed to the slot render props.
     #[serde(default)]
     context: Option<String>,
+    /// URL-encoded JSON object of shell render-site owner props (reference
+    /// `renderSlot` owner share), passed through to the frame config.
+    #[serde(default, rename = "ownerProps")]
+    owner_props: Option<String>,
 }
 
 /// Maximum length of the URL-encoded JSON `context` a slot frame accepts.
@@ -1258,6 +1262,20 @@ fn frame_spec(query: &ClientHostQuery) -> Result<FrameSpec, (StatusCode, Json<Va
     }
 
     let context = query.context.as_deref().unwrap_or_default();
+    let owner_props = query.owner_props.as_deref().unwrap_or_default();
+    if !owner_props.is_empty() {
+        if owner_props.chars().count() > FRAME_CONTEXT_MAX_CHARS {
+            return Err(host_query_error(format!(
+                "ownerProps is larger than {FRAME_CONTEXT_MAX_CHARS} characters"
+            )));
+        }
+        if !matches!(
+            serde_json::from_str::<Value>(owner_props),
+            Ok(Value::Object(_))
+        ) {
+            return Err(host_query_error("ownerProps must be a JSON object"));
+        }
+    }
     if !context.is_empty() {
         if context.chars().count() > FRAME_CONTEXT_MAX_CHARS {
             return Err(host_query_error(format!(
@@ -1289,6 +1307,7 @@ fn frame_spec(query: &ClientHostQuery) -> Result<FrameSpec, (StatusCode, Json<Va
         slot,
         id,
         context,
+        owner_props: owner_props.to_owned(),
         theme: match query.theme.as_deref() {
             Some("light") => "light".to_owned(),
             _ => "dark".to_owned(),
@@ -1437,7 +1456,13 @@ async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> R
     let Some(manager) = state.config.plugins.as_ref() else {
         return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
     };
-    let Some(target) = manager.http_route(&path) else {
+    // The reference webServer has one fallback seat; a plugin may claim it for
+    // every path dshr does not own (SPA-like routes). Reserved dshr paths never
+    // reach the fallback because they are rejected above.
+    let Some(target) = manager
+        .http_route(&path)
+        .or_else(|| manager.http_fallback())
+    else {
         return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
     };
     // Browser CORS preflight for plugin routes that send JSON bodies.

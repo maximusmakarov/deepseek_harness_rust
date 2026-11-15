@@ -524,6 +524,26 @@ impl CordisManager {
         best.map(|(_, target)| target)
     }
 
+    /// Loopback target for the reference fallback seat, if a running plugin
+    /// claimed it. At most one sidecar answers; plugins are visited in name order.
+    #[must_use]
+    pub fn http_fallback(&self) -> Option<HttpTarget> {
+        let running = lock(&self.running);
+        for (name, state) in running.iter() {
+            let Some(http) = state.http.as_ref() else {
+                continue;
+            };
+            if http.fallback {
+                return Some(HttpTarget {
+                    plugin: name.clone(),
+                    port: http.port,
+                    token: http.token.clone(),
+                });
+            }
+        }
+        None
+    }
+
     /// Every registered plugin HTTP route (`plugin`, `path`), for diagnostics.
     #[must_use]
     pub fn http_routes(&self) -> Vec<(String, String)> {

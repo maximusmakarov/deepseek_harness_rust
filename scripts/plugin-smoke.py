@@ -1980,6 +1980,16 @@ def run(args: argparse.Namespace) -> int:
                             const primitives = window.__DSHR_MODULES__[
                                 "@deepseek-ai/dsh-client-ui-primitives"
                             ];
+                            const storeModule = window.__DSHR_MODULES__[
+                                "@deepseek-ai/dsh-client-store"
+                            ];
+                            const storeHandle = storeModule.defineStore({
+                                init: () => ({ n: 0 }),
+                                actions: { inc(draft) { draft.n += 1; } },
+                            });
+                            const storeInstance = storeHandle.create();
+                            storeInstance.actions.inc();
+                            window.__c2Store = storeInstance.getSnapshot().n === 1;
                             const React = window.React;
                             const ReactDOM = window.__DSHR_MODULES__["react-dom/client"];
                             const e = React.createElement;
@@ -2057,6 +2067,7 @@ def run(args: argparse.Namespace) -> int:
                                 markdownHeading: !!document.querySelector('.dshr-markdown h1'),
                                 markdownCode: !!document.querySelector('.dshr-markdown pre code'),
                                 jsonBlock: !!document.querySelector('.dshr-json-block-body'),
+                                store: window.__c2Store === true,
                                 checkbox: !!document.querySelector('label.dshr-checkbox'),
                                 path: (document.querySelector('[data-path-label]') || {}).textContent || '',
                             })), 500);
@@ -2104,7 +2115,8 @@ def run(args: argparse.Namespace) -> int:
             and (c2_state.get("menuRows") or 0) >= 3
             and c2_state.get("markdownHeading") is True
             and c2_state.get("markdownCode") is True
-            and c2_state.get("jsonBlock") is True,
+            and c2_state.get("jsonBlock") is True
+            and c2_state.get("store") is True,
             {
                 "missing": [marker for marker in c2_markers if marker not in c2_text],
                 **{key: c2_state.get(key) for key in ("switch", "tag", "tabs", "icon", "checkbox", "error")},

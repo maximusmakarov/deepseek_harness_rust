@@ -888,6 +888,13 @@
 
   var MENU_TRANSITION_MS = { enter: 40, dismiss: 80, replace: 10, prepare: 20 };
 
+  // Reference menuHoverAllowed: hover interactions need a non-touch pointer and
+  // a hover-capable device.
+  function menuHoverAllowed(event) {
+    if (!event || event.pointerType === "touch") return false;
+    return typeof window.matchMedia !== "function" || window.matchMedia("(any-hover: hover)").matches;
+  }
+
   // ----- Submenu placement (reference menu-submenu-position.ts) -------------
   var SUBMENU_GAP = 4;
   var SUBMENU_MARGIN = 12;
@@ -1224,9 +1231,31 @@
       var panel = submenuPanelRef.current;
       var list = listRef.current;
       if (!panel || !list || typeof window === "undefined") return;
+      // Measure the natural card width while the panel is still hidden (the
+      // reference measures before choosing side vs single-page layout).
+      panel.style.visibility = "hidden";
       var width = panel.offsetWidth;
       var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
-      setSubmenuPage(submenuNeedsPage(list.getBoundingClientRect(), width, viewportWidth));
+      var page = submenuNeedsPage(list.getBoundingClientRect(), width, viewportWidth);
+      setSubmenuPage(page);
+      if (!page) {
+        var row = list.querySelector('[data-menu-row-id="' + submenuId + '"]');
+        if (row) {
+          var rect = row.getBoundingClientRect();
+          var top = rect.top;
+          var height = panel.offsetHeight;
+          if (top + height > window.innerHeight - SUBMENU_MARGIN) {
+            top = Math.max(SUBMENU_MARGIN, window.innerHeight - SUBMENU_MARGIN - height);
+          }
+          var style = { position: "fixed", zIndex: 81, top: top, minWidth: rect.width, visibility: "hidden" };
+          if (rect.right + SUBMENU_GAP + width > viewportWidth - SUBMENU_MARGIN) {
+            style.right = Math.max(SUBMENU_MARGIN, viewportWidth - rect.left + SUBMENU_GAP);
+          } else {
+            style.left = rect.right + SUBMENU_GAP;
+          }
+          setSubmenuStyle(style);
+        }
+      }
     }, [submenuId]);
 
     // Keyboard/click opening a submenu moves focus into the child card; hover does not.
@@ -1248,6 +1277,11 @@
         if (event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
         var focused = document.activeElement;
         var insideList = listRef.current ? listRef.current.contains(focused) : false;
+        var childPanel =
+          submenuId !== null && listRef.current
+            ? listRef.current.querySelector('[data-submenu-for="' + submenuId + '"]')
+            : null;
+        var insideChild = childPanel ? childPanel.contains(focused) : false;
         var anchored =
           focused === triggerRef.current ||
           (props.anchorRef && props.anchorRef.current && props.anchorRef.current.contains(focused)) ||
@@ -1256,18 +1290,25 @@
         if (event.key === "Escape" && !event.shiftKey) {
           event.preventDefault();
           if (event.repeat) return;
-          if (submenuId !== null) {
+          if (submenuId !== null && (insideChild || (childPanel && childPanel.contains(focused)))) {
             var parentRow = listRef.current ? listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]') : null;
             setSubmenuId(null);
             setSubmenuPage(false);
             if (parentRow && typeof parentRow.focus === "function") parentRow.focus();
             return;
           }
+          if (submenuId !== null) {
+            var parentRow2 = listRef.current ? listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]') : null;
+            setSubmenuId(null);
+            setSubmenuPage(false);
+            if (parentRow2 && typeof parentRow2.focus === "function") parentRow2.focus();
+            return;
+          }
           closeRef.current();
           if (anchored || props.autoFocus === true) refocusAnchor(false);
           return;
         }
-        if (event.key === "ArrowLeft" && anchored && submenuId !== null) {
+        if (event.key === "ArrowLeft" && anchored && submenuId !== null && (insideChild || !insideList)) {
           event.preventDefault();
           var returnRow = listRef.current ? listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]') : null;
           setSubmenuId(null);
@@ -1321,10 +1362,7 @@
         }
         if (["ArrowDown", "ArrowUp", "Home", "End"].indexOf(event.key) === -1) return;
         if (!anchored) return;
-        var scope =
-          submenuId !== null && listRef.current
-            ? listRef.current.querySelector('[data-submenu-for="' + submenuId + '"]')
-            : listRef.current;
+        var scope = insideChild && childPanel ? childPanel : listRef.current;
         if (scope === null) return;
         var buttons = Array.prototype.slice.call(scope.querySelectorAll("button:not(:disabled)"));
         if (buttons.length === 0) return;
@@ -1406,13 +1444,21 @@
           wrapperProps: hasSub
             ? {
                 onPointerEnter: function (event) {
-                  if (event.pointerType !== "mouse" || entry.disabled === true) return;
+                  if (!menuHoverAllowed(event) || entry.disabled === true) return;
                   cancelSubmenuClose();
                   focusChildRef.current = false;
                   setSubmenuId(entry.id);
                 },
               }
-            : undefined,
+            : {
+                onPointerEnter: function (event) {
+                  if (!menuHoverAllowed(event)) return;
+                  if (submenuId !== null && !submenuPage) {
+                    setSubmenuId(null);
+                    setSubmenuPage(false);
+                  }
+                },
+              },
           onClick: function () {
             if (hasSub) {
               focusChildRef.current = true;

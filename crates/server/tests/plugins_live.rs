@@ -375,6 +375,28 @@ async fn slot_host_page_embeds_the_frame_config() {
     assert!(page.contains(r#""context":"{\"index\":0}""#), "{page}");
     assert!(page.contains("\"theme\":\"light\""), "{page}");
 
+    // Shell render-site owner props are validated and embedded like context.
+    let uri = format!(
+        "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&ownerProps={}",
+        encoded_context(r#"{"wide":true,"index":0}"#)
+    );
+    let (status, _, bytes) = raw(&app, &uri, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let page = String::from_utf8(bytes).expect("utf8");
+    assert!(
+        page.contains(r#""ownerProps":"{\"wide\":true,\"index\":0}""#),
+        "{page}"
+    );
+
+    // A non-object owner share is rejected like a bad context.
+    let (status, _, _) = raw(
+        &app,
+        "/v1/plugins/demo/host?token=test-token&mode=slot&slot=panel&id=demo-panel&ownerProps=%5B1%5D",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
     // Context values are escaped into the config; `<` cannot close the script.
     let context = r#"{"html":"</script>"}"#;
     let uri = format!(
@@ -993,6 +1015,60 @@ async fn proxies_plugin_host_routes() {
     let request = Request::builder()
         .method("GET")
         .uri("/probe-route")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+const FALLBACK_PLUGIN: &str = r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "probe",
+      description: "probe",
+      inputSchema: { type: "object" },
+      handler: () => "ok",
+    });
+    ctx.inject(["webServer"], (scope) => {
+      scope.webServer.registerFallback(async (req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ fallback: true, url: req.url }));
+      });
+    });
+  },
+};
+"#;
+
+#[tokio::test]
+async fn proxies_the_plugin_fallback_seat() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("plugin.mjs"), FALLBACK_PLUGIN).expect("plugin");
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/plugin-fallback-probe?x=1")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let value: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(value["fallback"], true, "{value}");
+    assert_eq!(value["url"], "/plugin-fallback-probe?x=1", "{value}");
+
+    // dshr keeps its own namespace: a reserved path never reaches the fallback.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/fallback-probe")
         .body(Body::empty())
         .expect("request");
     let response = app.oneshot(request).await.expect("response");

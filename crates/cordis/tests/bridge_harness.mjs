@@ -558,6 +558,30 @@ async function reactScenario() {
   const MemoSlot = React.memo(function MemoSlot() {
     return null;
   });
+  // Store seat fixture: a shared handle with one snapshot and one baked action.
+  const storeState = { count: 0 };
+  const storeListeners = new Set();
+  const storeHandle = {
+    spec: {},
+    create() {
+      return {
+        getSnapshot() {
+          return storeState;
+        },
+        subscribe(listener) {
+          storeListeners.add(listener);
+          return () => storeListeners.delete(listener);
+        },
+        actions: {
+          bump() {
+            storeState.count += 1;
+            storeListeners.forEach((listener) => listener());
+          },
+        },
+      };
+    },
+  };
+  let injectArguments = null;
   const page = createPage({
     frameConfig: {
       plugin: "harness",
@@ -578,7 +602,11 @@ async function reactScenario() {
       id: "memo",
       title: "Memo",
       locale: "harness",
-      inject: () => ({ seatValue: "seat" }),
+      store: storeHandle,
+      inject: (...args) => {
+        injectArguments = args;
+        return { seatValue: "seat" };
+      },
     },
     MemoSlot,
   );
@@ -622,6 +650,29 @@ async function reactScenario() {
     "plain catalog standard values remain in the prop surface",
     Boolean(child) && "sessionId" in child.props,
     child && Object.prototype.hasOwnProperty.call(child.props, "sessionId"),
+  );
+  check(
+    "store seats expose useStore and the baked actions",
+    Boolean(child) &&
+      typeof child.props.useStore === "function" &&
+      typeof child.props.actions === "object" &&
+      typeof child.props.actions.bump === "function",
+    child && Object.keys(child.props),
+  );
+  if (child && child.props.actions && typeof child.props.actions.bump === "function") {
+    child.props.actions.bump();
+  }
+  check(
+    "store actions update the framework-owned instance",
+    storeState.count === 1,
+    storeState,
+  );
+  check(
+    "session-scope store inject receives (sessionId, actions)",
+    Array.isArray(injectArguments) &&
+      injectArguments.length === 2 &&
+      injectArguments[1] === child.props.actions,
+    Array.isArray(injectArguments) ? injectArguments.length : injectArguments,
   );
 
   // Reference registration rules (SlotCore parity).

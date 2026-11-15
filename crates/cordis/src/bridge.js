@@ -526,7 +526,9 @@
   function injectedProps(entry) {
     if (!entry.inject) return {};
     try {
-      const value = typeof entry.inject === "function" ? entry.inject() : entry.inject;
+      const args = injectArguments(entry);
+      const value =
+        typeof entry.inject === "function" ? entry.inject.apply(null, args) : entry.inject;
       return value && typeof value === "object" ? value : {};
     } catch (error) {
       // A seat's injected props may legitimately reference host services dshr
@@ -566,6 +568,84 @@
     Object.assign(out, host);
     standardCache.set(name, out);
     return out;
+  }
+
+  // Store seats (reference packages/client/store): a registration may declare a
+  // shared handle or a factory; the framework owns one instance per scope key and
+  // hands the component a selector hook plus the baked action set.
+  const storeInstances = new Map();
+
+  function currentSessionId() {
+    return hostState && hostState.session ? hostState.session.id : undefined;
+  }
+
+  function resolveStoreInstance(entry) {
+    if (!entry.store) return null;
+    const scopeKey =
+      entry.scope === "session" || entry.scope === "session-maybe"
+        ? String(currentSessionId() || "root")
+        : "root";
+    const cacheKey = entry.id + "\u0000" + scopeKey;
+    const existing = storeInstances.get(cacheKey);
+    if (existing) return existing;
+    try {
+      const handle = typeof entry.store === "function" ? entry.store() : entry.store;
+      if (!handle || typeof handle.create !== "function") return null;
+      const instance = handle.create(scopeKey === "root" ? undefined : scopeKey);
+      if (!instance || typeof instance.getSnapshot !== "function") return null;
+      storeInstances.set(cacheKey, instance);
+      return instance;
+    } catch (error) {
+      report("store", error);
+      return null;
+    }
+  }
+
+  function storeProps(entry) {
+    const instance = resolveStoreInstance(entry);
+    if (!instance) return {};
+    const runtime = reactRuntimeNow();
+    const actions = instance.actions && typeof instance.actions === "object" ? instance.actions : {};
+    if (!runtime) return { actions: actions };
+    const React = runtime.React;
+    function useStore(selector, equality) {
+      const read = function () {
+        const snapshot = instance.getSnapshot();
+        return typeof selector === "function" ? selector(snapshot) : snapshot;
+      };
+      const pair = React.useState(read);
+      const value = pair[0];
+      const setValue = pair[1];
+      const last = React.useRef(value);
+      React.useEffect(
+        function () {
+          return instance.subscribe(function () {
+            const next = read();
+            const equal = typeof equality === "function" ? equality : Object.is;
+            if (!equal(last.current, next)) {
+              last.current = next;
+              setValue(next);
+            }
+          });
+        },
+        [instance, selector, equality],
+      );
+      return value;
+    }
+    return { useStore: useStore, actions: actions };
+  }
+
+  function injectArguments(entry) {
+    const sessionId = currentSessionId();
+    const instance = entry.store ? resolveStoreInstance(entry) : null;
+    const actions = instance && instance.actions ? instance.actions : undefined;
+    if (entry.scope === "session") {
+      return entry.store ? [sessionId, actions] : [sessionId];
+    }
+    if (entry.scope === "session-maybe") {
+      return entry.store ? [sessionId, actions] : [sessionId];
+    }
+    return entry.store ? [actions] : [];
   }
 
   function translatorFor(namespace) {
@@ -924,6 +1004,8 @@
       // DSH slot registrations may provide the component's extra props with
       // `inject: () => ({...})` (a framework seat); resolve it at mount time.
       inject: typeof entry.inject === "function" || (entry.inject && typeof entry.inject === "object") ? entry.inject : null,
+      // Store seat declaration: a shared StoreHandle or a factory returning one.
+      store: typeof entry.store === "function" || (entry.store && typeof entry.store === "object") ? entry.store : null,
       render: render,
       children: entry.children && typeof entry.children === "object" ? entry.children : null,
     };
@@ -1136,6 +1218,7 @@
             props,
             slotStandardProps(entry.name),
             injectedProps(entry),
+            storeProps(entry),
             frameOwnerProps,
             { t: translatorFor(entry.locale) },
           ),
@@ -1210,7 +1293,7 @@
         active = entry;
         await entry.render(
           root,
-          Object.assign({}, props, injectedProps(entry), frameOwnerProps),
+          Object.assign({}, props, injectedProps(entry), storeProps(entry), frameOwnerProps),
         );
       }
       reportResize(entry);
