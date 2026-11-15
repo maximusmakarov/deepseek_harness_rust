@@ -456,8 +456,9 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   `data-menu-material`/`phase`), `Menu`/`MenuItemButton` — **порт ядра**: data-
   и компонентные ряды, separators/labels, reserve-icon, selection
   `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,
-  ShortcutKeys, footer-группа, `children`-ряды, one-level submenu
-  (hover/ArrowRight, fixed-панель рядом с рядом), клавиатурный walk
+  ShortcutKeys, footer-группа, `children`-ряды, submenu side-card/single-page
+  layout (menu-submenu-position: сбоку, если помещается, иначе back-row-страница;
+  hover/ArrowRight), клавиатурный walk
   (Arrow/Home/End, Escape с возвратом фокуса, Tab-семантика), outside-
   dismissal + iframe-blur, autoFocus, `copyOnPointerLeave` grace 200 мс,
   portal-позиционирование с `minWidthFromAnchor`/`anchorPoint`, dense/compact;

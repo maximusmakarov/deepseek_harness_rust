@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–95)
+# Журнал раундов паритета (1–96)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -832,11 +832,41 @@ streaming-прокси.
     seats/renderer, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
     реальных shell-сайтов — C-full.
 
+- 96: **C2.4** — reference submenu page-layout и `MenuGroup`
+  ([ADR-040](adr/040-react-client-half.md) §«C2.4», [PLUGINS.md](PLUGINS.md)).
+  Закрыты оставшиеся части reference-`Menu`:
+  - **submenu layout** по `menu-submenu-position.ts`: если сбоку от
+    родительской карточки дочерняя не помещается ни справа, ни слева,
+    включается single-page layout — дочерние ряды заменяют родительскую
+    страницу, сверху non-selecting back-row (`data-menu-back`, chevron-left,
+    `submenuBackLabel` или label родителя) + separator; Escape/ArrowLeft
+    возвращают на родительскую страницу с фокусом на родительском ряду;
+  - **focus-контракт**: hover открывает submenu без перехвата фокуса, а
+    ArrowRight/клик — с фокусом на первом дочернем ряду (как в reference);
+  - **hover grace**: 200-мс окно между родительской и дочерней карточками —
+    уход курсора в дочернюю отменяет закрытие (`cancelSubmenuClose`);
+  - **`MenuGroup` + `observeStickyMenuGroups`** портированы по
+    `MenuGroup.tsx`: `section[role=group]` с `aria-labelledby`,
+    `data-menu-group`/`data-menu-group-start`/`data-menu-group-heading` и
+    sticky-заголовком (`data-stuck`) на IntersectionObserver/ResizeObserver;
+  - C2-probe теперь рендерит `MenuGroup`, submenu-родителя и проверяет
+    `menuRows >= 3`.
+  - Проверки: smoke **82/82** (C2-probe с `MenuGroup`/submenu-родителем и
+    `menuRows >= 3`), bridge harness 102, cordis lib 26, server `plugins_live`
+    16, workspace 365 passed + 3 ignored (desktop 21, итого 386), web-e2e
+    16/16; общий рантайм-артефакт вырос с **405 323** до **415 972 байт**.
+  - Границы C2.4: детальная `useMenuSubmenu`-механика focus-transition/
+    page-anchor остаётся упрощённой (у нас CSS/JS-позиции вместо полного
+    reference-движка); `MarkdownText`/`JsonBlock` остаются упрощёнными
+    dshr-расширениями (upstream требует shiki/katex/mdast); store
+    seats/renderer, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
+    реальных shell-сайтов — C-full.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–95 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–96 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -893,8 +923,13 @@ design-system шим портированными атомами и всеми 2
 полного reference-порта `Tooltip` (placement-engine, `ShortcutKeys`,
 `input-modality`); раунд 95 (**C2.3**) портировал ядро `Menu`/`MenuItemButton`
 по `Menu.tsx`/`MenuRow.tsx` (ряды, selection, aria, клавиатурный walk,
-one-level submenu, dismissal; рантайм-артефакт 405 323 байта), поэтому
-остаток — полная submenu-машинерия + `MenuGroup`, markdown-компоненты,
+one-level submenu, dismissal; рантайм-артефакт 405 323 байта), а раунд 96
+(**C2.4**) закрыл reference submenu page-layout (single-page back-row с
+`data-menu-back`, Escape/ArrowLeft с фокусом на родителе), hover grace
+200 мс и `MenuGroup`/`observeStickyMenuGroups` (sticky-заголовки через
+IntersectionObserver/ResizeObserver; рантайм-артефакт 415 972 байта), поэтому
+остаток — упрощённая детальная `useMenuSubmenu`-механика
+focus-transition/page-anchor, markdown-компоненты,
 store/renderer, `chain`/`hoc`, `ownerProps` от реальных
 shell-сайтов.
 
@@ -906,7 +941,7 @@ shell-сайтов.
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite/C2/C2.1/C2.2/C2.3-ограничения: с раунда 93 (C2.1) design-system **портирован из
+- C-lite/C2/C2.1–C2.4-ограничения: с раунда 93 (C2.1) design-system **портирован из
   reference-исходников** (`deepseek-ai/deepseek-harness` @ `39163dd`,
   `packages/client/ui-primitives/src`): атомы `Button`, `Input`, `Switch`,
   `Checkbox`, `Tag`, `Pill`, `SegmentedControl`, `SegmentedTabs`,
@@ -914,10 +949,11 @@ shell-сайтов.
   `Menu`, `MenuSurface`, `Tooltip` и **204** `Icon*` (точные SVG-пути,
   regular/medium stroke) — вместо прежней независимой реализации 30+
   экспортов с 18 иконками. Частичным остаётся: ядро `Menu` портировано в C2.3
-  (раунд 95), но полная submenu-машинерия (`useMenuSubmenu`, single-panel
-  back-page, меж-уровневый grace) и `MenuGroup`/`observeStickyMenuGroups` — нет
+  (раунд 95), а в C2.4 (раунд 96) — reference submenu page-layout
+  (single-page back-row) с hover grace и `MenuGroup`/`observeStickyMenuGroups`
   (полный `Tooltip` закрыт в C2.2,
-  раунд 94), `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
+  раунд 94), поэтому остаётся только упрощённая детальная
+  `useMenuSubmenu`-механика focus-transition/page-anchor; `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
   (upstream требует shiki/katex/mdast), `Spinner`/`useAnchoredPosition` —
   тоже dshr-расширения; `wide`
   в host-state сейчас всегда true, conformance-набор — **n=11**
@@ -953,19 +989,25 @@ shell-сайтов.
   нет (in-memory/файловые stand-in'ы, семантика конфигурационного движка DSH не
   воспроизведена). Порт `ui-primitives` закрыт в C2.1 (раунд 93): атомы и все
   204 иконки портированы из reference, а в C2.2 (раунд 94) доведён полный
-  `Tooltip`, в C2.3 (раунд 95) — ядро `Menu`/`MenuItemButton`; полная
-  submenu-машинерия + `MenuGroup` и markdown-компоненты остаются dshr-версиями; следующий кандидат
-  reference-работы — store seats/renderer, chain dispatch/hoc-nesting и
-  ownerProps от реальных shell-сайтов.
-- C2.1/C2.2/C2.3-остатки (раунды 93–95): портированы атомы и все 204 иконки;
+  `Tooltip`, в C2.3 (раунд 95) — ядро `Menu`/`MenuItemButton`, в C2.4
+  (раунд 96) — submenu page-layout с hover grace и `MenuGroup`/
+  `observeStickyMenuGroups`; остаются упрощённая детальная
+  `useMenuSubmenu`-механика focus-transition/page-anchor и markdown-компоненты;
+  следующий кандидат reference-работы — store seats/renderer,
+  chain dispatch/hoc-nesting и ownerProps от реальных shell-сайтов.
+- C2.1–C2.4-остатки (раунды 93–96): портированы атомы и все 204 иконки;
   полный `Tooltip` доведён в C2.2, а в C2.3 — ядро `Menu`
   (`MenuItemButton`, data/компонентные ряды, separators/labels, reserve-icon,
   selection `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,
   `ShortcutKeys`, footer-группа, `children`-ряды, one-level submenu, клавиатурный
   walk, outside/iframe-blur dismissal, `usePointerGrace`, `focusWithoutRing`,
-  portal-позиционирование, dense/compact). Не портированы полная
-  submenu-машинерия (`useMenuSubmenu`: single-panel back-page, меж-уровневый
-  hover grace) и `MenuGroup`/`observeStickyMenuGroups`; `MarkdownText`/`JsonBlock`
+  portal-позиционирование, dense/compact), в C2.4 — reference submenu
+  page-layout (single-page back-row `data-menu-back`, Escape/ArrowLeft на
+  родителя), 200-мс hover grace между карточками и
+  `MenuGroup`/`observeStickyMenuGroups` (sticky-заголовки через
+  IntersectionObserver/ResizeObserver). Остаётся упрощённой детальная
+  `useMenuSubmenu`-механика focus-transition/page-anchor (у нас CSS/JS-позиции);
+  `MarkdownText`/`JsonBlock`
   остаются упрощёнными dshr-расширениями (upstream зависит от
   shiki/katex/mdast), `Spinner`/`useAnchoredPosition` — dshr-расширения;
   store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
@@ -1030,11 +1072,17 @@ shell-сайтов.
   95 — **C2.3**: ядро `Menu`/`MenuItemButton` портировано по
   `Menu.tsx`/`MenuRow.tsx` (ряды/selection/aria, клавиатурный walk, one-level
   submenu, dismissal; `usePointerGrace`/`focusWithoutRing`/`MENU_TRANSITION_MS`/
-  `isMobileDevice` экспортированы), рантайм-артефакт — 405 323 байта.
+  `isMobileDevice` экспортированы), рантайм-артефакт — 405 323 байта; раунд
+  96 — **C2.4**: reference submenu page-layout (`menu-submenu-position.ts`:
+  side-карточка или single-page с non-selecting back-row `data-menu-back`,
+  Escape/ArrowLeft с фокусом на родителе), 200-мс hover grace между
+  карточками и `MenuGroup`/`observeStickyMenuGroups` (sticky-заголовки через
+  IntersectionObserver/ResizeObserver), рантайм-артефакт — 415 972 байта.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
-  (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, C2.3 — ядро Menu, но
-  полная submenu-машинерия + `MenuGroup` и
-  markdown-компоненты остаются упрощёнными),
+  (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, C2.3 — ядро Menu,
+  C2.4 — submenu page-layout/hover grace/MenuGroup; остаются упрощённая
+  детальная `useMenuSubmenu`-механика focus-transition/page-anchor и
+  markdown-компоненты),
   SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
   ownerProps от реальных shell-сайтов),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии
