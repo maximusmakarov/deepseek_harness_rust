@@ -501,8 +501,8 @@ renderer-семантика, `chain`-диспетчеризация/`hoc`-вло
 Проверка: smoke 82/82 (C2-probe + ui-kit fixture с `Tooltip`; `ShortcutKeys`
 экспортирован и рендерится внутри бабла),
 bridge harness 102, workspace 365+3, web-e2e 16/16; общий рантайм-артефакт —
-387 613 байт. Осталось: полный `Menu`
-(submenu/focus-машинерия), markdown-стек, store/renderer, chain/hoc.
+387 613 байт. Осталось: полный `Menu` (submenu/focus-машинерия; ядро Menu закрыто в C2.3),
+markdown-стек, store/renderer, chain/hoc.
 
 ## C2.3: Menu по reference-ядру (15.11.2026, раунд 95)
 

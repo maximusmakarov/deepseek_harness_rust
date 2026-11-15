@@ -452,9 +452,7 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   `PathLabel` (directory/name split, clipped-маска, `title`);
 - `Toast` (portal, `role=alert`, success check-circle, `holdMs` + fade,
   actions, anchor-центрирование), `Modal` (portal, mask, Escape, focus,
-  warning tone, headless, footer), `Menu` (data-rows/separators/labels,
-  fixed-позиционирование, outside/Escape, selectedId(s), portal; полный
-  submenu/focus-движок не портирован), `MenuSurface` (forwardRef,
+  warning tone, headless, footer), `MenuSurface` (forwardRef,
   `data-menu-material`/`phase`), `Menu`/`MenuItemButton` — **порт ядра**: data-
   и компонентные ряды, separators/labels, reserve-icon, selection
   `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,

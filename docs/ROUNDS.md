@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–94)
+# Журнал раундов паритета (1–95)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -798,11 +798,45 @@ streaming-прокси.
     seats/renderer, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
     реальных shell-сайтов — C-full.
 
+- 95: **C2.3** — `Menu`/`MenuItemButton` по reference-ядру
+  ([ADR-040](adr/040-react-client-half.md) §«C2.3», [PLUGINS.md](PLUGINS.md)).
+  Последний упрощённый компонент набора переписан по
+  `packages/client/ui-primitives/src/Menu.tsx`/`MenuRow.tsx`:
+  - **ряды** — data-`items` и компонентные `MenuItemButton`, separators/labels,
+    `reserveIcon`-колонки (contextual), selection `check`/`fill`, `danger`,
+    `current`, disabled-reason через reference `Tooltip`, `shortcut` +
+    `ShortcutKeys`, aria (`menuitem`/`haspopup`/`expanded`/`disabled`/
+    `describedby`/`keyshortcuts`/`current`);
+  - **структура** — `children`-ряды, `footer`-группа, `dense`/`compact`,
+    portal-позиционирование по anchor-rect (`minWidthFromAnchor`, `anchorPoint`,
+    `align`/`side`), contextual-атрибут;
+  - **клавиатура** — Arrow/Home/End walk с roving focus, Escape закрывает и
+    возвращает фокус (`focusWithoutRing`), Tab «settles» ряд / Shift+Tab
+    уходит, ArrowRight/Left входят/выходят из submenu, `autoFocus`;
+  - **submenu** — one-level панель, открывается hover/ArrowRight и
+    закрывается по ArrowLeft/Escape/выбору; **не** портированы полная
+    `useMenuSubmenu` машинерия (single-panel back-page, меж-уровневый grace)
+    и `MenuGroup`/`observeStickyMenuGroups`;
+  - **поведение** — outside-pointer dismissal, закрытие при blur в iframe,
+    `closeOnPointerLeave` с 200-мс grace (`usePointerGrace`), возврат фокуса
+    на триггер после выбора/Escape; экспортированы `MenuItemButton`,
+    `MENU_TRANSITION_MS`, `usePointerGrace`, `focusWithoutRing`,
+    `isMobileDevice`;
+  - Проверки: smoke **82/82** (menu-рендер в C2-probe и реальные плагины),
+    bridge harness 102, cordis lib 26, server `plugins_live` 16, workspace
+    365 passed + 3 ignored (desktop 21, итого 386), web-e2e 16/16; общий
+    рантайм-артефакт вырос с **387 613** до **405 323 байт**.
+  - Границы C2.3: полная submenu-машинерия + `MenuGroup`/sticky-groups не
+    портированы; `MarkdownText`/`JsonBlock` остаются упрощёнными
+    dshr-расширениями (upstream требует shiki/katex/mdast); store
+    seats/renderer, `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от
+    реальных shell-сайтов — C-full.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–94 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–95 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -857,8 +891,11 @@ design-system шим портированными атомами и всеми 2
 (`packages/client/ui-primitives/src`), поэтому `@deepseek-ai/dsh-client-ui-primitives`
 больше не «похожий» шим, а reference-порт; раунд 94 (**C2.2**) довёл до
 полного reference-порта `Tooltip` (placement-engine, `ShortcutKeys`,
-`input-modality`), поэтому остаток — полный `Menu` (submenu/focus),
-markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps` от реальных
+`input-modality`); раунд 95 (**C2.3**) портировал ядро `Menu`/`MenuItemButton`
+по `Menu.tsx`/`MenuRow.tsx` (ряды, selection, aria, клавиатурный walk,
+one-level submenu, dismissal; рантайм-артефакт 405 323 байта), поэтому
+остаток — полная submenu-машинерия + `MenuGroup`, markdown-компоненты,
+store/renderer, `chain`/`hoc`, `ownerProps` от реальных
 shell-сайтов.
 
 Открыто и не заблокировано:
@@ -869,15 +906,17 @@ shell-сайтов.
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite/C2/C2.1/C2.2-ограничения: с раунда 93 (C2.1) design-system **портирован из
+- C-lite/C2/C2.1/C2.2/C2.3-ограничения: с раунда 93 (C2.1) design-system **портирован из
   reference-исходников** (`deepseek-ai/deepseek-harness` @ `39163dd`,
   `packages/client/ui-primitives/src`): атомы `Button`, `Input`, `Switch`,
   `Checkbox`, `Tag`, `Pill`, `SegmentedControl`, `SegmentedTabs`,
   `DisclosureRow`, `TextShimmer`, `StateDot`, `PathLabel`, `Toast`, `Modal`,
   `Menu`, `MenuSurface`, `Tooltip` и **204** `Icon*` (точные SVG-пути,
   regular/medium stroke) — вместо прежней независимой реализации 30+
-  экспортов с 18 иконками. Частичным остаётся: полный `Menu`
-  (submenu/focus-машинерия) не портирован (полный `Tooltip` закрыт в C2.2,
+  экспортов с 18 иконками. Частичным остаётся: ядро `Menu` портировано в C2.3
+  (раунд 95), но полная submenu-машинерия (`useMenuSubmenu`, single-panel
+  back-page, меж-уровневый grace) и `MenuGroup`/`observeStickyMenuGroups` — нет
+  (полный `Tooltip` закрыт в C2.2,
   раунд 94), `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
   (upstream требует shiki/katex/mdast), `Spinner`/`useAnchoredPosition` —
   тоже dshr-расширения; `wide`
@@ -914,12 +953,19 @@ shell-сайтов.
   нет (in-memory/файловые stand-in'ы, семантика конфигурационного движка DSH не
   воспроизведена). Порт `ui-primitives` закрыт в C2.1 (раунд 93): атомы и все
   204 иконки портированы из reference, а в C2.2 (раунд 94) доведён полный
-  `Tooltip`, но полный `Menu` и markdown-компоненты остаются dshr-версиями; следующий кандидат
+  `Tooltip`, в C2.3 (раунд 95) — ядро `Menu`/`MenuItemButton`; полная
+  submenu-машинерия + `MenuGroup` и markdown-компоненты остаются dshr-версиями; следующий кандидат
   reference-работы — store seats/renderer, chain dispatch/hoc-nesting и
   ownerProps от реальных shell-сайтов.
-- C2.1/C2.2-остатки (раунды 93–94): портированы атомы и все 204 иконки;
-  полный `Tooltip` доведён в C2.2, а полный `Menu` (submenu/focus-машинерия)
-  не портирован — работает упрощённый вариант; `MarkdownText`/`JsonBlock`
+- C2.1/C2.2/C2.3-остатки (раунды 93–95): портированы атомы и все 204 иконки;
+  полный `Tooltip` доведён в C2.2, а в C2.3 — ядро `Menu`
+  (`MenuItemButton`, data/компонентные ряды, separators/labels, reserve-icon,
+  selection `check`/`fill`, `danger`/`current`, disabled-reason через Tooltip,
+  `ShortcutKeys`, footer-группа, `children`-ряды, one-level submenu, клавиатурный
+  walk, outside/iframe-blur dismissal, `usePointerGrace`, `focusWithoutRing`,
+  portal-позиционирование, dense/compact). Не портированы полная
+  submenu-машинерия (`useMenuSubmenu`: single-panel back-page, меж-уровневый
+  hover grace) и `MenuGroup`/`observeStickyMenuGroups`; `MarkdownText`/`JsonBlock`
   остаются упрощёнными dshr-расширениями (upstream зависит от
   shiki/katex/mdast), `Spinner`/`useAnchoredPosition` — dshr-расширения;
   store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
@@ -980,9 +1026,14 @@ shell-сайтов.
   `delayMs`/`focusDelayMs`, `openOnClick`-pinning, `onlyWhenClipped`/
   `maxWidth`, portal, nested-suppression, `aria-describedby`, pointer-modality,
   forward ref; `tooltip-placement.ts` и `input-modality.ts` портированы как
-  есть, `ShortcutKeys` экспортирован), рантайм-артефакт — 387 613 байт.
+  есть, `ShortcutKeys` экспортирован), рантайм-артефакт — 387 613 байт; раунд
+  95 — **C2.3**: ядро `Menu`/`MenuItemButton` портировано по
+  `Menu.tsx`/`MenuRow.tsx` (ряды/selection/aria, клавиатурный walk, one-level
+  submenu, dismissal; `usePointerGrace`/`focusWithoutRing`/`MENU_TRANSITION_MS`/
+  `isMobileDevice` экспортированы), рантайм-артефакт — 405 323 байта.
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
-  (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, но полный `Menu` и
+  (C2.1 закрыл атомы и иконки, C2.2 — полный Tooltip, C2.3 — ядро Menu, но
+  полная submenu-машинерия + `MenuGroup` и
   markdown-компоненты остаются упрощёнными),
   SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
   ownerProps от реальных shell-сайтов),

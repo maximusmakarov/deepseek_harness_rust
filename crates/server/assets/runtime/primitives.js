@@ -6,9 +6,12 @@
  * reference artwork (artwork.ts) and inlined instead of using the document
  * sprite. Styling uses the reference `--dsw-alias-*` tokens with fallbacks.
  *
- * Not ported (documented as partial): Menu (full submenu/focus-management
- * machinery), Tooltip (full placement engine), MarkdownText/JsonBlock (their
- * upstream implementations depend on markdown/shiki/katex packages).
+ * Ported in full: Tooltip (incl. tooltip-placement.ts, ShortcutKeys,
+ * input-modality.ts) and the Menu core (rows/selection/aria/keyboard walk,
+ * one-level submenu, pointer grace, portal placement). Still partial:
+ * Menu's full submenu machinery (useMenuSubmenu single-panel back-page,
+ * MenuGroup/sticky groups) and MarkdownText/JsonBlock (their upstream
+ * implementations depend on markdown/shiki/katex packages).
  */
 (function () {
   var React = window.React;
