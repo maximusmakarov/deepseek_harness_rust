@@ -478,9 +478,16 @@ Host-state приходит от шелла сообщением `host-state` (`
 
 **Дизайн-система:** host-рантайм публикует
 `@deepseek-ai/dsh-client-ui-primitives` — **частичный независимый шим**
-(не пакет upstream): `Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`,
-`JsonBlock`, `MarkdownText` на host React и CSS-переменных темы. Этого хватает
-простым плагинам; полный набор `@deepseek-ai/dsh-client-ui-*` — тир C-full.
+(не пакет upstream): `Button`, `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`,
+`Menu`, `MenuSurface`, `Modal`, `Toast`, `Tooltip`, `SegmentedControl`,
+`SegmentedTabs`, `DisclosureRow`, `PathLabel`, `TextShimmer`, `StateDot`,
+`Spinner`, `JsonBlock`, `MarkdownText`, `Icon` + именованные иконки
+(`IconCloseOutlineRegular`, `IconChevronDownOutlineRegular`, `IconSearchOutlineRegular`,
+`IconSettingsOutlineRegular`, `IconWarning*`, …; любое неизвестное `Icon*`-имя
+резолвится в генерик-глиф), `writeClipboard`, хуки
+`useAnchoredPosition`/`useDismissOnOutsidePointer` на host React и
+CSS-переменных темы (шиму 30+ экспортов, C2). Этого хватает реальным плагинам
+набора conformance; полный набор `@deepseek-ai/dsh-client-ui-*` — тир C-full.
 Компоненты `React.memo`/`forwardRef` принимаются как тип слота; регистрации с
 `key` без `id` получают уникальный id (`<slot>:<key>`), а
 `ctx.get('slots').entries(key)` отдаёт референсную форму с `component`/`options`.
@@ -488,7 +495,7 @@ Host-state приходит от шелла сообщением `host-state` (`
 (английский словарь; шелл англоязычный). Таймеры: `ctx.interval`/`ctx.timeout`
 снимаются вместе с фреймом.
 
-**Conformance (n=9):** реальные MIT-плагины с upstream-клиентской половиной без
+**Conformance (n=11):** реальные MIT-плагины с upstream-клиентской половиной без
 изменений (в манифесте только `host_modules`):
 
 - `@kt11/dsh-deepseek-balance@0.2.1` — React-карточка в `sidebar.footer.action`,
@@ -514,11 +521,11 @@ Host-state приходит от шелла сообщением `host-state` (`
   `@goodandready/dsh-plugin-notify@0.4.9` — строки в `plugins.item` /
   `plugins.row.config`.
 
-Все девять fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в
+Все одиннадцать fixture лежат в `crates/cordis/tests/fixtures/` (sha256 в
 `package.json`). Известные ограничения conformance-набора:
 `@michengai/dsh-archive-manager` требует `unsafe-eval` в CSP (не включён),
 `@michengai/dsh-skills-manager` падает на инициализации бандла (`Object.assign`
-над undefined) — оба записаны в TECH-DEBT и не входят в n=9.
+над undefined) — оба записаны в TECH-DEBT и не входят в n=11.
 
 Чего не хватает и после тиров A и B: design-system пакетов
 `@deepseek-ai/dsh-client-ui-*`, React-контекста и состояния шелла, композиции между

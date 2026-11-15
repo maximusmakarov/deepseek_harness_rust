@@ -1,0 +1,37 @@
+{
+  "name": "dsh-plugin-studio",
+  "version": "0.3.1",
+  "description": "DSH plugin manager: official/community grouped plugin list with localized descriptions, one-click enable/disable and uninstall, plus a GitHub dsh-plugin market tab. (conformance fixture)",
+  "type": "module",
+  "main": "./lib/stub.mjs",
+  "exports": {
+    ".": "./lib/stub.mjs",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/client.js",
+    "lib/stub.mjs",
+    "LICENSE",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "host_modules": [
+        "react",
+        "react-dom/client",
+        "react/jsx-runtime",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "dshrFixture": {
+    "upstream": "https://www.npmjs.com/package/dsh-plugin-studio",
+    "upstreamVersion": "0.3.1",
+    "upstreamLicense": "MIT",
+    "clientSha256": "1194c18bcd1b81e747e886da24f1913d12e36de6d883ff6a8d53bce16be74ed3",
+    "changes": "client half and LICENSE copied verbatim; host main replaced by a stub; dsh.client.host_modules added to opt into the shared host runtime and primitives shim"
+  }
+}

@@ -13,12 +13,13 @@
   score 80+, открытых S1/S2 нет)
 - should: 6 done, 1 partial; could: 1 done в скоринге + 4 dshr-дополнения вне
   скоринга (deep link, plugin-shipped runtime, shared host module table и
-  C-lite React-компоненты слотов); раунд 84 добавил C1 host HTTP-маршруты плагинов
-  в ту же строку — новых скоринговых строк нет, additions по-прежнему `original=no`
+  C-lite React-компоненты слотов); раунд 84 добавил C1 host HTTP-маршруты плагинов,
+  а раунд 85 — C2 (design-system шим с 30+ экспортами и conformance n=11) в ту же
+  строку — новых скоринговых строк нет, additions по-прежнему `original=no`
 - сознательно вне скоупа (`skip`): полный React-компонентный контракт, инъекция в
   DOM шелла, внешние модули (`dsh.client.external`) — следствие ADR-013 §5, а не
-  недоделка. C-lite (раунды 79–83; conformance n=9 — цель ADR-013 §6 8–12
-  реальных плагинов достигнута) даёт частичную React-совместимость для простых
+  недоделка. C-lite (раунды 79–85; conformance n=11 — цель ADR-013 §6 8–12
+  реальных плагинов достигнута с запасом) даёт частичную React-совместимость для простых
   UI-плагинов вне скоринга; путь к полной — [ADR-040](../adr/040-react-client-half.md)
   (Proposed: C-full после C-lite, решение владельца)
 
@@ -158,11 +159,38 @@ code:"not-configured"}` без ключа, `/dsh-usage/sessions?tz=UTC` → `200
 Накопленные dshr-дополнения (deep link, plugin-shipped runtime, shared host module
 table, C-lite) по-прежнему `original=no`, поэтому знаменатель не растёт.
 
+Раунд 85 расширил **ту же строку** C-lite, не добавляя новых скоринговых строк:
+design-system шим вырос с 7 до 30+ экспортов по фактическим импортам реальных
+плагинов — компоненты `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`, `Menu`,
+`MenuSurface` (forwardRef-контейнер), `Modal`, `Toast`, `SegmentedControl`,
+`SegmentedTabs`, `DisclosureRow`, `PathLabel`, `TextShimmer` (прежние
+`Button`/`StateDot`/`Tooltip`/`Icon`/`Spinner`/`JsonBlock`/`MarkdownText`
+сохранены, `Tooltip` стал `forwardRef`), именованные `Icon*`-компоненты с
+SVG-глифами и Proxy-fallback для неизвестных имён, `writeClipboard`
+(navigator.clipboard + execCommand fallback) и хуки `useAnchoredPosition` /
+`useDismissOnOutsidePointer`. Conformance вырос до **n=11**: vendored
+`dsh-plugin-debugging@0.8.1` (MIT, client sha256 `9b828160…`) и
+`dsh-plugin-studio@0.3.1` (MIT, client sha256 `1194c18b…`) — клиентские половины
+upstream без изменений, host-половины — заглушки; обе активируются без ошибок, но
+их UI гейтится host-сервисами `pluginManager`/settings и остаётся
+несмонтированным (штатная деградация, как у `dsh-remote` с опциональными
+сервисами). Smoke (79/79) добавляет две проверки: дерево всех смоделированных
+примитивов рендерится в host-React кадре (12 текстовых маркеров, портальные
+Menu/Modal/Toast), а реальные вклады `dsh-plugin-notify`/`dsh-mnemon` монтируются
+в диалоге Plugins без `__DSHR_LAST_ERROR__`. Строка по-прежнему
+**dshr-дополнение** (`original=no`, could/yes), новых строк в матрице нет,
+поэтому арифметика не меняется: must 13/13 (13 × 3 = 39 из 39), should 6 done
+(6 × 2 = 12 из 12) и 1 partial (1 × 2 × ½ = 1 из 2), could 1 done (1 × 1 = 1 из 1)
+— **39 + 12 + 1 + 1 = 53 из 54 = 98.15 → 98.1**. Если бы C2 считался фичей
+оригинала, знаменатель вырос бы; в матрице строка намеренно помечена `original=no`.
+Накопленные dshr-дополнения (deep link, plugin-shipped runtime, shared host module
+table, C-lite) по-прежнему `original=no`, поэтому знаменатель не растёт.
+
 Что осталось из should (не блокирует):
 
 | Фича | Состояние | Чем отличается |
 |---|---|---|
-| Bundles built for the reference module table | partial | шим `__ModuleLoader__.load({id, factory})` исполняет `factory` и `apply(ctx)`; `require` резолвит модули из `dsh.client.runtime`, если половина их опубликовала (в PoC — React 18.3.1), или из общего рантайма хоста, если половина опционально объявила `dsh.client.host_modules` (React 18.3.1 + jsx-шимы + частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives`). Полной таблицы модулей DSH (полный design-system, React-контекст шелла) нет — это единственная незакрытая should-фича, поэтому score 98.1, а не 100 |
+| Bundles built for the reference module table | partial | шим `__ModuleLoader__.load({id, factory})` исполняет `factory` и `apply(ctx)`; `require` резолвит модули из `dsh.client.runtime`, если половина их опубликовала (в PoC — React 18.3.1), или из общего рантайма хоста, если половина опционально объявила `dsh.client.host_modules` (React 18.3.1 + jsx-шимы + частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives` — с раунда 85 (C2) 30+ экспортов, включая компоненты, именованные `Icon*` с Proxy-fallback и хуки). Полной таблицы модулей DSH (полный design-system, React-контекст шелла) нет — это единственная незакрытая should-фича, поэтому score 98.1, а не 100 |
 
 ## Чем это подтверждено
 
@@ -178,9 +206,9 @@ table, C-lite) по-прежнему `original=no`, поэтому знамен�
 | loading | серверные тесты inline и capability-ассетов; smoke: многофайловый бандл и module-table бандл рендерятся |
 | runtime | `crates/cordis/src/client.rs`: `ClientHalf.runtime`/`runtime_path`, `host_page`/`host_page_assets` встраивают runtime до бандла, `requireShim` резолвит `window.__DSHR_MODULES__`; `crates/server/src/lib.rs`: `/host` читает и валидирует runtime (confined к пакету, ≤ 8 МиБ, `</script>` → 400); тесты: cordis +4, `plugins_live` +3, smoke +3 (discovery, runtime-before-bundle, require render); React 18.3.1 PoC (UMD в `runtime.js`, 143 197 байт) — рендер, `useState`, `ctx.onTheme` проверены вручную |
 | shared runtime | `crates/cordis/src/client.rs`: `HOST_MODULES`, `HOST_RUNTIME_VERSION`, `host_runtime_url`, `PageRuntime` (порядок shared → plugin runtime → bundle); `crates/server/src/lib.rs`: `GET /v1/runtime/{file}` (immutable-кэш, 404 на неизвестную версию), `client_host_csp` (origin сервера только для opt-in кадров); `crates/server/assets/runtime/` + `scripts/check-runtime-assets.sh`; тесты: cordis +4, `plugins_live` +3, smoke +5 (discovery `host_modules`, immutable-артефакт, host-страница без встроенного React, React из общего рантайма, `useState`) |
-| react slots / host state | `crates/cordis/src/bridge.js`: React-режим `ctx.slots.register(entry, Component)`, один React-root на кадр, `host-state` (`theme`/`wide`/`session`/`sessions`), hooks `useTheme`/`useSession`/`useSessions`/`useHostState`, `ctx.get('sessions')`, error boundary; `crates/web/src/main.rs`: `push_host_state_all`; `crates/cordis/src/client.rs`: `HOST_MODULES` с id примитивов; тесты: bridge harness 87 checks (host-state/`ctx.get`/`ctx.get('slots')`/`locale`/`ctx.inject`/`__DSHR_LAST_ERROR__` + раунд-81 `reactScenario`: memo-тип, host-props/hooks, `t()`-место, keyed-ids, форма `slots.entries`), smoke 75/75 (фикстуры `hooks`, `hosted`, `dsh-remote`, `ruoyang-balance`, `dsh-genui`, `dsh-session-superagent`, `dsh-mnemon`, `dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`; C1 host-маршруты — через реальную host-половину `@kt11/dsh-deepseek-balance`) |
-| design-system primitives | `crates/server/assets/runtime/primitives.js` — независимый **частичный** шим `@deepseek-ai/dsh-client-ui-primitives` (`Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`; с раунда 81 — ещё `JsonBlock`/`MarkdownText`, всего 7) на host React и CSS-переменных темы, в `checksums.txt`/`README.md`; smoke: фикстура `ui-kit` резолвит его из общего рантайма, а genui использует `JsonBlock`/`MarkdownText` |
-| conformance | Девять реальных MIT-плагинов в `crates/cordis/tests/fixtures/` (n=9 — цель ADR-013 §6 8–12 достигнута; клиентские половины upstream без изменений, sha256 в `package.json`, host-половины — заглушки, кроме `@kt11/dsh-deepseek-balance` с раунда 84): `@kt11/dsh-deepseek-balance@0.2.1` — smoke: React-карточка в `sidebar.footer.action`, инжект собственного CSS, popup по клику; с раунда 84 (C1) host-половина реальная (upstream без изменений, host sha256 `8771ae90…`), и её маршруты отвечают через прокси: 500 `not-configured` без ключа и 200 JSON для usage-маршрута; `dsh-remote@1.1.2` (раунд 80) — smoke: discovery с примитивами в `host_modules`, registry-кадр без ошибок при отсутствии опциональных сервисов, React-слот `conversation.session.header.actions` монтируется в регион `conversation.header`; `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (раунд 81, sha256 `ca700695…`) — плавающий бейдж в `shell.overlay` через `ctx.effect`/`ctx.interval`/`ctx.locale`, рендерится без ошибок; `dsh-genui@0.3.3` (раунд 81, sha256 `8f0500ad…`) — тумблер GenUI в `conversation.input.left` и keyed-регистрация `conversation.chat.node` через `React.memo`, рендерится без ошибок; `dsh-session-superagent@0.10.12` (раунд 82, sha256 `d58f0fa2…`) — composer dock `conversation.composer.dock` монтируется в регион `composer.actions` без ошибок; `dsh-mnemon@0.5.46` (раунд 82, sha256 `d967402b…`) — крупный multi-region плагин: активируется, публикует слоты и сверяет собственные shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot`; `@99galaxy/dsh-plugin-market@1.2.2` (раунд 83, sha256 `27abb2db…`) — запись в сайдбаре (`sidebar.panellist` → регион `sidebar.footer`), smoke: кадр монтируется; `dsh-plugin-codegraph-panel@0.6.5` (раунд 83, sha256 `f834fadb…`) — панель `settings.section` (upstream-флаг `immediately: true`), активируется и публикует слот; `@goodandready/dsh-plugin-notify@0.4.9` (раунд 83, sha256 `7a2843fa…`) — строки `plugins.item`/`plugins.row.config` (регион `plugins.detail`), primitives + react, активируется и публикует слоты. Не входят в набор: `@michengai/dsh-archive-manager` (нужен `'unsafe-eval'` в CSP) и `@michengai/dsh-skills-manager` (падение на инициализации бандла) |
+| react slots / host state | `crates/cordis/src/bridge.js`: React-режим `ctx.slots.register(entry, Component)`, один React-root на кадр, `host-state` (`theme`/`wide`/`session`/`sessions`), hooks `useTheme`/`useSession`/`useSessions`/`useHostState`, `ctx.get('sessions')`, error boundary; `crates/web/src/main.rs`: `push_host_state_all`; `crates/cordis/src/client.rs`: `HOST_MODULES` с id примитивов; тесты: bridge harness 87 checks (host-state/`ctx.get`/`ctx.get('slots')`/`locale`/`ctx.inject`/`__DSHR_LAST_ERROR__` + раунд-81 `reactScenario`: memo-тип, host-props/hooks, `t()`-место, keyed-ids, форма `slots.entries`), smoke 79/79 (фикстуры `hooks`, `hosted`, `ui-kit`, `dsh-remote`, `ruoyang-balance`, `dsh-genui`, `dsh-session-superagent`, `dsh-mnemon`, `dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`, `dsh-plugin-debugging`, `dsh-plugin-studio`; C1 host-маршруты — через реальную host-половину `@kt11/dsh-deepseek-balance`) |
+| design-system primitives | `crates/server/assets/runtime/primitives.js` — независимый **частичный** шим `@deepseek-ai/dsh-client-ui-primitives` (`Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`; с раунда 81 — ещё `JsonBlock`/`MarkdownText`; с раунда 85 (C2) — 30+ экспортов: `Input`/`Switch`/`Checkbox`/`Tag`/`Pill`/`Menu`/`MenuSurface`/`Modal`/`Toast`/`SegmentedControl`/`SegmentedTabs`/`DisclosureRow`/`PathLabel`/`TextShimmer`, `writeClipboard`, `useAnchoredPosition`/`useDismissOnOutsidePointer` и 18 именованных `Icon*` с Proxy-fallback) на host React и CSS-переменных темы, в `checksums.txt`/`README.md`; smoke: фикстура `ui-kit` резолвит его из общего рантайма, genui использует `JsonBlock`/`MarkdownText`, а C2-проба рендерит дерево всех смоделированных примитивов (12 маркеров, портальные Menu/Modal/Toast) |
+| conformance | **Одиннадцать** реальных MIT-плагинов в `crates/cordis/tests/fixtures/` (n=11 — цель ADR-013 §6 8–12 достигнута с запасом; клиентские половины upstream без изменений, sha256 в `package.json`, host-половины — заглушки, кроме `@kt11/dsh-deepseek-balance` с раунда 84): `@kt11/dsh-deepseek-balance@0.2.1` — smoke: React-карточка в `sidebar.footer.action`, инжект собственного CSS, popup по клику; с раунда 84 (C1) host-половина реальная (upstream без изменений, host sha256 `8771ae90…`), и её маршруты отвечают через прокси: 500 `not-configured` без ключа и 200 JSON для usage-маршрута; `dsh-remote@1.1.2` (раунд 80) — smoke: discovery с примитивами в `host_modules`, registry-кадр без ошибок при отсутствии опциональных сервисов, React-слот `conversation.session.header.actions` монтируется в регион `conversation.header`; `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (раунд 81, sha256 `ca700695…`) — плавающий бейдж в `shell.overlay` через `ctx.effect`/`ctx.interval`/`ctx.locale`, рендерится без ошибок; `dsh-genui@0.3.3` (раунд 81, sha256 `8f0500ad…`) — тумблер GenUI в `conversation.input.left` и keyed-регистрация `conversation.chat.node` через `React.memo`, рендерится без ошибок; `dsh-session-superagent@0.10.12` (раунд 82, sha256 `d58f0fa2…`) — composer dock `conversation.composer.dock` монтируется в регион `composer.actions` без ошибок; `dsh-mnemon@0.5.46` (раунд 82, sha256 `d967402b…`) — крупный multi-region плагин: активируется, публикует слоты и сверяет собственные shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot`; `@99galaxy/dsh-plugin-market@1.2.2` (раунд 83, sha256 `27abb2db…`) — запись в сайдбаре (`sidebar.panellist` → регион `sidebar.footer`), smoke: кадр монтируется; `dsh-plugin-codegraph-panel@0.6.5` (раунд 83, sha256 `f834fadb…`) — панель `settings.section` (upstream-флаг `immediately: true`), активируется и публикует слот; `@goodandready/dsh-plugin-notify@0.4.9` (раунд 83, sha256 `7a2843fa…`) — строки `plugins.item`/`plugins.row.config` (регион `plugins.detail`), primitives + react, активируется и публикует слоты; `dsh-plugin-debugging@0.8.1` (раунд 85, C2, client sha256 `9b828160…`) и `dsh-plugin-studio@0.3.1` (раунд 85, C2, client sha256 `1194c18b…`) — примитивы-heavy половины (30+ экспортов шима): активируются без ошибок, но их UI гейтится host-сервисами `pluginManager`/settings и не монтируется. Не входят в набор: `@michengai/dsh-archive-manager` (нужен `'unsafe-eval'` в CSP) и `@michengai/dsh-skills-manager` (падение на инициализации бандла) |
 | host routes (C1) | `crates/cordis/src/bootstrap.mjs`: loopback-only `node:http`-сервер (`127.0.0.1`, случайный порт), per-process токен, `webServer.register({name, kind, path, handler})` с валидацией пути (package/reserved-префиксы), `ctx.inject(['webServer'])`, `credentials.resolve` из env, внутренний `__dshr_routes`; `crates/cordis/src/lib.rs`: `SidecarHttp`/`sidecar_http` (порт, токен, таблица маршрутов) и фильтр `__dshr_*`-инструментов из реестра; `crates/cordis/src/manager.rs`: `http_route(path)` (только exact) и `http_routes()`; `crates/server/src/lib.rs`: fallback `plugin_http_proxy` (allowlist, method/query/body, 1 МиБ request / 8 МиБ response / 15 с, reserved → 404, permissive CORS) и `client_host_csp(allow_connect)` — `connect-src <origin>` только для кадров с `host_modules`; тесты: `plugins_live` 14 (+2: `proxies_plugin_host_routes` — GET/query/POST/OPTIONS/404/reserved/снятие маршрутов, `plain_frames_stay_network_free`), smoke 75/75 (+3: реальная host-половина `@kt11/dsh-deepseek-balance` через кадр плагина) |
 | layout | smoke: `resize` выставляет высоту конкретного кадра (кламп 24–640 px) |
 
@@ -189,7 +217,7 @@ table, C-lite) по-прежнему `original=no`, поэтому знамен�
 ```sh
 cargo test -p dshr-cordis          # bridge harness (каталог слотов, регионы, slot-режим, React-режим/host-state, сервисы моста, React-контракт) + assets + runtime + shared host runtime + manager
 cargo test -p dshr-server --test plugins_live   # 14 checks incl. the C1 host-route proxy
-python3 scripts/plugin-smoke.py    # 75 проверок в headless Chrome (включая hooks, ui-kit и девять реальных плагинов: deepseek-balance, dsh-remote, ruoyang-balance, dsh-genui, dsh-session-superagent, dsh-mnemon, dsh-plugin-market, dsh-plugin-codegraph-panel, dsh-plugin-notify)
+python3 scripts/plugin-smoke.py    # 79 проверок в headless Chrome (включая hooks, ui-kit и одиннадцать реальных плагинов: deepseek-balance, dsh-remote, ruoyang-balance, dsh-genui, dsh-session-superagent, dsh-mnemon, dsh-plugin-market, dsh-plugin-codegraph-panel, dsh-plugin-notify, dsh-plugin-debugging, dsh-plugin-studio)
 ```
 
 Скоринг пересчитывается по весам выше вручную по матрице
@@ -203,7 +231,8 @@ python3 scripts/plugin-smoke.py    # 75 проверок в headless Chrome (в�
    framework-hooks, cardinality/scope/chain/hoc), React-контекст/состояние шелла
    и композиция между плагинами — только если появится запрос на экосистему DSH
    UI; C-lite (React-компоненты слотов с host-hooks/`ctx.get('sessions')` и
-   частичным design-system шимом, conformance n=9) сделан в раундах 79–83.
+   частичным design-system шимом) сделан в раундах 79–83, а раунд 85 (C2)
+   расширил шим до 30+ экспортов и довёл conformance до n=11.
 2. Host-маршруты DSH-плагинов: C1 (раунд 84) сделал их работающими
    (sidecar-сервер + allowlist-прокси + `connect-src`, реальная host-половина
    `@kt11/dsh-deepseek-balance` отвечает своим JSON); остатки — сервисы
@@ -212,10 +241,11 @@ python3 scripts/plugin-smoke.py    # 75 проверок в headless Chrome (в�
    в реестре host-only плагина. `wide` в host-state должен отражать фактическую
    ширину сайдбара.
 3. Conformance-набор из реальных npm-пакетов: цель M5b 8–12 плагинов
-   **достигнута** — n=9 (`@kt11/dsh-deepseek-balance@0.2.1`,
+   **достигнута с запасом** — n=11 (`@kt11/dsh-deepseek-balance@0.2.1`,
    `dsh-remote@1.1.2`, `@ruoyang/dsh-plugin-deepseek-balance@1.0.2`,
    `dsh-genui@0.3.3`, `dsh-session-superagent@0.10.12`, `dsh-mnemon@0.5.46`,
    `@99galaxy/dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5`,
-   `@goodandready/dsh-plugin-notify@0.4.9`); остаётся nightly-прогон и отчёт
+   `@goodandready/dsh-plugin-notify@0.4.9`, `dsh-plugin-debugging@0.8.1`,
+   `dsh-plugin-studio@0.3.1`); остаётся nightly-прогон и отчёт
    матрицы. Для eval-based бандлов нужен opt-in `'unsafe-eval'` CSP, а
    `@michengai/dsh-skills-manager` требует триажа инициализации.

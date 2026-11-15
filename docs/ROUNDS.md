@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–84)
+# Журнал раундов паритета (1–85)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 363 root-теста
@@ -465,11 +465,55 @@ release-бинарь воспроизводим.
     host-only плагина. Полный C-full (design-system, SlotMap-семантика,
     React-контекст шелла, триаж отклонённых плагинов) — решение владельца.
 
+- 85: **C2** — design-system шим расширен с 7 до 30+ экспортов по фактическим
+  импортам реальных плагинов, conformance **n=11**
+  ([ADR-040](adr/040-react-client-half.md), [PLUGINS.md](PLUGINS.md)):
+  - компоненты `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`, `Menu`,
+    `MenuSurface` (forwardRef-контейнер), `Modal`, `Toast`, `SegmentedControl`
+    (radiogroup + управление стрелками), `SegmentedTabs` (tablist),
+    `DisclosureRow`, `PathLabel`, `TextShimmer` — семантика и props взяты из
+    фактических вызовов `dsh-mnemon`/`dsh-session-superagent` (`Menu` c
+    `items/onSelect/anchor/selectedId/align/side/portal`, `Modal` c
+    `title/description/footer/onClose/closeLabel` и порталом, `Toast` c
+    `text/tone/holdMs/onDone/icon` и авто-dismiss, `SegmentedControl` c
+    `options/value/onChange`, `SegmentedTabs` c `items/value/onChange`,
+    `DisclosureRow` c `title/open/expandable/collapsedContent/headerAccessory`);
+    прежние `Button`/`StateDot`/`Tooltip`/`Icon`/`Spinner`/`JsonBlock`/
+    `MarkdownText` сохранены, `Tooltip` стал `forwardRef`;
+  - именованные `Icon*`-компоненты (close/chevron/search/settings/link/refresh/
+    warning/skill/check/info/plus/trash/copy) с SVG-глифами и **Proxy-fallback**
+    на генерик для любого неизвестного `Icon*`-имени — импорт больше не даёт
+    `undefined` (частая причина краха бандла); плюс `writeClipboard`
+    (navigator.clipboard + execCommand fallback) и хуки
+    `useAnchoredPosition`/`useDismissOnOutsidePointer`;
+  - conformance **n=11**: добавлены `dsh-plugin-debugging@0.8.1` (MIT, client
+    sha `9b828160…`, фикстура `crates/cordis/tests/fixtures/dsh-plugin-debugging/`)
+    и `dsh-plugin-studio@0.3.1` (MIT, client sha `1194c18b…`, фикстура
+    `crates/cordis/tests/fixtures/dsh-plugin-studio/`) — клиентские половины
+    upstream без изменений (sha256 в `package.json`), host-половины — заглушки;
+    обе активируются без ошибок, но их UI, требующий host-сервисов
+    (`pluginManager`/settings), остаётся несмонтированным — та же штатная
+    деградация, что у `dsh-remote` с опциональными сервисами;
+  - smoke: +2 проверки — дерево всех смоделированных примитивов рендерится в
+    host-React кадре (12 текстовых маркеров, включая портальные Menu/Modal/Toast),
+    а реальные вклады `dsh-plugin-notify`/`dsh-mnemon` монтируются в диалоге
+    Plugins без `__DSHR_LAST_ERROR__`;
+  - Проверки: smoke — 79/79 (+2), bridge harness 87, cordis lib 26, server
+    `plugins_live` 14, workspace 363 passed + 3 ignored (desktop 21, итого 384),
+    web-e2e 16/16; общий рантайм-артефакт вырос до **176 725 байт**
+    (React + ReactDOM UMD + `bootstrap.js` + `primitives.js`).
+  - Границы C2: полного design-system `@deepseek-ai/dsh-client-ui-*` и визуальных
+    токенов нет (шим — независимая реализация по фактическим импортам, набор
+    компонентов будет расти по мере роста conformance), host-сервисов
+    `pluginManager`/`settings` нет (поэтому UI `dsh-plugin-debugging`/
+    `dsh-plugin-studio` инертен), SlotMap-семантика, React-контекст шелла и
+    композиция между плагинами остаются C-full — решение владельца.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–84 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–85 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -491,7 +535,12 @@ conformance до **n=9** — целевой диапазон ADR-013 §6 (8–12
 работают end-to-end (loopback-сервер sidecar + allowlist-прокси dshr-сервера,
 `connect-src` на origin сервера для кадров с `host_modules`; реальная
 host-половина `@kt11/dsh-deepseek-balance` отвечает своим JSON через кадр
-плагина).
+плагина), а раунд 85 — **C2**: design-system шим расширен с 7 до 30+ экспортов
+по фактическим импортам реальных плагинов (компоненты, именованные `Icon*` с
+Proxy-fallback, хуки, `writeClipboard`), conformance доведён до **n=11**
+(`dsh-plugin-debugging@0.8.1`, `dsh-plugin-studio@0.3.1` активируются без
+ошибок, но их UI на отсутствующих host-сервисах `pluginManager`/settings
+остаётся несмонтированным).
 
 Открыто и не заблокировано:
 
@@ -501,10 +550,19 @@ host-половина `@kt11/dsh-deepseek-balance` отвечает своим J
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite-ограничения: design-system шим частичный (7 компонентов: `Button`,
-  `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`), `wide`
-  в host-state сейчас всегда true, conformance-набор — n=9
+- C-lite/C2-ограничения: design-system шим частичный — раунд 85 вырос с 7 до
+  30+ экспортов (24 компонента/функции: `Button`, `StateDot`, `Tooltip`,
+  `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`, `Input`, `Switch`, `Checkbox`,
+  `Tag`, `Pill`, `Menu`, `MenuSurface`, `Modal`, `Toast`, `SegmentedControl`,
+  `SegmentedTabs`, `DisclosureRow`, `PathLabel`, `TextShimmer`,
+  `writeClipboard`, `useAnchoredPosition`, `useDismissOnOutsidePointer`; плюс
+  18 именованных `Icon*` с Proxy-fallback), но это независимая реализация по
+  фактическим импортам, а не полный `@deepseek-ai/dsh-client-ui-*`; `wide`
+  в host-state сейчас всегда true, conformance-набор — **n=11**
   (цель ADR-013 §6 8–12 достигнута; остальные smoke-половины синтетические),
+  host-сервисов `pluginManager`/`settings` нет, поэтому UI
+  `dsh-plugin-debugging`/`dsh-plugin-studio` остаётся несмонтированным
+  (активация без ошибок — штатная деградация),
   SlotMap-семантика (`ownerProps`/framework-hooks) и React-контекст шелла
   по-прежнему отсутствуют, мостовые сервисы — подмножество референсных (нет
   проекций `sessions`, `sessionStats`), eval-based бандлы требуют ослабления CSP,
@@ -532,7 +590,12 @@ host-половина `@kt11/dsh-deepseek-balance` отвечает своим J
   раунд 84: **C1** — host HTTP-маршруты плагинов работают end-to-end
   (loopback-сервер sidecar, allowlist-прокси, `connect-src` на origin сервера,
   реальная host-половина balance-плагина), с честно записанными остатками
-  (сервисы `sessions`/`sessionProjections`, стриминг, аутентификация/LAN-политика).
+  (сервисы `sessions`/`sessionProjections`, стриминг, аутентификация/LAN-политика);
+  раунд 85: **C2** — design-system шим вырос с 7 до 30+ экспортов по фактическим
+  импортам (компоненты, именованные `Icon*` с Proxy-fallback, хуки,
+  `writeClipboard`), conformance n=11 (`dsh-plugin-debugging@0.8.1`,
+  `dsh-plugin-studio@0.3.1` активируются, но их UI ждёт host-сервисов
+  `pluginManager`/settings).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии

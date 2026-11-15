@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); 15.11.2026 (раунд 85) — **C2**: design-system шим расширен до 30+ экспортов по реальным импортам, conformance **n=11**; полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -289,3 +289,38 @@ workspace 361 passed + 3 ignored, web-e2e 16/16.
 в usage-маршрутах), SSE/WebSocket/стриминг, LAN-политика для plugin-маршрутов,
 аутентификация (сейчас как в DSH — public loopback). Полный C-full (design-system,
 SlotMap-семантика, React-контекст) остаётся решением владельца.
+
+## C2: расширение design-system шима (15.11.2026, раунд 85)
+
+Реальные плагины набора conformance используют гораздо больше, чем прежние 7
+компонентов. Шим расширен по фактическим импортам (не по догадкам):
+
+- **Компоненты:** `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`, `Menu`,
+  `MenuSurface`, `Modal`, `Toast`, `SegmentedControl`, `SegmentedTabs`,
+  `DisclosureRow`, `PathLabel`, `TextShimmer` (плюс прежние `Button`,
+  `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`) —
+  семантика и props взяты из вызовов `dsh-mnemon`/`dsh-session-superagent`
+  (`Menu` c `items/onSelect/anchor`, `Modal` c `title/description/footer`,
+  `Segmented*` c `options/items/value/onChange`, `DisclosureRow` c
+  `title/open/expandable/collapsedContent/headerAccessory`, и т.д.);
+- **Иконки:** именованные `Icon*`-компоненты с SVG-глифами для реально
+  используемых имён; для неизвестных `Icon*`-имён — Proxy-fallback на генерик,
+  чтобы импорт не давал `undefined` (частая причина краха бандла);
+- **Хуки:** `useAnchoredPosition` (fixed-позиция по anchor/panel refs с
+  clamp в viewport) и `useDismissOnOutsidePointer` — их супер-агент пробует
+  через `typeof === "function"` перед использованием host-попапа;
+- **`writeClipboard`** (navigator.clipboard + execCommand fallback).
+
+Проверка: smoke рендерит в host-React кадре дерево из всех новых примитивов
+(включая портальные Menu/Modal/Toast) и проверяет 12 текстовых маркеров;
+реальные `dsh-plugin-notify`/`dsh-mnemon` монтируют свои вклады в диалоге
+Plugins без ошибок (`__DSHR_LAST_ERROR__` пуст).
+
+Conformance **n=11**: добавлены `dsh-plugin-debugging@0.8.1` и
+`dsh-plugin-studio@0.3.1` (MIT, клиентские половины без изменений). Они
+активируются без ошибок; их UI, требующий host-сервисов
+(`pluginManager`/settings), остаётся несмонтированным — та же штатная
+деградация, что у `dsh-remote` с опциональными сервисами.
+
+Осталось от C2: полный design-system (тир C-full), больше компонентов по мере
+роста набора, точные визуальные токены upstream.

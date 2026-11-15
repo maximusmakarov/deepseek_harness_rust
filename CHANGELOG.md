@@ -192,4 +192,40 @@
   bytes). Full React compatibility (full design-system, host React context, SlotMap
   semantics) stays an owner decision (ADR-040 C-full, still Proposed).
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`) and a partial 7-component design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work for exact paths (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame), but the remaining C1 limits are recorded too: no `sessions`/`sessionProjections` services for usage routes, no SSE/WebSocket/streaming, exact paths only, unauthenticated plugin routes reachable on the LAN interface, and MCP meta-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the tool list of host-only plugins. The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C2 — the design-system shim grew from 7 to 30+ exports based on what
+  the real conformance plugins actually import (ADR-040 §C2). New components:
+  `Input`, `Switch`, `Checkbox`, `Tag`, `Pill`, `Menu` (`items`/`onSelect`/
+  `anchor`/`selectedId`/`align`/`side`/`portal`), `MenuSurface` (forwardRef
+  container), `Modal` (`title`/`description`/`footer`/`onClose`/`closeLabel`,
+  portalled), `Toast` (`text`/`tone`/`holdMs`/`onDone`/`icon`, auto-dismiss),
+  `SegmentedControl` (radiogroup + arrow keys), `SegmentedTabs` (tablist),
+  `DisclosureRow` (`title`/`open`/`expandable`/`collapsedContent`/
+  `headerAccessory`), `PathLabel`, `TextShimmer`; the previous `Button`,
+  `StateDot`, `Tooltip`, `Icon`, `Spinner`, `JsonBlock`, `MarkdownText` are kept
+  and `Tooltip` is now a `forwardRef`. Named `Icon*` components
+  (close/chevron/search/settings/link/refresh/warning/skill/check/info/plus/
+  trash/copy) ship SVG glyphs, and a `Proxy` fallback resolves any unmodelled
+  `Icon*` name to a generic glyph so an import never yields `undefined` and
+  crashes the bundle. Also new: `writeClipboard` (navigator.clipboard +
+  execCommand fallback) and the hooks `useAnchoredPosition` /
+  `useDismissOnOutsidePointer`. Conformance reaches **n=11**: the vendored MIT
+  `dsh-plugin-debugging@0.8.1` (client sha256 `9b828160…`) and
+  `dsh-plugin-studio@0.3.1` (client sha256 `1194c18b…`) have verbatim upstream
+  client halves (sha256 in `package.json`) and stubbed host halves; both activate
+  cleanly, but their UI is gated on the host services `pluginManager`/settings
+  that dshr does not provide, so it stays unmounted — the same graceful
+  degradation as `dsh-remote` with its optional services. Smoke gets two more
+  checks: a tree of every modelled primitive renders inside a host-React frame
+  (12 text markers, portal Menu/Modal/Toast) and the real `dsh-plugin-notify`/
+  `dsh-mnemon` contributions mount in the Plugins dialog without
+  `__DSHR_LAST_ERROR__`. Evidence: smoke 79/79 (+2), bridge harness 87, cordis
+  lib 26, server `plugins_live` 14, workspace 363 passed + 3 ignored (desktop 21,
+  total 384), web-e2e 16/16; the shared runtime artifact grew to **176,725 bytes**
+  (React + ReactDOM UMD + `bootstrap.js` + `primitives.js` with 30+ exports).
+  Remaining C2/C-full: the full `@deepseek-ai/dsh-client-ui-*` design-system and
+  visual tokens (the shim is an independent partial implementation driven by
+  real imports), more components as the set grows, the `pluginManager`/`settings`
+  host services, SlotMap semantics, host React context and inter-plugin
+  composition — an owner decision (ADR-040 C-full, still Proposed).
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose UI stays inert without the `pluginManager`/settings host services) and a partial 30+-export design-system shim, but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, SlotMap semantics, a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work for exact paths (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame), but the remaining C1 limits are recorded too: no `sessions`/`sessionProjections` services for usage routes, no SSE/WebSocket/streaming, exact paths only, unauthenticated plugin routes reachable on the LAN interface, and MCP meta-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the tool list of host-only plugins. The bridge services are a subset (no `sessions` projections/`sessionStats`), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

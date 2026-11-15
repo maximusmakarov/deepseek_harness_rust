@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end smoke test for the Cordis client-half bridge (protocol v1.2).
 
-Starts a real `dshr serve` with twenty-two throwaway plugins (a multi-region half, a
+Starts a real `dshr serve` with twenty-four throwaway plugins (a multi-region half, a
 lazy panel half, an eager `immediately` half, asset/module-table/exports
 delivery variants, a throwing bundle, ...), drives the Web UI in headless
 Chrome over the DevTools protocol and checks the parts unit tests cannot see:
@@ -791,6 +791,8 @@ def write_fixtures(home: Path, workspace: Path) -> None:
         ("dsh-plugin-market", "dsh-plugin-market"),
         ("dsh-plugin-codegraph-panel", "dsh-plugin-codegraph-panel"),
         ("dsh-plugin-notify", "dsh-plugin-notify"),
+        ("dsh-plugin-debugging", "dsh-plugin-debugging"),
+        ("dsh-plugin-studio", "dsh-plugin-studio"),
     ]:
         source = ROOT / "crates" / "cordis" / "tests" / "fixtures" / fixture_name
         target = workspace / fixture_name
@@ -1145,7 +1147,7 @@ def run(args: argparse.Namespace) -> int:
         # Discovery ---------------------------------------------------------
         clients = api(port, "GET", "/v1/plugins/clients")["clients"]
         names = [client["name"] for client in clients]
-        check("lists every configured client half", len(clients) == 22, names)
+        check("lists every configured client half", len(clients) == 24, names)
         modes = {client["name"]: client["bundle"] for client in clients}
         check("single-file halves are inlined", modes.get("demo") == "inline", modes)
         check("multi-file halves use capability assets", modes.get("demo3") == "assets", modes)
@@ -1258,6 +1260,19 @@ def run(args: argparse.Namespace) -> int:
             all(client is not None for client in extra_halves.values()),
             extra_halves,
         )
+        c2_halves = {
+            name: next((client for client in clients if client["name"] == name), None)
+            for name in ("dsh-plugin-debugging", "dsh-plugin-studio")
+        }
+        check(
+            "conformance reaches eleven real DSH client halves (C2)",
+            all(client is not None for client in c2_halves.values())
+            and all(
+                "@deepseek-ai/dsh-client-ui-primitives" in client.get("host_modules", [])
+                for client in c2_halves.values()
+            ),
+            c2_halves,
+        )
 
         # A deterministic transcript: create a session over REST and replay one
         # assistant turn, so per-message regions have rows to mount into.
@@ -1282,7 +1297,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="web ui loaded",
         )
-        wait_registry_ready(debug_port, 22)
+        wait_registry_ready(debug_port, 24)
         # Registry frames load in inject order; wait until the multi-region half
         # has published all of its startup registrations before snapshotting the
         # mounted slot frames (otherwise the snapshot races the last frame).
@@ -1308,7 +1323,7 @@ def run(args: argparse.Namespace) -> int:
         registry = json.loads(str(registry))
         check(
             "one hidden registry frame per client half at startup",
-            len(registry) == 22
+            len(registry) == 24
             and {item["plugin"] for item in registry} == set(names)
             and all("mode=registry" in item["src"] for item in registry),
             [item["plugin"] for item in registry],
@@ -1772,6 +1787,27 @@ def run(args: argparse.Namespace) -> int:
             ),
             extra_states,
         )
+        # C2: primitives-heavy halves activate cleanly; host-service-dependent UI
+        # stays unmounted instead of crashing (graceful degradation).
+        c2_states = {}
+        for plugin in ("dsh-plugin-debugging", "dsh-plugin-studio"):
+            c2_states[plugin] = json.loads(
+                str(
+                    poll_frame(
+                        debug_port,
+                        "JSON.stringify({ready: document.documentElement.dataset.dshrReady, error: window.__DSHR_LAST_ERROR__ || null})",
+                        lambda value: json.loads(str(value))["ready"] == "1",
+                        plugin=plugin,
+                        mode="registry",
+                        label=f"{plugin} registry",
+                    )
+                )
+            )
+        check(
+            "primitives-heavy conformance halves activate without errors (C2)",
+            all(state["error"] is None for state in c2_states.values()),
+            c2_states,
+        )
         market_frame = json.loads(
             str(
                 shell.eval(
@@ -1890,6 +1926,100 @@ def run(args: argparse.Namespace) -> int:
             {"text": ui_text, **ui_dom},
         )
 
+        # C2: the expanded design-system shim must render every modelled primitive
+        # with host React, including the pieces real plugins probe for
+        # (Menu/Modal/Toast/Segmented*/DisclosureRow/hooks/icons).
+        ui_kit_target = frame_target(debug_port, "ui-kit", "slot", "panel")
+        c2_state = {"error": "no ui-kit frame"}
+        if ui_kit_target is not None:
+            c2_frame = DevTools(ui_kit_target["webSocketDebuggerUrl"])
+            try:
+                c2_frame.call("Runtime.enable")
+                raw = c2_frame.eval(
+                    """new Promise((resolve) => {
+                        try {
+                            const primitives = window.__DSHR_MODULES__[
+                                "@deepseek-ai/dsh-client-ui-primitives"
+                            ];
+                            const React = window.React;
+                            const ReactDOM = window.__DSHR_MODULES__["react-dom/client"];
+                            const e = React.createElement;
+                            const host = document.createElement("div");
+                            host.id = "dshr-c2-probe";
+                            document.body.appendChild(host);
+                            ReactDOM.createRoot(host).render(e("div", null,
+                                e(primitives.Button, { variant: "primary" }, "C2 button"),
+                                e(primitives.Input, {
+                                    placeholder: "C2 input",
+                                    icon: e(primitives.IconSearchOutlineRegular, { size: 12 }),
+                                }),
+                                e(primitives.Switch, { checked: true, label: "C2 switch", onChange() {} }),
+                                e(primitives.Checkbox, { checked: true, label: "C2 checkbox", onChange() {} }),
+                                e(primitives.Tag, { tone: "info" }, "C2 tag"),
+                                e(primitives.Pill, { active: true, onClick() {} }, "C2 pill"),
+                                e(primitives.SegmentedControl, {
+                                    options: [{ value: "a", label: "C2 segment" }],
+                                    value: "a",
+                                    onChange() {},
+                                }),
+                                e(primitives.SegmentedTabs, {
+                                    items: [{ value: "a", label: "C2 tab" }],
+                                    value: "a",
+                                    onChange() {},
+                                }),
+                                e(primitives.DisclosureRow, {
+                                    title: "C2 disclosure",
+                                    open: false,
+                                    expandable: false,
+                                }),
+                                e(primitives.PathLabel, { path: "/tmp/c2-path" }),
+                                e(primitives.TextShimmer, { active: true }, "C2 shimmer"),
+                                e(primitives.Tooltip, { content: "C2 tooltip" }, "C2 tt"),
+                                e(primitives.Modal, { open: false }),
+                                e(primitives.Toast, { text: "C2 toast", holdMs: 100000, onDone() {} }),
+                                e(primitives.Menu, {
+                                    open: true,
+                                    items: [{ id: "x", label: "C2 menu item" }],
+                                    anchor: e(primitives.Button, null, "C2 menu anchor"),
+                                }),
+                                e(primitives.IconChevronDownOutlineRegular, { size: 12 })
+                            ));
+                            setTimeout(() => resolve(JSON.stringify({
+                                text: document.body.innerText,
+                                error: window.__DSHR_LAST_ERROR__ || null,
+                            })), 400);
+                        } catch (error) {
+                            resolve(JSON.stringify({ error: String(error) }));
+                        }
+                    })""",
+                    True,
+                )
+                c2_state = json.loads(str(raw))
+            except Exception as error:  # noqa: BLE001 - reported as a check detail
+                c2_state = {"error": str(error)}
+            finally:
+                c2_frame.close()
+        c2_text = c2_state.get("text") or ""
+        c2_markers = [
+            "C2 button",
+            "C2 switch",
+            "C2 checkbox",
+            "C2 tag",
+            "C2 pill",
+            "C2 segment",
+            "C2 tab",
+            "C2 disclosure",
+            "/tmp/c2-path",
+            "C2 shimmer",
+            "C2 toast",
+            "C2 menu item",
+        ]
+        check(
+            "expanded design-system primitives render with host React (C2)",
+            all(marker in c2_text for marker in c2_markers),
+            {"missing": [marker for marker in c2_markers if marker not in c2_text], **c2_state},
+        )
+
         # Settings dialog: region frames exist only while it is open. ------
         click("header button", "Settings")
         wait_until(
@@ -1948,6 +2078,55 @@ def run(args: argparse.Namespace) -> int:
         check("Plugins mounts the plugins.add frame", True)
         wait_frame_text(debug_port, "region:plugins.detail", "regions", "plugins.detail.actions")
         check("Plugins mounts the plugins.detail frame", True)
+        # Real plugins that use the primitives shim (notify: Tag/Icon rows,
+        # mnemon: Settings controls) must mount their contributions without errors.
+        wait_until(
+            lambda: bool(
+                shell.eval(
+                    """[...document.querySelectorAll('dialog iframe.slot-frame')]
+                        .some(f => ['dsh-plugin-notify', 'dsh-mnemon']
+                            .includes(f.dataset.plugin))"""
+                )
+            ),
+            timeout=FRAME_TIMEOUT,
+            label="primitives-based plugin frames in the Plugins dialog",
+        )
+        dialog_plugin_frames = json.loads(
+            str(
+                shell.eval(
+                    """JSON.stringify([...document.querySelectorAll('dialog iframe.slot-frame')]
+                        .filter(f => ['dsh-plugin-notify', 'dsh-mnemon'].includes(f.dataset.plugin))
+                        .map(f => ({plugin: f.dataset.plugin, slot: f.dataset.slot})))"""
+                )
+            )
+        )
+        dialog_errors = {}
+        for plugin_name in {item["plugin"] for item in dialog_plugin_frames}:
+            for frame in [
+                target
+                for target in iframe_targets(debug_port)
+                if frame_plugin(target["url"]) == plugin_name
+            ]:
+                frame_client = DevTools(frame["webSocketDebuggerUrl"])
+                try:
+                    frame_client.call("Runtime.enable")
+                    dialog_errors[plugin_name] = json.loads(
+                        str(
+                            frame_client.eval(
+                                "JSON.stringify(window.__DSHR_LAST_ERROR__ || null)"
+                            )
+                        )
+                    )
+                except Exception as error:  # noqa: BLE001 - reported as a check detail
+                    dialog_errors[plugin_name] = str(error)
+                finally:
+                    frame_client.close()
+        check(
+            "real plugins render primitives-based contributions without errors",
+            bool(dialog_plugin_frames)
+            and all(error is None for error in dialog_errors.values()),
+            {"frames": dialog_plugin_frames, "errors": dialog_errors},
+        )
         click("dialog button", "Close")
         wait_until(
             lambda: not shell.eval("!!document.querySelector('dialog h3')"),
@@ -1962,7 +2141,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="panel stage opens",
         )
-        wait_registry_ready(debug_port, 22)
+        wait_registry_ready(debug_port, 24)
         check("deep link ?plugin= opens the panel stage", True)
         panel_frame = poll_frame(
             debug_port,
@@ -2114,7 +2293,7 @@ def run(args: argparse.Namespace) -> int:
             timeout=LOAD_TIMEOUT,
             label="regions panel reopens",
         )
-        wait_registry_ready(debug_port, 22)
+        wait_registry_ready(debug_port, 24)
         # React/multi-plugin loading can delay the stage's first tab selection;
         # wait for the active panel frame before driving actions through it.
         wait_until(
@@ -2279,7 +2458,7 @@ def run(args: argparse.Namespace) -> int:
             label="throwing render surfaces in the stage head",
         )
         check("a throwing slot render surfaces in the panel-stage head", True)
-        wait_registry_ready(debug_port, 22)
+        wait_registry_ready(debug_port, 24)
 
         def surviving_frames() -> int:
             count = 0
@@ -2316,7 +2495,7 @@ def run(args: argparse.Namespace) -> int:
             shell.call(
                 "Page.navigate", {"url": f"http://127.0.0.1:{port}/?token={TOKEN}&plugin={plugin}"}
             )
-            wait_registry_ready(debug_port, 22)
+            wait_registry_ready(debug_port, 24)
             wait_until(
                 lambda: shell.eval(
                     "document.getElementById('plugin-stage')?.className === 'plugin-stage open'"
