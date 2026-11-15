@@ -2022,9 +2022,17 @@ def run(args: argparse.Namespace) -> int:
                                 e(primitives.Toast, { text: "C2 toast", holdMs: 100000, onDone() {} }),
                                 e(primitives.Menu, {
                                     open: true,
-                                    items: [{ id: "x", label: "C2 menu item" }],
+                                    items: [
+                                        { id: "x", label: "C2 menu item" },
+                                        { id: "sub", label: "C2 submenu parent", submenu: [{ id: "y", label: "C2 child item" }] },
+                                    ],
                                     anchor: e(primitives.Button, null, "C2 menu anchor"),
                                 }),
+                                e(
+                                    primitives.MenuGroup,
+                                    { label: "C2 group" },
+                                    e(primitives.MenuItemButton, { onSelect() {} }, "C2 group item"),
+                                ),
                                 e(primitives.IconChevronDownOutlineRegular, { size: 12 })
                             ));
                             setTimeout(() => resolve(JSON.stringify({
@@ -2034,6 +2042,8 @@ def run(args: argparse.Namespace) -> int:
                                 tag: !!document.querySelector('[data-tone="info"]'),
                                 tabs: document.querySelectorAll('[role="tab"]').length,
                                 icon: document.querySelectorAll('svg').length,
+                                group: !!document.querySelector('[data-menu-group]'),
+                                menuRows: document.querySelectorAll('[role="menuitem"]').length,
                                 checkbox: !!document.querySelector('label.dshr-checkbox'),
                                 path: (document.querySelector('[data-path-label]') || {}).textContent || '',
                             })), 500);
@@ -2060,6 +2070,8 @@ def run(args: argparse.Namespace) -> int:
             "C2 shimmer",
             "C2 toast",
             "C2 menu item",
+            "C2 submenu parent",
+            "C2 group item",
         ]
         check(
             "expanded design-system primitives render with host React (C2)",
@@ -2069,7 +2081,9 @@ def run(args: argparse.Namespace) -> int:
             and (c2_state.get("tabs") or 0) >= 2
             and (c2_state.get("icon") or 0) >= 2
             and c2_state.get("checkbox") is True
-            and c2_state.get("path") == "/tmp/c2-path",
+            and c2_state.get("path") == "/tmp/c2-path"
+            and c2_state.get("group") is True
+            and (c2_state.get("menuRows") or 0) >= 3,
             {
                 "missing": [marker for marker in c2_markers if marker not in c2_text],
                 **{key: c2_state.get(key) for key in ("switch", "tag", "tabs", "icon", "checkbox", "error")},

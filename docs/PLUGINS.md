@@ -461,8 +461,12 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   (Arrow/Home/End, Escape с возвратом фокуса, Tab-семантика), outside-
   dismissal + iframe-blur, autoFocus, `copyOnPointerLeave` grace 200 мс,
   portal-позиционирование с `minWidthFromAnchor`/`anchorPoint`, dense/compact;
-  полная submenu-машинерия (`useMenuSubmenu`, single-panel back-page,
-  `MenuGroup`) — не портирована; `Tooltip` — **полный порт**: label-резолвер,
+  `submenuBackLabel`/back-row; reference-выбор layout'а
+  `menu-submenu-position.ts` (side-карточка, если помещается сбоку, иначе
+  single-page с non-selecting back-row); hover-grace 200 мс между родительской
+  и дочерней карточками; `MenuGroup`+`observeStickyMenuGroups` (sticky
+  заголовки групп через Intersection/ResizeObserver) — портированы;
+  `Tooltip` — **полный порт**: label-резолвер,
   hover/focus-триггеры с независимыми задержками, `openOnClick`-pinning,
   Escape/Tab/outside-dismiss, `onlyWhenClipped`, `maxWidth`, portal,
   nested-suppression, `ShortcutKeys`, детерминированный placement-engine

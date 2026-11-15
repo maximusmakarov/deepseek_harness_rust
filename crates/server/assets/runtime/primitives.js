@@ -158,6 +158,12 @@
       ".dshr-menu-submenu{z-index:81}",
       ".dshr-menu-surface-compact{border-radius:8px}",
       ".dshr-shortcut-keys-joined{gap:0}",
+      ".dshr-menu-group{display:flex;flex-direction:column}",
+      ".dshr-menu-group-start{display:block;height:0;overflow:hidden}",
+      ".dshr-menu-group-heading{position:sticky;top:0;z-index:1;padding:4px 8px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#9b9b9b);background:var(--dsw-alias-bg-layer-1,#1f1f1f)}",
+      ".dshr-menu-group-heading[data-stuck]{background:var(--dsw-alias-bg-layer-1,#1f1f1f);box-shadow:0 1px 0 var(--dsw-alias-border-l4,#3a3a3a)}",
+      ".dshr-menu-list[data-submenu-layout='page'] .dshr-menu-viewport{gap:2px}",
+      ".dshr-menu-row[data-menu-back]{color:var(--dsw-alias-label-secondary,#bbb)}",
       ".dshr-menu-surface{background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);border-radius:var(--dshr-radius-md);box-shadow:0 8px 24px rgba(0,0,0,.35);padding:8px;outline:none}",
       ".dshr-tooltip-bubble{position:fixed;z-index:110;display:inline-flex;align-items:center;gap:6px;max-width:min(320px,calc(100vw - 24px));padding:5px 8px;border-radius:var(--dshr-radius-sm);background:var(--dsw-alias-bg-layer-1,#1f1f1f);border:1px solid var(--dsw-alias-border-l3,#454545);box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary,#e6e6e6);pointer-events:none}",
       ".dshr-tooltip-bubble[data-pinned]{pointer-events:auto;max-height:min(70vh,480px);overflow:auto}",
@@ -863,6 +869,112 @@
 
   var MENU_TRANSITION_MS = { enter: 40, dismiss: 80, replace: 10, prepare: 20 };
 
+  // ----- Submenu placement (reference menu-submenu-position.ts) -------------
+  var SUBMENU_GAP = 4;
+  var SUBMENU_MARGIN = 12;
+
+  function submenuNeedsPage(parentRect, width, viewportWidth) {
+    var right = parentRect.right + SUBMENU_GAP + width <= viewportWidth - SUBMENU_MARGIN;
+    var left = parentRect.left - SUBMENU_GAP - width >= SUBMENU_MARGIN;
+    return !right && !left;
+  }
+
+  // ----- MenuGroup (reference MenuGroup.tsx) ---------------------------------
+  function MenuGroup(props) {
+    var headingId = React.useId ? React.useId() : "dshr-menu-group";
+    return h(
+      "section",
+      {
+        role: "group",
+        "aria-labelledby": headingId,
+        "data-menu-group": "",
+        className: "dshr-menu-group",
+      },
+      h("span", { "aria-hidden": "true", "data-menu-group-start": "", className: "dshr-menu-group-start" }),
+      h("div", { id: headingId, "data-menu-group-heading": "", className: "dshr-menu-group-heading" }, props.label),
+      props.children,
+    );
+  }
+
+  function observeStickyMenuGroups(viewport) {
+    var groups = Array.prototype.slice
+      .call(viewport.querySelectorAll(":scope > [data-menu-group]"))
+      .flatMap(function (section) {
+        var heading = section.querySelector(":scope > [data-menu-group-heading]");
+        var start = section.querySelector(":scope > [data-menu-group-start]");
+        return heading === null || start === null
+          ? []
+          : [{ section: section, heading: heading, start: start, atTop: false, above: false, topTime: -Infinity, aboveTime: -Infinity }];
+      });
+    if (groups.length === 0 || typeof IntersectionObserver === "undefined" || typeof ResizeObserver === "undefined") {
+      return function () {};
+    }
+    var sections = new Map(groups.map(function (group) { return [group.section, group]; }));
+    var starts = new Map(groups.map(function (group) { return [group.start, group]; }));
+    var disposed = false;
+    var stripObserver;
+    var viewportHeight;
+    function render(group) {
+      var stuck = group.atTop && group.above;
+      if (group.heading.hasAttribute("data-stuck") !== stuck) group.heading.toggleAttribute("data-stuck", stuck);
+    }
+    var startObserver = new IntersectionObserver(
+      function (entries) {
+        if (disposed) return;
+        entries.forEach(function (entry) {
+          var group = starts.get(entry.target);
+          if (!group || entry.rootBounds === null || entry.time < group.aboveTime) return;
+          group.above = entry.boundingClientRect.top < entry.rootBounds.top;
+          group.aboveTime = entry.time;
+          render(group);
+        });
+      },
+      { root: viewport, threshold: [0, 1] },
+    );
+    groups.forEach(function (group) { startObserver.observe(group.start); });
+    var sizeObserver = new ResizeObserver(function (entries) {
+      if (disposed) return;
+      entries.forEach(function (entry) {
+        if (entry.target !== viewport || entry.contentRect.height === viewportHeight) return;
+        viewportHeight = entry.contentRect.height;
+        if (stripObserver) stripObserver.disconnect();
+        var observer = new IntersectionObserver(
+          function (intersections) {
+            if (disposed || stripObserver !== observer) return;
+            intersections.forEach(function (intersection) {
+              var group = sections.get(intersection.target);
+              if (!group || intersection.rootBounds === null) return;
+              var top = intersection.rootBounds.top;
+              if (intersection.time >= group.topTime) {
+                group.atTop = intersection.isIntersecting && intersection.boundingClientRect.bottom > top;
+                group.topTime = intersection.time;
+              }
+              if (intersection.time >= group.aboveTime) {
+                group.above = intersection.boundingClientRect.top < top;
+                group.aboveTime = intersection.time;
+              }
+              render(group);
+            });
+          },
+          { root: viewport, rootMargin: "0px 0px " + (Math.min(1, viewportHeight) - viewportHeight) + "px 0px", threshold: 0 },
+        );
+        stripObserver = observer;
+        groups.forEach(function (group) { observer.observe(group.section); });
+      });
+    });
+    sizeObserver.observe(viewport);
+    return function () {
+      if (disposed) return;
+      disposed = true;
+      startObserver.disconnect();
+      if (stripObserver) stripObserver.disconnect();
+      sizeObserver.disconnect();
+      groups.forEach(function (group) {
+        if (group.heading.hasAttribute("data-stuck")) group.heading.removeAttribute("data-stuck");
+      });
+    };
+  }
+
   // ----- Menu (reference Menu.tsx: data/component rows, decorations, footer,
   // selection markers, one-level submenu and the reference keyboard walk) -----
   function renderMenuDecoration(entry) {
@@ -938,6 +1050,33 @@
     var submenuState = React.useState(null);
     var submenuId = submenuState[0];
     var setSubmenuId = submenuState[1];
+    var submenuPageState = React.useState(false);
+    var submenuPage = submenuPageState[0];
+    var setSubmenuPage = submenuPageState[1];
+    var submenuPanelRef = React.useRef(null);
+    var focusChildRef = React.useRef(false);
+    var submenuGraceRef = React.useRef(null);
+    function cancelSubmenuClose() {
+      if (submenuGraceRef.current !== null) {
+        clearTimeout(submenuGraceRef.current);
+        submenuGraceRef.current = null;
+      }
+    }
+    function armSubmenuClose() {
+      cancelSubmenuClose();
+      submenuGraceRef.current = setTimeout(function () {
+        submenuGraceRef.current = null;
+        if (openRef.current) {
+          setSubmenuId(null);
+          setSubmenuPage(false);
+        }
+      }, POINTER_GRACE_MS);
+    }
+    React.useEffect(function () {
+      return function () {
+        cancelSubmenuClose();
+      };
+    }, []);
     var styleState = React.useState(null);
     var portalStyle = styleState[0];
     var setPortalStyle = styleState[1];
@@ -1049,8 +1188,37 @@
     }, [open, props.anchorRef, props.isExternalTrigger]);
 
     React.useEffect(function () {
-      if (!open) setSubmenuId(null);
+      if (!open) {
+        setSubmenuId(null);
+        setSubmenuPage(false);
+        cancelSubmenuClose();
+      }
     }, [open]);
+
+    // Reference submenu placement: a side card when either side of the parent
+    // card fits, otherwise the child replaces the parent as a single page.
+    React.useLayoutEffect(function () {
+      if (submenuId === null) {
+        setSubmenuPage(false);
+        return;
+      }
+      var panel = submenuPanelRef.current;
+      var list = listRef.current;
+      if (!panel || !list || typeof window === "undefined") return;
+      var width = panel.offsetWidth;
+      var viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      setSubmenuPage(submenuNeedsPage(list.getBoundingClientRect(), width, viewportWidth));
+    }, [submenuId]);
+
+    // Keyboard/click opening a submenu moves focus into the child card; hover does not.
+    React.useEffect(function () {
+      if (submenuId === null || !focusChildRef.current || !listRef.current) return;
+      focusChildRef.current = false;
+      var scope = listRef.current.querySelector('[data-submenu-for="' + submenuId + '"]');
+      var first = scope ? scope.querySelector('button[role="menuitem"]:not(:disabled):not([data-menu-back])') : null;
+      if (first === null) first = listRef.current.querySelector('button[role="menuitem"]:not(:disabled):not([data-menu-back])');
+      if (first !== null) first.focus();
+    }, [submenuId, submenuPage]);
 
     React.useEffect(function () {
       if (!open) {
@@ -1070,7 +1238,10 @@
           event.preventDefault();
           if (event.repeat) return;
           if (submenuId !== null) {
+            var parentRow = listRef.current ? listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]') : null;
             setSubmenuId(null);
+            setSubmenuPage(false);
+            if (parentRow && typeof parentRow.focus === "function") parentRow.focus();
             return;
           }
           closeRef.current();
@@ -1079,7 +1250,10 @@
         }
         if (event.key === "ArrowLeft" && anchored && submenuId !== null) {
           event.preventDefault();
+          var returnRow = listRef.current ? listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]') : null;
           setSubmenuId(null);
+          setSubmenuPage(false);
+          if (returnRow && typeof returnRow.focus === "function") returnRow.focus();
           return;
         }
         if (event.key === "ArrowRight" && insideList && focused instanceof HTMLButtonElement) {
@@ -1089,6 +1263,7 @@
           })[0];
           if (parent) {
             event.preventDefault();
+            focusChildRef.current = true;
             setSubmenuId(parent.id);
             return;
           }
@@ -1213,12 +1388,15 @@
             ? {
                 onPointerEnter: function (event) {
                   if (event.pointerType !== "mouse" || entry.disabled === true) return;
+                  cancelSubmenuClose();
+                  focusChildRef.current = false;
                   setSubmenuId(entry.id);
                 },
               }
             : undefined,
           onClick: function () {
             if (hasSub) {
+              focusChildRef.current = true;
               setSubmenuId(entry.id);
               return;
             }
@@ -1240,28 +1418,84 @@
         : items.filter(function (entry) {
             return entry && !entry.type && entry.id === submenuId;
           })[0];
+      var childRows = activeParent && Array.isArray(activeParent.submenu)
+        ? activeParent.submenu.map(function (entry) {
+            return renderEntry(entry, [], true);
+          })
+        : [];
       var submenuPanel =
-        activeParent && Array.isArray(activeParent.submenu)
+        activeParent && !submenuPage
           ? h(
               MenuSurface,
               {
+                ref: submenuPanelRef,
                 className: classNames("dshr-menu dshr-menu-submenu", props.compact && "dshr-menu-compact", props.dense && "dshr-menu-dense"),
                 style: submenuStyle || { position: "fixed", display: "none" },
                 "data-submenu-for": submenuId,
                 role: "menu",
+                onPointerEnter: cancelSubmenuClose,
+                onPointerLeave: function (event) {
+                  if (event.pointerType === "mouse") armSubmenuClose();
+                },
                 onClick: function (event) {
                   event.stopPropagation();
+                  var row = event.target instanceof Element ? event.target.closest('button[role="menuitem"]') : null;
+                  if (row !== null && row.getAttribute("aria-haspopup") !== "menu") refocusAfterSelection();
                 },
               },
-              h(
-                "div",
-                { className: "dshr-menu-viewport", role: "presentation" },
-                activeParent.submenu.map(function (entry) {
-                  return renderEntry(entry, [], true);
-                }),
-              ),
+              h("div", { className: "dshr-menu-viewport", role: "presentation" }, childRows),
             )
           : null;
+      var surfaceChildren;
+      if (submenuPage && activeParent) {
+        // Reference single-page layout: the child rows replace the parent page and
+        // a non-selecting back row returns to it.
+        surfaceChildren = [
+          h(
+            "div",
+            { key: "page", className: "dshr-menu-viewport", role: "presentation" },
+            h(
+              MenuRow,
+              {
+                key: "back",
+                "data-menu-back": "",
+                icon: h(IconChevronLeftOutlineRegular, { className: "dshr-menu-row-check" }),
+                onClick: function () {
+                  var parentRow = listRef.current ? listRef.current.querySelector('[data-menu-row-id="' + submenuId + '"]') : null;
+                  setSubmenuPage(false);
+                  setSubmenuId(null);
+                  if (parentRow && typeof parentRow.focus === "function") parentRow.focus();
+                },
+              },
+              props.submenuBackLabel !== undefined ? props.submenuBackLabel : activeParent.label,
+            ),
+            h("div", { key: "sep", className: "dshr-menu-separator", role: "separator" }),
+            childRows,
+          ),
+        ];
+      } else {
+        surfaceChildren = [
+          h(
+            "div",
+            { key: "viewport", className: "dshr-menu-viewport", role: "presentation" },
+            items.map(function (entry) {
+              return renderEntry(entry, itemColumns, false);
+            }),
+            props.children,
+          ),
+        ];
+        if (footer.length > 0) {
+          surfaceChildren.push(
+            h(
+              "div",
+              { key: "footer", className: "dshr-menu-footer", role: "presentation" },
+              footer.map(function (entry) {
+                return renderEntry(entry, footerColumns, false);
+              }),
+            ),
+          );
+        }
+      }
       var surface = h(
         MenuSurface,
         {
@@ -1289,29 +1523,18 @@
           role: "menu",
           "data-context-menu": props.contextual ? "" : undefined,
           "data-anchor-side": portal ? side : undefined,
+          "data-submenu-layout": submenuId === null ? undefined : submenuPage ? "page" : "side",
+          onPointerLeave: function (event) {
+            if (submenuId !== null && !submenuPage && event.pointerType === "mouse") armSubmenuClose();
+          },
+          onPointerEnter: cancelSubmenuClose,
           onClick: function (event) {
             event.stopPropagation();
             var row = event.target instanceof Element ? event.target.closest('button[role="menuitem"]') : null;
             if (row !== null && row.getAttribute("aria-haspopup") !== "menu") refocusAfterSelection();
           },
         },
-        h(
-          "div",
-          { className: "dshr-menu-viewport", role: "presentation" },
-          items.map(function (entry) {
-            return renderEntry(entry, itemColumns, false);
-          }),
-          props.children,
-        ),
-        footer.length > 0
-          ? h(
-              "div",
-              { className: "dshr-menu-footer", role: "presentation" },
-              footer.map(function (entry) {
-                return renderEntry(entry, footerColumns, false);
-              }),
-            )
-          : null,
+        surfaceChildren,
       );
       list = h(React.Fragment, null, surface, submenuPanel);
     }
@@ -2094,6 +2317,8 @@
     ShortcutKeys: ShortcutKeys,
     Modal: Modal,
     Menu: Menu,
+    MenuGroup: MenuGroup,
+    observeStickyMenuGroups: observeStickyMenuGroups,
     MenuItemButton: MenuItemButton,
     MenuSurface: MenuSurface,
     MENU_TRANSITION_MS: MENU_TRANSITION_MS,

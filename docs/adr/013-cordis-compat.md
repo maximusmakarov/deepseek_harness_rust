@@ -172,7 +172,8 @@ conformance-набор реальных пакетов достиг n=11 (цел
 переведён на сгенерированный каталог DSH в раунде 91 (C1.3); webServer/
 configForms/baseUrl выровнены по reference в раунде 92 (C1.4); атомы design-system и
 204 иконки портированы из reference в раунде 93 (C2.1), полный Tooltip — в
-раунде 94 (C2.2), Menu по reference-ядру — в раунде 95 (C2.3).
+раунде 94 (C2.2), Menu по reference-ядру — в раунде 95 (C2.3), submenu page-layout и MenuGroup —
+в раунде 96 (C2.4).
 
 ## Региональный монтаж слотов (14.11.2026, раунд 76)
 

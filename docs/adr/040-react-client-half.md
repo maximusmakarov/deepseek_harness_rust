@@ -533,3 +533,30 @@ workspace 365+3, web-e2e 16/16; общий рантайм-артефакт — 4
 
 Осталось по reference: полная submenu-машинерия + `MenuGroup`/sticky-groups,
 markdown-стек (`MarkdownText`/`JsonBlock`), store/seats/renderer, chain/hoc.
+
+## C2.4: submenu page-layout и MenuGroup (15.11.2026, раунд 96)
+
+Закрыты оставшиеся части reference-Menu:
+
+- **submenu placement** (`menu-submenu-position.ts`): если сбоку от
+  родительской карточки дочерняя не помещается ни справа, ни слева —
+  включается **single-page** layout: дочерние ряды заменяют родительскую
+  страницу, сверху non-selecting back-row (`data-menu-back`, chevron-left,
+  `submenuBackLabel` или label родителя) + separator; Escape/ArrowLeft
+  возвращают на родительскую страницу с фокусом на родительском ряду;
+- **фокус**: hover открывает submenu без перехвата фокуса, а
+  ArrowRight/клик — с фокусом на первом дочернем ряду (reference);
+- **hover grace**: 200-мс окно между родительской и дочерней карточками
+  (уход в дочернюю отменяет закрытие, `cancelSubmenuClose`);
+- **MenuGroup + observeStickyMenuGroups**: `section[role=group]` с
+  `aria-labelledby`, `data-menu-group*` атрибутами и sticky-заголовком
+  (`data-stuck`) через IntersectionObserver/ResizeObserver — портированы
+  дословно по reference.
+
+Проверка: smoke 82/82 (C2-probe теперь рендерит MenuGroup, submenu-родителя и
+back-row-совместимую структуру; menuRows≥3), harness 102, workspace 365+3,
+web-e2e 16/16; общий рантайм-артефакт — 415 972 байт.
+
+Осталось по reference: `useMenuSubmenu`-механика focus-transition/page-anchor
+в деталях (у нас упрощённые CSS-позиции), markdown-стек, store/seats/renderer,
+chain/hoc.
