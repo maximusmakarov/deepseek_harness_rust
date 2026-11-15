@@ -27,11 +27,36 @@ fi
 step cargo test -p dshr-cli --test evals -- --nocapture
 # Perf budgets are wall-clock measurements: a busy host (Spotlight indexing,
 # another build, CI co-tenancy) can push p95 over the budget without a code
-# regression. Retry once on failure — a real regression fails both runs.
+# regression. On failure, wait (bounded) for the 1-minute load to fall below the
+# CPU count and retry once; a real regression fails both runs.
+load_one() {
+    if command -v sysctl >/dev/null 2>&1 && sysctl -n vm.loadavg >/dev/null 2>&1; then
+        sysctl -n vm.loadavg | awk '{print $2}'
+    elif [ -r /proc/loadavg ]; then
+        awk '{print $1}' /proc/loadavg
+    else
+        echo 0
+    fi
+}
+cpu_count() {
+    if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.ncpu >/dev/null 2>&1; then
+        sysctl -n hw.ncpu
+    elif command -v nproc >/dev/null 2>&1; then
+        nproc
+    else
+        echo 1
+    fi
+}
 if ! cargo test -p dshr-perf --release -- --nocapture; then
+    threshold=$(cpu_count)
     echo
-    echo "perf budgets failed; load: $( (sysctl -n vm.loadavg 2>/dev/null || cat /proc/loadavg 2>/dev/null || echo unknown) 2>/dev/null )"
-    echo "retrying perf budgets once (wall-clock gates are load-sensitive)"
+    echo "perf budgets failed; 1-min load $(load_one) (threshold ${threshold}); waiting up to 180s for the host to settle"
+    waited=0
+    while [ "$waited" -lt 180 ] && awk -v l="$(load_one)" -v t="$threshold" 'BEGIN { exit !(l > t) }'; do
+        sleep 10
+        waited=$((waited + 10))
+    done
+    echo "retrying perf budgets once (load $(load_one))"
     cargo test -p dshr-perf --release -- --nocapture
 fi
 step python3 scripts/web-e2e.py
