@@ -16,9 +16,12 @@ One command runs every gate exactly like CI:
 ```sh
 scripts/check.sh          # everything (fmt, clippy, runtime assets, tests, evals, perf, browser)
 
-Perf-бюджеты — wall-clock: `check.sh` один раз повторяет прогон perf при падении
-(на загруженном хосте Spotlight/сборка/CI-соседство дают ложный красный), но
-реальная регрессия валит оба прогона.
+Perf-бюджеты — wall-clock: `check.sh` печатает load, ждёт (до 180 с) его
+падения ниже числа CPU и один раз повторяет прогон perf — на загруженном хосте
+Spotlight/сборка/CI-соседство дают ложный красный, но реальная регрессия валит
+оба прогона. Бюджет `event append (fsync on)` платформенный: 5 мс на Linux,
+10 мс на macOS (APFS на занятом томе даёт p95 4–8 мс при прочих бюджетах с
+>10x запасом; гейт всё ещё ловит 2x-регрессию — `crates/perf/tests/budgets.rs`).
 scripts/check.sh quick    # fmt, clippy, workspace tests
 ```
 
