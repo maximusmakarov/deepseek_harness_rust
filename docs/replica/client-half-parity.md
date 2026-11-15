@@ -21,8 +21,9 @@
   (seat-`inject`, Cordis-генераторы и `configForms`, оживившие settings-UI
   studio/debugging), а раунд 91 — C1.3 (сгенерированный каталог слотов DSH +
   SlotMap-регистрация), а раунд 92 — C1.4 (host-сервисы `webServer`/`ctx.baseUrl`/
-  `configForms` по reference-контракту) — всё в ту же строку; новых скоринговых
-  строк нет, additions по-прежнему `original=no`
+  `configForms` по reference-контракту), а раунд 93 — C2.1 (атомы design-system и
+  все 204 иконки портированы из reference-исходников) — всё в ту же строку;
+  новых скоринговых строк нет, additions по-прежнему `original=no`
 - сознательно вне скоупа (`skip`): полный React-компонентный контракт, инъекция в
   DOM шелла, внешние модули (`dsh.client.external`) — следствие ADR-013 §5, а не
   недоделка. C-lite (раунды 79–85; conformance n=11 — цель ADR-013 §6 8–12
@@ -334,11 +335,51 @@ shell-сайтов. Строка по-прежнему **dshr-дополнени
 shared host module table, C-lite со всеми расширениями C1/C2/C1.1/C1.2/C1.3)
 по-прежнему `original=no`, поэтому знаменатель не растёт.
 
+Раунд 93 расширил **ту же строку** C1/C-lite, не добавляя новых скоринговых
+строк: **C2.1** — атомы design-system и все 204 иконки портированы из
+reference-исходников. `crates/server/assets/runtime/primitives.js` переписан по
+`deepseek-ai/deepseek-harness` @ `39163dd`,
+`packages/client/ui-primitives/src`: `Button` (variants
+primary/ghost/outline/toolbar, sizes md/sm, leading icon, forwardRef), `Input`,
+`Switch` (role switch, `aria-label`), `Checkbox` (native input + label,
+`data-modal-autofocus`), `Tag` (`data-tone`), `Pill`, `SegmentedControl`
+(tablist + indicator, roving tabindex, walk-keys, `<id>-<value>`/`-panel`),
+`SegmentedTabs`, `DisclosureRow` (`expandOnRowClick`/`previewChevron`/
+`collapsedContent`/`headerAccessory`/running shimmer), `TextShimmer`, `StateDot`
+(done/warning/ongoing/error/idle, SVG spinner, `appearance: "step"`), `PathLabel`,
+`Toast` (portal, `role=alert`, `holdMs`+fade), `Modal` (portal, mask, Escape,
+focus), `Menu`, `MenuSurface` (forwardRef, `data-menu-material`/`phase`),
+`Tooltip` (cloneElement-якорь); все **204** `Icon*` сгенерированы из upstream
+`icons/artwork.ts` (точные SVG-пути, stroke regular 1 / medium 1.3, инлайн вместо
+document-спрайта, Proxy-fallback для будущих имён); стили — reference
+`--dsw-alias-*` токены с fallback'ами; synthetic-фикстуры приведены к
+reference-контрактам (`StateDot state:"done"`, `Tooltip` element-child), а
+C2-probe проверяет структурные признаки (`role=switch`/`aria-label`,
+`data-tone`, tablist-табы, `svg`-счётчик, `label.dshr-checkbox`, path-label
+`textContent`). Расширения dshr, не входящие в reference-порт: `Spinner`,
+упрощённые `MarkdownText`/`JsonBlock` (upstream требует shiki/katex/mdast) и
+`useAnchoredPosition`; `writeClipboard`/`useDismissOnOutsidePointer` портированы
+по reference-алгоритмам. Проверки: smoke 82/82 (два прогона подряд), bridge
+harness 102, cordis lib 26, server `plugins_live` 16, workspace 365 + 3 ignored
+(desktop 21 — итого 386), web-e2e 16/16; общий рантайм-артефакт вырос с 176 725
+до **375 894 байт**. Границы: полные `Menu` (submenu/focus) и `Tooltip`
+(placement) не портированы, `MarkdownText`/`JsonBlock` упрощены; store
+seats/renderer, chain dispatch/hoc-nesting и ownerProps от реальных shell-сайтов
+остаются C-full. Строка по-прежнему **dshr-дополнение** (`original=no`,
+could/yes), новых строк в матрице нет, поэтому арифметика не меняется:
+must 13/13 (13 × 3 = 39 из 39), should 6 done (6 × 2 = 12 из 12) и 1 partial
+(1 × 2 × ½ = 1 из 2), could 1 done (1 × 1 = 1 из 1) —
+**39 + 12 + 1 + 1 = 53 из 54 = 98.15 → 98.1**. Если бы C2.1 считался фичей
+оригинала, знаменатель вырос бы; в матрице строка намеренно помечена
+`original=no`. Накопленные dshr-дополнения (deep link, plugin-shipped runtime,
+shared host module table, C-lite со всеми расширениями C1/C2/C1.1/C1.2/C1.3/
+C1.4/C2.1) по-прежнему `original=no`, поэтому знаменатель не растёт.
+
 Что осталось из should (не блокирует):
 
 | Фича | Состояние | Чем отличается |
 |---|---|---|
-| Bundles built for the reference module table | partial | шим `__ModuleLoader__.load({id, factory})` исполняет `factory` и `apply(ctx)`; `require` резолвит модули из `dsh.client.runtime`, если половина их опубликовала (в PoC — React 18.3.1), или из общего рантайма хоста, если половина опционально объявила `dsh.client.host_modules` (React 18.3.1 + jsx-шимы + частичный design-system шим `@deepseek-ai/dsh-client-ui-primitives` — с раунда 85 (C2) 30+ экспортов, включая компоненты, именованные `Icon*` с Proxy-fallback и хуки). Полной таблицы модулей DSH (полный design-system, React-контекст шелла) нет — это единственная незакрытая should-фича, поэтому score 98.1, а не 100 |
+| Bundles built for the reference module table | partial | шим `__ModuleLoader__.load({id, factory})` исполняет `factory` и `apply(ctx)`; `require` резолвит модули из `dsh.client.runtime`, если половина их опубликовала (в PoC — React 18.3.1), или из общего рантайма хоста, если половина опционально объявила `dsh.client.host_modules` (React 18.3.1 + jsx-шимы + design-system примитивы `@deepseek-ai/dsh-client-ui-primitives`, с раунда 93 (C2.1) портированные из reference: атомы и все 204 иконки; полные `Menu`/`Tooltip` и markdown-компоненты остаются упрощёнными). Полной таблицы модулей DSH (полный design-system, React-контекст шелла) нет — это единственная незакрытая should-фича, поэтому score 98.1, а не 100 |
 
 ## Чем это подтверждено
 
@@ -356,7 +397,7 @@ shared host module table, C-lite со всеми расширениями C1/C2/
 | runtime | `crates/cordis/src/client.rs`: `ClientHalf.runtime`/`runtime_path`, `host_page`/`host_page_assets` встраивают runtime до бандла, `requireShim` резолвит `window.__DSHR_MODULES__`; `crates/server/src/lib.rs`: `/host` читает и валидирует runtime (confined к пакету, ≤ 8 МиБ, `</script>` → 400); тесты: cordis +4, `plugins_live` +3, smoke +3 (discovery, runtime-before-bundle, require render); React 18.3.1 PoC (UMD в `runtime.js`, 143 197 байт) — рендер, `useState`, `ctx.onTheme` проверены вручную |
 | shared runtime | `crates/cordis/src/client.rs`: `HOST_MODULES`, `HOST_RUNTIME_VERSION`, `host_runtime_url`, `PageRuntime` (порядок shared → plugin runtime → bundle); `crates/server/src/lib.rs`: `GET /v1/runtime/{file}` (immutable-кэш, 404 на неизвестную версию), `client_host_csp` (origin сервера только для opt-in кадров); `crates/server/assets/runtime/` + `scripts/check-runtime-assets.sh`; тесты: cordis +4, `plugins_live` +3, smoke +5 (discovery `host_modules`, immutable-артефакт, host-страница без встроенного React, React из общего рантайма, `useState`) |
 | react slots / host state | `crates/cordis/src/bridge.js`: React-режим `ctx.slots.register(entry, Component)`, один React-root на кадр, `host-state` (`theme`/`wide`/`session`/`sessions`), hooks `useTheme`/`useSession`/`useSessions`/`useHostState`, `ctx.get('sessions')`, error boundary; `crates/web/src/main.rs`: `push_host_state_all`; `crates/cordis/src/client.rs`: `HOST_MODULES` с id примитивов; тесты: bridge harness 102 checks (host-state/`ctx.get`/`ctx.get('slots')`/`locale`/`ctx.inject`/`__DSHR_LAST_ERROR__` + раунд-81 `reactScenario`: memo-тип, host-props/hooks, `t()`-место, keyed-ids, форма `slots.entries`, раунд-89 C1.2: seat-`inject` props, генераторный `slots.inject`, генераторный `effect`, раунд-91 C1.3: catalog standard kit, `ownerProps` spread, plain catalog values), smoke 82/82 (фикстуры `hooks`, `hosted`, `ui-kit`, `dsh-remote`, `ruoyang-balance`, `dsh-genui`, `dsh-session-superagent`, `dsh-mnemon`, `dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`, `dsh-plugin-debugging`, `dsh-plugin-studio`; C1 host-маршруты — через реальную host-половину `@kt11/dsh-deepseek-balance`) |
-| design-system primitives | `crates/server/assets/runtime/primitives.js` — независимый **частичный** шим `@deepseek-ai/dsh-client-ui-primitives` (`Button`, `StateDot`, `Tooltip`, `Icon`, `Spinner`; с раунда 81 — ещё `JsonBlock`/`MarkdownText`; с раунда 85 (C2) — 30+ экспортов: `Input`/`Switch`/`Checkbox`/`Tag`/`Pill`/`Menu`/`MenuSurface`/`Modal`/`Toast`/`SegmentedControl`/`SegmentedTabs`/`DisclosureRow`/`PathLabel`/`TextShimmer`, `writeClipboard`, `useAnchoredPosition`/`useDismissOnOutsidePointer` и 18 именованных `Icon*` с Proxy-fallback) на host React и CSS-переменных темы, в `checksums.txt`/`README.md`; smoke: фикстура `ui-kit` резолвит его из общего рантайма, genui использует `JsonBlock`/`MarkdownText`, а C2-проба рендерит дерево всех смоделированных примитивов (12 маркеров, портальные Menu/Modal/Toast) |
+| design-system primitives | `crates/server/assets/runtime/primitives.js` — с раунда 93 (C2.1) **reference-порт** `@deepseek-ai/dsh-client-ui-primitives` (`deepseek-ai/deepseek-harness` @ `39163dd`, `packages/client/ui-primitives/src`): атомы `Button` (variants primary/ghost/outline/toolbar, sizes md/sm, leading icon, forwardRef), `Input`, `Switch` (role switch, aria-label), `Checkbox` (native input + label, data-modal-autofocus), `Tag` (`data-tone`), `Pill`, `SegmentedControl` (tablist+indicator, roving tabindex, walk-keys, id-value/-panel), `SegmentedTabs`, `DisclosureRow` (expandOnRowClick/previewChevron/collapsedContent/headerAccessory/running shimmer), `TextShimmer`, `StateDot` (done/warning/ongoing/error/idle, SVG spinner, appearance step), `PathLabel`, `Toast` (portal, role=alert, holdMs+fade), `Modal` (portal, mask, Escape, focus), `Menu`, `MenuSurface` (forwardRef, data-menu-material/phase), `Tooltip` (cloneElement-якорь) и все **204** `Icon*` из upstream `icons/artwork.ts` (точные SVG-пути, stroke regular 1 / medium 1.3, инлайн вместо спрайта, Proxy-fallback); стили — reference `--dsw-alias-*` токены с fallback'ами; частичными остаются полные `Menu` (submenu/focus) и `Tooltip` (placement), `MarkdownText`/`JsonBlock` (upstream требует shiki/katex/mdast), `Spinner`/`useAnchoredPosition` — dshr-расширения. Файл в `checksums.txt`/`README.md`; smoke: фикстура `ui-kit` резолвит его из общего рантайма, genui использует `JsonBlock`/`MarkdownText`, а C2-проба рендерит дерево всех смоделированных примитивов и проверяет структурные признаки (role=switch/aria-label, data-tone, tablist, svg, label.dshr-checkbox, path-label textContent) |
 | conformance | **Одиннадцать** реальных MIT-плагинов в `crates/cordis/tests/fixtures/` (n=11 — цель ADR-013 §6 8–12 достигнута с запасом; клиентские половины upstream без изменений, sha256 в `package.json`, host-половины — заглушки, кроме `@kt11/dsh-deepseek-balance` с раунда 84): `@kt11/dsh-deepseek-balance@0.2.1` — smoke: React-карточка в `sidebar.footer.action`, инжект собственного CSS, popup по клику; с раунда 84 (C1) host-половина реальная (upstream без изменений, host sha256 `8771ae90…`), и её маршруты отвечают через прокси: 500 `not-configured` без ключа и 200 JSON для usage-маршрута; `dsh-remote@1.1.2` (раунд 80) — smoke: discovery с примитивами в `host_modules`, registry-кадр без ошибок при отсутствии опциональных сервисов, React-слот `conversation.session.header.actions` монтируется в регион `conversation.header`; `@ruoyang/dsh-plugin-deepseek-balance@1.0.2` (раунд 81, sha256 `ca700695…`) — плавающий бейдж в `shell.overlay` через `ctx.effect`/`ctx.interval`/`ctx.locale`, рендерится без ошибок; `dsh-genui@0.3.3` (раунд 81, sha256 `8f0500ad…`) — тумблер GenUI в `conversation.input.left` и keyed-регистрация `conversation.chat.node` через `React.memo`, рендерится без ошибок; `dsh-session-superagent@0.10.12` (раунд 82, sha256 `d58f0fa2…`) — composer dock `conversation.composer.dock` монтируется в регион `composer.actions` без ошибок; `dsh-mnemon@0.5.46` (раунд 82, sha256 `d967402b…`) — крупный multi-region плагин: активируется, публикует слоты и сверяет собственные shadow-регистрации через `ctx.slots.subscribe`/`getVersion`/`entriesOfSlot`; `@99galaxy/dsh-plugin-market@1.2.2` (раунд 83, sha256 `27abb2db…`) — запись в сайдбаре (`sidebar.panellist` → регион `sidebar.footer`), smoke: кадр монтируется; `dsh-plugin-codegraph-panel@0.6.5` (раунд 83, sha256 `f834fadb…`) — панель `settings.section` (upstream-флаг `immediately: true`), активируется и публикует слот; `@goodandready/dsh-plugin-notify@0.4.9` (раунд 83, sha256 `7a2843fa…`) — строки `plugins.item`/`plugins.row.config` (регион `plugins.detail`), primitives + react, активируется и публикует слоты; `dsh-plugin-debugging@0.8.1` (раунд 85, C2, client sha256 `9b828160…`) и `dsh-plugin-studio@0.3.1` (раунд 85, C2, client sha256 `1194c18b…`) — примитивы-heavy половины (30+ экспортов шима): активируются без ошибок; их settings-UI рендерится с раунда 89 (C1.2) — studio показывает вкладки в Settings, debugging — карточку в Plugins через seat-`inject`/`configForms` (browser-форма in-memory). Не входят в набор: `@michengai/dsh-archive-manager` (нужен `'unsafe-eval'` в CSP) и `@michengai/dsh-skills-manager` (падение на инициализации бандла) |
 | host routes (C1) | `crates/cordis/src/bootstrap.mjs`: loopback-only `node:http`-сервер (`127.0.0.1`, случайный порт), per-process токен, `webServer.register({name, kind, path, handler})` с валидацией пути (package/reserved-префиксы) и `kind: "exact"`/`kind: "prefix"` (раунд 86: exact выигрывает, среди prefix — самый длинный, так же в менеджере и прокси), `ctx.inject(['webServer'])`, `credentials.resolve` из env, внутренний `__dshr_routes`; `crates/cordis/src/lib.rs`: `SidecarHttp`/`sidecar_http` (порт, токен, таблица маршрутов), фильтр `__dshr_*`-инструментов и (раунд 86) MCP-псевдо-инструментов (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) из реестра; `crates/cordis/src/manager.rs`: `http_route(path)` (exact→prefix, longest-prefix) и `http_routes()`, `PluginStatus.routes` — live-таблица маршрутов в `GET /v1/plugins/status` (раунд 86); `crates/server/src/lib.rs`: fallback `plugin_http_proxy` (allowlist, method/query/body, 1 МиБ request / 8 МиБ response / 15 с, reserved → 404, permissive CORS), loopback-only LAN-политика (раунд 86: 403 при bind вне loopback без `allow_plugin_routes_lan`/`--allow-lan-plugin-routes`, `crates/cli/src/serve_cmd.rs`) и `client_host_csp(allow_connect)` — `connect-src <origin>` только для кадров с `host_modules`; тесты: `plugins_live` 16 (+1: `internal_session_snapshot_feeds_the_host_bridge` — снимок с usage-полями, 401/404; `plugin_routes_are_loopback_only_unless_opted_in`; `proxies_plugin_host_routes` — GET/query/POST/OPTIONS/prefix/404/reserved/снятие маршрутов/status `routes`/meta-tools, а с раунда 92 (C1.4) — duplicate-route (бросает) и отклонение trailing-slash; `plain_frames_stay_network_free`), smoke 82/82 (реальная host-половина `@kt11/dsh-deepseek-balance` через кадр плагина) |
 | host services (C1.4) | `crates/cordis/src/bootstrap.mjs`: `validRoutePath` (абсолютный pathname без trailing slash/query/hash, вне reserved-префиксов dshr API), `webRoutes` (независимые `exact`/`prefix`-таблицы, дубликат `(kind, path)` бросает `webserver: duplicate <kind> route`), `getOrigin()`/`port`/`protocol` из host-bridge файла `<home>/cordis/host.json`, `unsupportedWebServerFeature` (`registerFallback`/`registerUpgrade` бросают), `ctx.baseUrl` = `pathToFileURL(root + sep).href`, reference-shape `configForms` (`base`/`user`, числовая `revision` со стабильным snapshot, `mutate` с `set`/`unset` и expectedRevision-fence, хелперы `set`/`unset`); `crates/cordis/src/bridge.js`: `browserConfigForm`/`configFormsService` с той же формой snapshot и in-memory формой (не переживает reload); тесты: bridge harness 102 (+4: форма-контракт, стабильный snapshot, set с числовой ревизией, unset), `plugins_live` 16 (duplicate-route/trailing-slash в proxy-тесте); ограничения — `registerFallback`/`registerUpgrade` не поддержаны, browser-форма in-memory, живого RPC-зеркала настроек нет |
@@ -385,7 +426,7 @@ python3 scripts/plugin-smoke.py    # 82 проверки в headless Chrome (в�
    render-сайтов шелла), React-контекст/состояние шелла
    и композиция между плагинами — только если появится запрос на экосистему DSH
    UI; C-lite (React-компоненты слотов с host-hooks/`ctx.get('sessions')` и
-   частичным design-system шимом) сделан в раундах 79–83, раунд 85 (C2)
+   design-system примитивами) сделан в раундах 79–83, раунд 85 (C2)
    расширил шим до 30+ экспортов и довёл conformance до n=11, а раунд 89 (C1.2)
    добавил seat-`inject`, Cordis-генераторы и `configForms`, поэтому settings-UI
    `dsh-plugin-studio`/`dsh-plugin-debugging` теперь рендерится (хотя референсных
@@ -397,9 +438,11 @@ python3 scripts/plugin-smoke.py    # 82 проверки в headless Chrome (в�
    остаток SlotMap перечислен выше. Раунд 92 (C1.4) выровнял host-сервисы
    `webServer`/`ctx.baseUrl`/`configForms` по reference-контракту (правила
    маршрутов и origin-аксессоры, `file://`-baseUrl, snapshot с числовой
-   ревизией и `set`/`unset`), а следующий кандидат reference-работы — реальный
-   порт `ui-primitives` из `packages/client/ui-primitives` (затем store
-   seats/renderer, chain dispatch/hoc-nesting, ownerProps от shell-сайтов).
+   ревизией и `set`/`unset`), а раунд 93 (C2.1) закрыл реальный порт
+   `ui-primitives` из `packages/client/ui-primitives` (атомы и все 204 иконки;
+   полные `Menu`/`Tooltip` и markdown-компоненты остаются упрощёнными), поэтому
+   следующий кандидат reference-работы — store seats/renderer, chain
+   dispatch/hoc-nesting, ownerProps от shell-сайтов.
 2. Host-маршруты DSH-плагинов: C1 (раунд 84) сделал их работающими
    (sidecar-сервер + allowlist-прокси + `connect-src`, реальная host-половина
    `@kt11/dsh-deepseek-balance` отвечает своим JSON), а раунд 86 (хардненинг C1)

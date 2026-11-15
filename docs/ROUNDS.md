@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–92)
+# Журнал раундов паритета (1–93)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -720,11 +720,64 @@ streaming-прокси.
     `packages/client/ui-primitives` (следующий кандидат), store seats/renderer,
     chain dispatch/hoc-nesting и ownerProps от реальных shell-сайтов.
 
+- 93: **C2.1** — атомы design-system и все иконки портированы из
+  reference-исходников ([ADR-040](adr/040-react-client-half.md) §«C2.1»,
+  [PLUGINS.md](PLUGINS.md)). Раньше `primitives.js` был независимым «похожим»
+  шимом; теперь он портирован из `deepseek-ai/deepseek-harness` @ `39163dd`,
+  `packages/client/ui-primitives/src`:
+  - **атомы** — `Button` (variants `primary`/`ghost`/`outline`/`toolbar`,
+    sizes `md`/`sm`, leading `icon`, `forwardRef`), `Input` (wrapper + leading
+    icon), `Switch` (role switch, `aria-label`, thumb без видимого текста),
+    `Checkbox` (native input + label, `data-modal-autofocus`), `Tag`
+    (`data-tone`: outline/solid/neutral/quiet/success/info/warning/danger),
+    `Pill` (span/button по наличию `onClick`, `active`), `SegmentedControl`
+    (tablist + indicator, roving tabindex, walk-клавиши, `<id>-<value>`/
+    `-panel`), `SegmentedTabs` (Pill-табы, grid indicator, Left/Right/Home/End
+    с переносом фокуса), `DisclosureRow` (header/row, `expandOnRowClick`,
+    `previewChevron`, `collapsedContent`, `headerAccessory`, running-shimmer),
+    `TextShimmer` (nested-context + decoration/sweep), `StateDot`
+    (done/warning/ongoing/error/idle, SVG-spinner, `appearance: "step"`),
+    `PathLabel` (directory/name split, clipped-маска, `title`), `Toast`
+    (portal, `role=alert`, success check-circle, `holdMs`+fade, actions,
+    anchor), `Modal` (portal, mask, Escape, focus, warning tone, headless,
+    footer), `Menu` (data-rows/separators/labels, fixed-позиционирование,
+    outside/Escape, `selectedId`/`selectedIds`, portal; полный
+    submenu/focus-движок **не** портирован), `MenuSurface` (`forwardRef`,
+    `data-menu-material`/`phase`), `Tooltip` (label-based клон якоря,
+    hover/focus-бабл; placement-движок **не** портирован);
+  - **иконки** — все **204** reference-экспорта `Icon*` сгенерированы из
+    upstream `icons/artwork.ts` (точные SVG-пути, stroke regular 1 / medium 1.3)
+    и инлайнены вместо document-спрайта; для будущих имён остаётся
+    Proxy-fallback;
+  - **стили** — те же `--dsw-alias-*` токены, что использует reference (с
+    fallback'ами), поэтому тема dshr управляет видом;
+  - **совместимость** — synthetic-фикстуры приведены к reference-контрактам
+    (`StateDot` с `state:"done"`, `Tooltip` с element-child), а C2-probe теперь
+    проверяет структурные признаки, а не только текст: `role=switch` с
+    `aria-label`, `data-tone`, `tablist`-табы, число `svg`, `label.dshr-checkbox`,
+    `textContent` у `[data-path-label]`;
+  - **расширения dshr (не из reference)** — `Spinner`, упрощённые
+    `JsonBlock`/`MarkdownText` (upstream зависит от shiki/katex/mdast),
+    `useAnchoredPosition`; `writeClipboard` и `useDismissOnOutsidePointer`
+    портированы по reference-алгоритмам;
+  - Проверки: smoke **82/82** (два зелёных прогона подряд; C2-probe усилен до
+    структурных проверок), bridge harness 102, cordis lib 26, server
+    `plugins_live` 16, workspace 365 passed + 3 ignored (desktop 21, итого 386),
+    web-e2e 16/16; общий рантайм-артефакт вырос с прежних 176 725 до
+    **375 894 байт** (React + ReactDOM UMD + `bootstrap.js` + `primitives.js`;
+    cached immutable один раз на страницу).
+  - Границы C2.1: полный `Menu` (submenu/focus-машинерия) и полный `Tooltip`
+    (placement-engine) не портированы — работают упрощённые варианты;
+    `MarkdownText`/`JsonBlock` остаются упрощёнными dshr-расширениями;
+    store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
+    `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
+    shell-сайтов остаются C-full.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–92 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–93 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -773,7 +826,12 @@ deferred inject, standard-kit + ownerProps) — bridge harness 98 (+8); раун
 reference-контракту — правила exact/prefix-маршрутов и duplicate-throw,
 origin-аксессоры из host-bridge, `file://`-baseUrl, snapshot
 `{status, value, base, user, revision, writable}` с числовой ревизией и
-`set`/`unset` (bridge harness 102, +4).
+`set`/`unset` (bridge harness 102, +4); раунд 93 (**C2.1**) заменил независимый
+design-system шим портированными атомами и всеми 204 иконками из
+`deepseek-ai/deepseek-harness` @ `39163dd`
+(`packages/client/ui-primitives/src`), поэтому `@deepseek-ai/dsh-client-ui-primitives`
+больше не «похожий» шим, а reference-порт (остаток — полные Menu/Tooltip и
+markdown-компоненты, store/renderer, `chain`/`hoc`, `ownerProps`).
 
 Открыто и не заблокировано:
 
@@ -783,14 +841,18 @@ origin-аксессоры из host-bridge, `file://`-baseUrl, snapshot
   React закреплена за сервером, CSP opt-in-кадров открывает origin для скриптов и
   `connect-src` — для host-маршрутов плагина) могут поменяться до полного тира C
   по [ADR-040](adr/040-react-client-half.md).
-- C-lite/C2-ограничения: design-system шим частичный — раунд 85 вырос с 7 до
-  30+ экспортов (24 компонента/функции: `Button`, `StateDot`, `Tooltip`,
-  `Icon`, `Spinner`, `JsonBlock`, `MarkdownText`, `Input`, `Switch`, `Checkbox`,
-  `Tag`, `Pill`, `Menu`, `MenuSurface`, `Modal`, `Toast`, `SegmentedControl`,
-  `SegmentedTabs`, `DisclosureRow`, `PathLabel`, `TextShimmer`,
-  `writeClipboard`, `useAnchoredPosition`, `useDismissOnOutsidePointer`; плюс
-  18 именованных `Icon*` с Proxy-fallback), но это независимая реализация по
-  фактическим импортам, а не полный `@deepseek-ai/dsh-client-ui-*`; `wide`
+- C-lite/C2/C2.1-ограничения: с раунда 93 (C2.1) design-system **портирован из
+  reference-исходников** (`deepseek-ai/deepseek-harness` @ `39163dd`,
+  `packages/client/ui-primitives/src`): атомы `Button`, `Input`, `Switch`,
+  `Checkbox`, `Tag`, `Pill`, `SegmentedControl`, `SegmentedTabs`,
+  `DisclosureRow`, `TextShimmer`, `StateDot`, `PathLabel`, `Toast`, `Modal`,
+  `Menu`, `MenuSurface`, `Tooltip` и **204** `Icon*` (точные SVG-пути,
+  regular/medium stroke) — вместо прежней независимой реализации 30+
+  экспортов с 18 иконками. Частичным остаётся: полный `Menu`
+  (submenu/focus-машинерия) и полный `Tooltip` (placement-engine) не
+  портированы, `MarkdownText`/`JsonBlock` — упрощённые dshr-расширения
+  (upstream требует shiki/katex/mdast), `Spinner`/`useAnchoredPosition` —
+  тоже dshr-расширения; `wide`
   в host-state сейчас всегда true, conformance-набор — **n=11**
   (цель ADR-013 §6 8–12 достигнута; остальные smoke-половины синтетические),
   host-сервисов `pluginManager`/`settings` нет, но с раунда 89 (C1.2) UI
@@ -822,10 +884,19 @@ origin-аксессоры из host-bridge, `file://`-baseUrl, snapshot
   реальным плагинам набора не нужны); browser-`configForms` по-прежнему
   in-memory — правки не переживают reload кадра, живого RPC-зеркала настроек
   нет (in-memory/файловые stand-in'ы, семантика конфигурационного движка DSH не
-  воспроизведена). Следующий кандидат reference-работы — реальный порт
-  `ui-primitives` из `packages/client/ui-primitives`, затем store
-  seats/renderer, chain dispatch/hoc-nesting и ownerProps от реальных
-  shell-сайтов.
+  воспроизведена). Порт `ui-primitives` закрыт в C2.1 (раунд 93): атомы и все
+  204 иконки портированы из reference, но полные `Menu`/`Tooltip` и
+  markdown-компоненты остаются dshr-версиями; следующий кандидат
+  reference-работы — store seats/renderer, chain dispatch/hoc-nesting и
+  ownerProps от реальных shell-сайтов.
+- C2.1-остатки (раунд 93): портированы атомы и все 204 иконки, но полный
+  `Menu` (submenu/focus-машинерия) и полный `Tooltip` (placement-engine) не
+  портированы — работают упрощённые варианты; `MarkdownText`/`JsonBlock`
+  остаются упрощёнными dshr-расширениями (upstream зависит от
+  shiki/katex/mdast), `Spinner`/`useAnchoredPosition` — dshr-расширения;
+  store-seats (`PropsStore`/`BoundActions`)/renderer-семантика,
+  `chain`-диспетчеризация/`hoc`-вложение и `ownerProps` от реальных
+  shell-сайтов остаются C-full.
 - C1-остатки (раунды 84–87): раунд 87 (C1.1) закрыл отсутствие сервисов
   `sessions`/`sessionProjections` — sidecar строит их из снимка сервера
   (задержка ≤ 5 с, упрощённые проекции: `llmMs`=0, без истории тредов,
@@ -873,8 +944,14 @@ origin-аксессоры из host-bridge, `file://`-baseUrl, snapshot
   host-bridge, `file://`-baseUrl, snapshot
   `{status, value, base, user, revision: number, writable}` с `mutate`/`set`/
   `unset` и числовым revision-fence; `registerFallback`/`registerUpgrade` в
-  sidecar не поддержаны).
-  Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
+  sidecar не поддержаны); раунд 93 — **C2.1**: атомы design-system и все 204
+  иконки портированы из `deepseek-ai/deepseek-harness` @ `39163dd`
+  (`packages/client/ui-primitives/src`), поэтому шим примитивов стал
+  reference-портом, а не независимой реализацией (рантайм-артефакт 375 894
+  байт).
+  Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`
+  (C2.1 закрыл атомы и иконки, но полные `Menu`/`Tooltip` и
+  markdown-компоненты остаются упрощёнными),
   SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
   ownerProps от реальных shell-сайтов),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии
