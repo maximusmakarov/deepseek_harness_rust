@@ -15,6 +15,10 @@ One command runs every gate exactly like CI:
 
 ```sh
 scripts/check.sh          # everything (fmt, clippy, runtime assets, tests, evals, perf, browser)
+
+Perf-бюджеты — wall-clock: `check.sh` один раз повторяет прогон perf при падении
+(на загруженном хосте Spotlight/сборка/CI-соседство дают ложный красный), но
+реальная регрессия валит оба прогона.
 scripts/check.sh quick    # fmt, clippy, workspace tests
 ```
 
