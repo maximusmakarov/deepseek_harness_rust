@@ -1,8 +1,8 @@
-# Журнал раундов паритета (1–86)
+# Журнал раундов паритета (1–87)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 364 root-теста
-(+3 ignored) и 21 desktop-тест = **385**, `clippy`/`fmt`/`deny` чисто,
+Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
+(+3 ignored) и 21 desktop-тест = **386**, `clippy`/`fmt`/`deny` чисто,
 release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -542,11 +542,45 @@ release-бинарь воспроизводим.
     `dsh-plugin-studio` по-прежнему нет. Полный C-full (design-system,
     SlotMap-семантика, React-контекст шелла) — решение владельца.
 
+- 87: **C1.1** — сервисы `sessions`/`sessionProjections` в sidecar
+  ([ADR-040](adr/040-react-client-half.md) §«C1.1», [PLUGINS.md](PLUGINS.md)):
+  - сервер: `serve()` генерирует per-run внутренний токен, пишет
+    `<home>/cordis/host.json` (`{url, token}`) и публикует
+    `GET /v1/internal/session-snapshot` — recent ≤50 сессий
+    (id/title/created_at/model/turns/steps и usage-события
+    assistant/turn/step/tokens); содержимое сообщений и промпты не покидают
+    сервер; без настроенного токена эндпоинт отвечает 404, при неверном
+    `x-dshr-internal-token` — 401 (`crates/server/src/lib.rs`:
+    `write_host_bridge`, `internal_session_snapshot`,
+    `ServerConfig.internal_token`);
+  - sidecar: `connect()` передаёт `DSHR_HOST_BRIDGE`
+    (`<home>/cordis/host.json`), bootstrap читает файл, раз в 5 с
+    (unref-таймер) обновляет снимок и транслирует его в DSH-shaped сервисы
+    через `ctx.get`: `sessions` (`list()`/`get(id)`, `header.createdAt` в
+    epoch ms, DSH-shaped `log` с `request/context`, `session/title`,
+    `assistant/message` usage) и `sessionProjections`
+    (`snapshot(session).values` с `sessionStats` turns/steps/`llmMs`=0 и
+    `tokenUsage`) (`crates/cordis/src/lib.rs`, `bootstrap.mjs`:
+    `refreshHostSessions`, `dshSessionFromSnapshot`);
+  - эффект: usage-маршруты реального `@kt11/dsh-deepseek-balance`
+    (`/dsh-usage/sessions`) перечисляют сессии dshr и считают totals; smoke
+    опрашивает маршрут из кадра плагина и требует `sessions` ≥ 1 и totals;
+  - Проверки: smoke — 80/80 (+1: C1.1 bridge), bridge harness 87,
+    cordis lib 26, server `plugins_live` 16 (+1:
+    `internal_session_snapshot_feeds_the_host_bridge`, покрывает 401/404),
+    workspace 365 passed + 3 ignored (desktop 21, итого 386), web-e2e 16/16;
+    общий рантайм-артефакт не менялся — 176 725 байт.
+  - Границы C1.1: это снимок, а не живой RPC — данные могут отставать до 5 с,
+    проекции упрощены (`llmMs`=0, без истории тредов), содержимое сессий
+    намеренно не мостится; SSE/WebSocket/стриминга по-прежнему нет, полный
+    C-full (design-system, SlotMap-семантика, React-контекст шелла) —
+    решение владельца.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–86 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–87 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -578,7 +612,12 @@ Proxy-fallback, хуки, `writeClipboard`), conformance доведён до **n
 `GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов
 (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) из реестра
 инструментов Cordis-плагина и loopback-only политика plugin-маршрутов (403 при
-bind вне loopback без явного `--allow-lan-plugin-routes`).
+bind вне loopback без явного `--allow-lan-plugin-routes`), а раунд 87 — **C1.1**:
+sidecar получает DSH-shaped сервисы `sessions`/`sessionProjections` из
+внутреннего снимка сервера (`/v1/internal/session-snapshot`, токен в
+`<home>/cordis/host.json`, обновление раз в 5 с), поэтому usage-маршруты
+реальных плагинов считают статистику по сессиям dshr (проекции упрощены,
+содержимое сессий не мостится).
 
 Открыто и не заблокировано:
 
@@ -607,13 +646,16 @@ bind вне loopback без явного `--allow-lan-plugin-routes`).
   а `@michengai/dsh-skills-manager` падает на инициализации бандла — нужен триаж.
   Дальнейшее расширение (полный design-system/SlotMap/React-контекст) — уже не
   C-lite, а C-full: решение владельца.
-- C1-остатки (раунды 84–86): сервисы `sessions`/`sessionProjections` для
-  usage-маршрутов отсутствуют (C1.1), нет SSE/WebSocket/стриминга через прокси
-  (fallback-прокси буферизует ответ). Раунд 86 закрыл ограничение exact-only
-  (появились prefix-маршруты), шум MCP-псевдо-инструментов в реестре и
-  LAN-экспозицию: plugin-маршруты по-прежнему неаутентифицированы (как в DSH),
-  поэтому при bind вне loopback прокси отвечает 403 без явного
-  `--allow-lan-plugin-routes` (`ServerConfig.allow_plugin_routes_lan`).
+- C1-остатки (раунды 84–87): раунд 87 (C1.1) закрыл отсутствие сервисов
+  `sessions`/`sessionProjections` — sidecar строит их из снимка сервера
+  (задержка ≤ 5 с, упрощённые проекции: `llmMs`=0, без истории тредов,
+  содержимое сессий намеренно не мостится). Остаются: нет
+  SSE/WebSocket/стриминга через прокси (fallback-прокси буферизует ответ).
+  Раунд 86 закрыл ограничение exact-only (появились prefix-маршруты), шум
+  MCP-псевдо-инструментов в реестре и LAN-экспозицию: plugin-маршруты
+  по-прежнему неаутентифицированы (как в DSH), поэтому при bind вне loopback
+  прокси отвечает 403 без явного `--allow-lan-plugin-routes`
+  (`ServerConfig.allow_plugin_routes_lan`).
 
 Ожидает решения (ADR-040 Proposed, тир C/C-full):
 
@@ -636,7 +678,9 @@ bind вне loopback без явного `--allow-lan-plugin-routes`).
   активируются, но их UI ждёт host-сервисов `pluginManager`/settings); раунд
   86 — хардненинг C1: prefix-маршруты, таблица `routes` в
   `GET /v1/plugins/status`, фильтр MCP-псевдо-инструментов и loopback-only
-  политика plugin-маршрутов с opt-in `--allow-lan-plugin-routes`.
+  политика plugin-маршрутов с opt-in `--allow-lan-plugin-routes`; раунд 87 —
+  **C1.1**: мост `sessions`/`sessionProjections` из внутреннего снимка сервера
+  (задержка ≤ 5 с, упрощённые проекции, содержимое сессий не мостится).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-семантики (`ownerProps`, framework-hooks, cardinality/scope/chain/hoc),
   React-контекста/состояния шелла и композиции между плагинами, выбора версии

@@ -168,10 +168,115 @@ const credentialsService = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// C1.1 host bridge: the server publishes `{url, token}` in
+// <home>/cordis/host.json and serves /v1/internal/session-snapshot. The sidecar
+// translates that payload into the DSH-shaped `sessions`/`sessionProjections`
+// services that design-system plugins resolve lazily in their route handlers.
+// A snapshot (not a live proxy) keeps the service methods synchronous; it is
+// refreshed every few seconds, so usage data can lag by that refresh interval.
+// ---------------------------------------------------------------------------
+const hostBridgeFile = process.env.DSHR_HOST_BRIDGE || "";
+let hostSessions = [];
+
+function dshSessionFromSnapshot(raw) {
+  const log = [];
+  const createdMs = Number.isFinite(Date.parse(raw.created_at)) ? Date.parse(raw.created_at) : 0;
+  if (typeof raw.model === "string" && raw.model !== "") {
+    log.push({ type: "request/context", time: createdMs, data: { model: raw.model } });
+  }
+  if (typeof raw.title === "string" && raw.title.trim() !== "") {
+    log.push({ type: "session/title", time: createdMs, data: { title: raw.title.trim() } });
+  }
+  const tokenUsage = {
+    uncachedInputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    outputTokens: 0,
+  };
+  const events = Array.isArray(raw.usage_events) ? raw.usage_events : [];
+  events.forEach((event, index) => {
+    const time = Number.isFinite(Date.parse(event.at)) ? Date.parse(event.at) : createdMs;
+    const input = Number(event.input_tokens) || 0;
+    const cacheRead = Number(event.cache_read_input_tokens) || 0;
+    const cacheWrite = Number(event.cache_creation_input_tokens) || 0;
+    const output = Number(event.output_tokens) || 0;
+    log.push({
+      type: "assistant/message",
+      time,
+      data: {
+        turn: event.turn,
+        step: Number.isFinite(Number(event.seq)) ? Number(event.seq) : index,
+        usage: {
+          inputTokens: input,
+          outputTokens: output,
+          cacheReadTokens: cacheRead,
+          cacheWriteTokens: cacheWrite,
+        },
+      },
+    });
+    tokenUsage.uncachedInputTokens += Math.max(0, input - cacheRead);
+    tokenUsage.cacheReadTokens += cacheRead;
+    tokenUsage.cacheWriteTokens += cacheWrite;
+    tokenUsage.outputTokens += output;
+  });
+  return {
+    id: raw.id,
+    header: { createdAt: createdMs, title: raw.title || "" },
+    log,
+    projections: {
+      values: {
+        sessionStats: { turns: Number(raw.turns) || 0, steps: events.length, llmMs: 0 },
+        tokenUsage,
+      },
+    },
+  };
+}
+
+async function refreshHostSessions() {
+  if (!hostBridgeFile) return;
+  try {
+    const text = await fs.readFile(hostBridgeFile, "utf8");
+    const bridge = JSON.parse(text);
+    if (!bridge || typeof bridge.url !== "string" || typeof bridge.token !== "string") return;
+    const response = await fetch(bridge.url + "/v1/internal/session-snapshot", {
+      headers: { "x-dshr-internal-token": bridge.token },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (!payload || !Array.isArray(payload.sessions)) return;
+    hostSessions = payload.sessions.map(dshSessionFromSnapshot);
+  } catch {
+    // The server may not be listening yet (bridge file is absent/stale); the
+    // timer retries, and plugins see an empty session list until it succeeds.
+  }
+}
+
+const sessionsService = {
+  list: () => hostSessions,
+  get: (id) => hostSessions.find((session) => session.id === id),
+};
+const sessionProjectionsService = {
+  snapshot: (session) =>
+    (session && session.projections) || {
+      values: { sessionStats: null, tokenUsage: null },
+      asOfSeq: null,
+    },
+};
+
 const serviceMap = {
   webServer,
   credentials: credentialsService,
+  sessions: sessionsService,
+  sessionProjections: sessionProjectionsService,
 };
+
+if (hostBridgeFile) {
+  refreshHostSessions();
+  const hostBridgeTimer = setInterval(refreshHostSessions, 5000);
+  if (typeof hostBridgeTimer.unref === "function") hostBridgeTimer.unref();
+}
 
 const ctx = {
   tool: (definition) => addTool(definition),

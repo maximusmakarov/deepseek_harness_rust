@@ -391,12 +391,22 @@ export function apply(ctx) {
   слушает не loopback, прокси отвечает 403, пока явно не передан
   `--allow-lan-plugin-routes`.
 
-Ограничения C1: нет сервисов `sessions`/`sessionProjections` (маршруты,
-которые строят статистику по сессиям, отдают пустые/ошибочные данные), нет
-SSE/WebSocket/стриминга и потоковых ответов через прокси; поддерживаются
-`kind: "exact"` и `kind: "prefix"` (longest-prefix), других kind нет.
-Plugin-маршруты не аутентифицированы (как в DSH), поэтому при bind вне loopback
-сервер отвечает 403, пока явно не передан `--allow-lan-plugin-routes`.
+**Сервисы `sessions`/`sessionProjections` (C1.1).** Сервер публикует в
+`<home>/cordis/host.json` внутренний URL и per-run токен, а sidecar забирает
+`GET /v1/internal/session-snapshot` (recent ≤50 сессий: id/title/model/turns/
+steps/usage-события, без содержимого сообщений) и раз в 5 с обновляет снимок.
+Из него bootstrap строит DSH-совместимые сервисы: `ctx.get('sessions')`
+(`list()`/`get(id)`, объекты с `header.createdAt` и DSH-shaped `log`) и
+`ctx.get('sessionProjections')` (`snapshot(session).values` с `sessionStats` и
+`tokenUsage`). Реальные usage-маршруты плагинов теперь считают статистику по
+сессиям dshr; данные могут отставать до интервала обновления (5 с), а проекция
+упрощена (без `llmMs`/истории тредов).
+
+Ограничения C1: нет SSE/WebSocket/стриминга и потоковых ответов через прокси;
+поддерживаются `kind: "exact"` и `kind: "prefix"` (longest-prefix), других kind
+нет. Plugin-маршруты не аутентифицированы (как в DSH), поэтому при bind вне
+loopback сервер отвечает 403, пока явно не передан
+`--allow-lan-plugin-routes`.
 
 ### Общая модульная таблица хоста (`dsh.client.host_modules`)
 

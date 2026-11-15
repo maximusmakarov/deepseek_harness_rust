@@ -45,6 +45,7 @@ fn state(dir: &std::path::Path) -> AppState {
             cordis_plugins: vec![("demo".into(), true)],
             plugins: None,
             allow_plugin_routes_lan: false,
+            internal_token: None,
             wasm: None,
         },
         provider,
@@ -268,6 +269,7 @@ async fn rate_limits_api_requests() {
         cordis_plugins: Vec::new(),
         plugins: None,
         allow_plugin_routes_lan: false,
+        internal_token: None,
         wasm: None,
     };
     let app = router(AppState::new(

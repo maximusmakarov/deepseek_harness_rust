@@ -41,6 +41,7 @@ fn state(dir: &std::path::Path) -> AppState {
             cordis_plugins: vec![("cordis".into(), true)],
             plugins: None,
             allow_plugin_routes_lan: false,
+            internal_token: None,
             wasm: None,
         },
         provider,

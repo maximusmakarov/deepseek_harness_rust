@@ -77,6 +77,15 @@ async fn state_with(
     bind: &str,
     allow_plugin_routes_lan: bool,
 ) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::CordisManager>) {
+    state_with_internal(dir, bind, allow_plugin_routes_lan, None).await
+}
+
+async fn state_with_internal(
+    dir: &Path,
+    bind: &str,
+    allow_plugin_routes_lan: bool,
+    internal_token: Option<&str>,
+) -> (AppState, Arc<ToolRegistry>, Arc<dshr_cordis::CordisManager>) {
     let registry = Arc::new(ToolRegistry::new());
     let home = dir.join("home");
     std::fs::create_dir_all(&home).expect("home");
@@ -126,6 +135,7 @@ async fn state_with(
             cordis_plugins: vec![("demo".into(), true)],
             plugins: Some(Arc::clone(&manager)),
             allow_plugin_routes_lan,
+            internal_token: internal_token.map(ToOwned::to_owned),
             wasm: None,
         },
         provider,
@@ -937,6 +947,88 @@ async fn proxies_plugin_host_routes() {
     let request = Request::builder()
         .method("GET")
         .uri("/probe-route")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn internal_session_snapshot_feeds_the_host_bridge() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = dshr_session_jsonl::SessionStore::new(dir.path().join("sessions"));
+    let mut session = store
+        .create("mock", "deepseek-flash", dir.path().to_str().expect("path"))
+        .expect("session");
+    let seq = session.next_seq();
+    store
+        .append(
+            &mut session,
+            dshr_session::SessionEvent::AssistantMessage {
+                seq,
+                at: "2026-01-01T00:00:00Z".into(),
+                turn: dshr_core::TurnId::new(),
+                content: Vec::new(),
+                usage: dshr_llm::Usage {
+                    input_tokens: 10,
+                    output_tokens: 4,
+                    cache_creation_input_tokens: 2,
+                    cache_read_input_tokens: 3,
+                },
+                stop_reason: None,
+            },
+        )
+        .expect("append");
+    std::fs::write(dir.path().join("plugin.mjs"), WEB_ROUTE_PLUGIN).expect("plugin");
+    let (app_state, _registry, _manager) =
+        state_with_internal(dir.path(), "127.0.0.1:0", false, Some("test-internal")).await;
+    let app = router(app_state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/internal/session-snapshot")
+        .header("x-dshr-internal-token", "test-internal")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let snapshot: Value = serde_json::from_slice(&body).expect("json");
+    let sessions = snapshot["sessions"].as_array().expect("sessions");
+    assert_eq!(sessions.len(), 1, "{snapshot}");
+    assert_eq!(sessions[0]["model"], "deepseek-flash", "{snapshot}");
+    assert_eq!(
+        sessions[0]["usage_events"][0]["input_tokens"], 10,
+        "{snapshot}"
+    );
+    assert_eq!(
+        sessions[0]["usage_events"][0]["cache_read_input_tokens"], 3,
+        "{snapshot}"
+    );
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/internal/session-snapshot")
+        .header("x-dshr-internal-token", "wrong")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // Without a configured internal token the endpoint stays invisible.
+    let other = tempfile::tempdir().expect("tempdir");
+    std::fs::write(other.path().join("plugin.mjs"), WEB_ROUTE_PLUGIN).expect("plugin");
+    let (plain_state, _registry, _manager) = state(other.path()).await;
+    let app = router(plain_state);
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/internal/session-snapshot")
         .body(Body::empty())
         .expect("request");
     let response = app.oneshot(request).await.expect("response");

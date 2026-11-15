@@ -1,6 +1,6 @@
 # 040. React-совместимость клиентской половины: plugin-shipped runtime и путь B → C
 
-- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); 15.11.2026 (раунд 85) — **C2**: design-system шим расширен до 30+ экспортов по реальным импортам, conformance **n=11**; 15.11.2026 (раунд 86) — хардненинг C1: prefix-маршруты, статус с таблицей маршрутов, фильтр MCP-псевдо-инструментов, loopback-only политика для LAN; полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
+- **Статус:** Proposed; 14.11.2026 (раунд 77) реализован **enabler** `dsh.client.runtime`; 15.11.2026 (раунд 78) — **PoC тира B** (общая модульная таблица хоста, React 18.3.1 с сервера); 15.11.2026 (раунд 79) — **C-lite PoC**: React-компоненты слотов, host-hooks/`ctx.get('sessions')`, частичный design-system шим и первый реальный DSH-плагин; 15.11.2026 (раунд 80) — C-lite conformance **n=2** и сервисы моста (`ctx.get('slots'/'locale')`, `ctx.inject`, диагностика `__DSHR_LAST_ERROR__`); 15.11.2026 (раунд 81) — conformance **n=4** и доработки React-контракта (`React.memo`/`forwardRef`, keyed-id, `locale.register`+`t()`, `ctx.interval/timeout`); 15.11.2026 (раунд 82) — conformance **n=6** (`dsh-session-superagent`, `dsh-mnemon`); 15.11.2026 (раунд 83) — conformance **n=9** (`dsh-plugin-market`, `dsh-plugin-codegraph-panel`, `dsh-plugin-notify`); 15.11.2026 (раунд 84) — **C1**: host HTTP-маршруты плагинов через sidecar-proxy (реальные плагины получают данные); 15.11.2026 (раунд 85) — **C2**: design-system шим расширен до 30+ экспортов по реальным импортам, conformance **n=11**; 15.11.2026 (раунд 86) — хардненинг C1: prefix-маршруты, статус с таблицей маршрутов, фильтр MCP-псевдо-инструментов, loopback-only политика для LAN; 15.11.2026 (раунд 87) — **C1.1**: мост `sessions`/`sessionProjections` в sidecar (usage-маршруты получают реальные данные); полный тир C (design-system/SlotMap-семантика/React-контекст шелла) — решение за владельцем
 - **Дата:** 2026-11-14
 - **Уточняет:** [ADR-013](013-cordis-compat.md) §5 (React-компоненты и SlotMap-семантика там остаются вне scope; этот ADR предлагает путь, как их закрывать)
 - **Влияет на:** PLUGINS.md (клиентская половина), LIMITATIONS §2.4, COMPATIBILITY, TECH-DEBT, ROADMAP M5b
@@ -344,3 +344,30 @@ Conformance **n=11**: добавлены `dsh-plugin-debugging@0.8.1` и
 Проверка: server integration tests 15 (proxy: exact/prefix/query/POST/preflight/
 404/reserved/route-removal/status/meta-tools; loopback-only policy), smoke 79/79
 без изменений, workspace tests 364 + 3 ignored.
+
+## C1.1: сервисы sessions/sessionProjections в sidecar (15.11.2026, раунд 87)
+
+Host-половины реальных плагинов читают статистику через
+`ctx.get('sessions')` и `ctx.get('sessionProjections')`. dshr закрывает это
+снимком, а не живым RPC:
+
+- **Сервер.** `serve()` генерирует per-run внутренний токен, пишет
+  `<home>/cordis/host.json` (`{url, token}`) и публикует
+  `GET /v1/internal/session-snapshot` — recent ≤50 сессий (id/title/created_at/
+  model/turns/steps и usage-события assistant/turn/step/tokens; **содержимое
+  сообщений и промпты не отправляются**). Без настроенного токена эндпоинт
+  отвечает 404, при неверном — 401.
+- **Sidecar.** Bootstrap читает bridge-файл, раз в 5 с (unref-таймер) обновляет
+  снимок и транслирует его в DSH-shaped данные: `sessions.list()/get(id)` с
+  `header.createdAt` (epoch ms) и `log` (`request/context`,
+  `session/title`, `assistant/message` c `usage`), а также
+  `sessionProjections.snapshot(session).values` с `sessionStats` и
+  `tokenUsage`. Методы синхронные (снимок), поэтому data может отставать до
+  5 с — записано как ограничение.
+- **Эффект.** Usage-маршруты реального `@kt11/dsh-deepseek-balance`
+  (`/dsh-usage/sessions`) теперь перечисляют сессии dshr и считают totals;
+  smoke подтверждает это из браузера (sessions ≥ 1, totals на месте).
+
+Осталось: проекции упрощены (`llmMs`=0, без истории тредов), содержимое сессий
+намеренно не покидает сервер, streaming/SSE — по-прежнему нет. Полный C-full
+(design-system, SlotMap, React-контекст) остаётся решением владельца.

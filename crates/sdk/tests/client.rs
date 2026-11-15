@@ -31,6 +31,7 @@ async fn sdk_creates_and_runs_a_session() {
             cordis_plugins: Vec::new(),
             plugins: None,
             allow_plugin_routes_lan: false,
+            internal_token: None,
             wasm: None,
         },
         Arc::new(ScriptedProvider::new(

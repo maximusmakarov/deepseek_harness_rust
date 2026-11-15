@@ -1873,6 +1873,38 @@ def run(args: argparse.Namespace) -> int:
             and isinstance(usage_body.get("sessions"), list),
             usage_route_state,
         )
+        # C1.1: the sidecar `sessions`/`sessionProjections` services are built from
+        # the server's internal session snapshot; the real balance plugin's usage
+        # route must then list dshr sessions (poll until the bridge snapshot lands).
+        bridge_state = {"sessions": 0}
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            raw = shell.eval(
+                """(() => {
+                    window.__c11 = null;
+                    fetch('/dsh-usage/sessions?tz=UTC')
+                        .then(r => r.json().then(body => { window.__c11 = body; }))
+                        .catch(error => { window.__c11 = {ok: false, error: String(error)}; });
+                })()"""
+            )
+            wait_until(
+                lambda: shell.eval("window.__c11 !== null"),
+                timeout=FRAME_TIMEOUT,
+                label="usage route bridge sample",
+            )
+            bridge_state = json.loads(str(shell.eval("JSON.stringify(window.__c11)")))
+            if isinstance(bridge_state.get("sessions"), list) and bridge_state["sessions"]:
+                break
+            time.sleep(1)
+        check(
+            "session snapshot bridge feeds plugin usage routes (C1.1)",
+            bridge_state.get("ok") is True
+            and isinstance(bridge_state.get("sessions"), list)
+            and len(bridge_state["sessions"]) >= 1
+            and isinstance(bridge_state.get("totals"), dict),
+            bridge_state if isinstance(bridge_state, dict) else str(bridge_state),
+        )
+
         unknown_route = shell.eval(
             """(() => {
                 window.__c1Unknown = null;

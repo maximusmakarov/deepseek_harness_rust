@@ -181,6 +181,12 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
         "DSHR_CORDIS_GRANTS".into(),
         serde_json::to_string(&spec.grants).unwrap_or_else(|_| "{}".to_owned()),
     );
+    // C1.1: the server publishes its internal session-snapshot endpoint here so
+    // the sidecar can back `sessions`/`sessionProjections` services.
+    env.insert(
+        "DSHR_HOST_BRIDGE".into(),
+        home.join("cordis").join("host.json").display().to_string(),
+    );
     let server = McpServerSpec {
         name: format!("cordis-{}", spec.name),
         command: node,

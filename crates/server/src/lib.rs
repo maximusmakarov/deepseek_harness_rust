@@ -62,6 +62,10 @@ pub struct ServerConfig {
     /// address. Off by default: those routes are unauthenticated (like DSH), so
     /// a LAN-exposed server would publish them to the network.
     pub allow_plugin_routes_lan: bool,
+    /// Per-run secret for the C1.1 internal session-snapshot bridge. `None`
+    /// disables the endpoint (tests/embeddings); `serve` generates one and
+    /// publishes it to Cordis sidecars through `<home>/cordis/host.json`.
+    pub internal_token: Option<String>,
     /// WASM plugin hot-reload manager.
     pub wasm: Option<Arc<dshr_wasm::WasmManager>>,
 }
@@ -381,6 +385,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/{name}/client.js", get(plugin_client_bundle))
         .route("/v1/plugins/{name}/host", get(plugin_client_host))
         .route("/v1/runtime/{file}", get(shared_runtime))
+        .route(
+            "/v1/internal/session-snapshot",
+            get(internal_session_snapshot),
+        )
         .fallback(plugin_http_proxy)
         .route(
             "/v1/plugins/{name}/asset/{capability}/{*path}",
@@ -409,18 +417,23 @@ pub fn router(state: AppState) -> Router {
 }
 
 pub async fn serve(
-    config: ServerConfig,
+    mut config: ServerConfig,
     provider: Arc<dyn LlmProvider>,
     tools: Arc<ToolRegistry>,
     store: Arc<SessionStore>,
 ) -> Result<(), String> {
     let bind = config.bind;
     let token = config.token.clone();
+    if config.internal_token.is_none() {
+        config.internal_token = Some(uuid::Uuid::new_v4().to_string());
+    }
+    let internal_token = config.internal_token.clone().unwrap_or_default();
     let state = AppState::new(config, provider, tools, store);
     let listener = tokio::net::TcpListener::bind(bind)
         .await
         .map_err(|error| format!("bind {bind}: {error}"))?;
     let address = listener.local_addr().map_err(|error| error.to_string())?;
+    write_host_bridge(&state.config.home, &address, &internal_token);
     println!("dshr server listening on http://{address}");
     println!("token: {token}");
     axum::serve(listener, router(state))
@@ -1281,6 +1294,86 @@ fn frame_spec(query: &ClientHostQuery) -> Result<FrameSpec, (StatusCode, Json<Va
             _ => "dark".to_owned(),
         },
     })
+}
+
+/// Publishes the internal bridge endpoint to Cordis sidecars (C1.1): the URL of
+/// this server plus the per-run internal token. Sidecars read it lazily, so a
+/// stale file from a previous run is overwritten on every start.
+fn write_host_bridge(home: &std::path::Path, address: &SocketAddr, internal_token: &str) {
+    let directory = home.join("cordis");
+    if std::fs::create_dir_all(&directory).is_err() {
+        return;
+    }
+    let payload = json!({
+        "url": format!("http://{address}"),
+        "token": internal_token,
+    });
+    let _ = std::fs::write(
+        directory.join("host.json"),
+        serde_json::to_string(&payload).unwrap_or_default(),
+    );
+}
+
+/// C1.1: one snapshot of dshr sessions for a plugin host half.
+///
+/// The sidecar builds `sessions`/`sessionProjections` services from this
+/// payload; only recent sessions and usage fields are sent — prompts and
+/// message content stay on the server.
+async fn internal_session_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    let Some(expected) = state.config.internal_token.as_deref() else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    let presented = headers
+        .get("x-dshr-internal-token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if presented.is_empty() || presented != expected {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let summaries = state
+        .store
+        .list()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut sessions = Vec::new();
+    for summary in summaries.into_iter().take(50) {
+        let Ok(session) = state.store.open(summary.id.as_str()) else {
+            continue;
+        };
+        let mut usage_events = Vec::new();
+        for event in &session.events {
+            if let dshr_session::SessionEvent::AssistantMessage {
+                seq,
+                at,
+                turn,
+                usage,
+                ..
+            } = event
+            {
+                usage_events.push(json!({
+                    "seq": seq,
+                    "at": at,
+                    "turn": turn.as_str(),
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                    "cache_read_input_tokens": usage.cache_read_input_tokens,
+                }));
+            }
+        }
+        sessions.push(json!({
+            "id": summary.id.as_str(),
+            "title": session.header.title,
+            "created_at": session.header.created_at,
+            "model": session.header.model,
+            "turns": session.turn_count(),
+            "steps": usage_events.len(),
+            "usage_events": usage_events,
+        }));
+    }
+    Ok(Json(json!({ "sessions": sessions })))
 }
 
 /// Paths owned by the dshr HTTP API/embedded UI: a plugin route must never
@@ -2364,6 +2457,7 @@ mod tests {
                 cordis_plugins: Vec::new(),
                 plugins: None,
                 allow_plugin_routes_lan: false,
+                internal_token: None,
                 wasm: None,
             },
             provider,
