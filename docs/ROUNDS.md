@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–91)
+# Журнал раундов паритета (1–92)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
 Каждый раунд — код/документация + проверка. Итоговая сверка: 365 root-тестов
@@ -686,11 +686,45 @@ streaming-прокси.
     Полный C-full (design-system, store/renderer, chain/hoc-рендеринг) —
     [ADR-041](adr/041-c-full-decision.md).
 
+- 92: **C1.4** — host-сервисы webServer/baseUrl/configForms по reference-контракту
+  ([ADR-040](adr/040-react-client-half.md) §«C1.4», [PLUGINS.md](PLUGINS.md)):
+  - `webServer` (`packages/host/webserver/src/index.ts`): exact- и prefix-таблицы
+    теперь независимы, дубликат `(kind, path)` бросает
+    `webserver: duplicate <kind> route`; путь обязан быть абсолютным pathname
+    без завершающего `/`, `?` и `#` и не пересекаться с reserved-префиксами
+    dshr API; `getOrigin()`/`port`/`protocol` отдают origin dshr-сервера из
+    `<home>/cordis/host.json` (host-bridge), а не loopback-порт
+    sidecar-прокси; `registerFallback`/`registerUpgrade` в sidecar не поддержаны
+    и бросают явную ошибку (`crates/cordis/src/bootstrap.mjs`: `validRoutePath`,
+    `webRoutes`, `unsupportedWebServerFeature`) — реальным плагинам набора не
+    нужны, долг записан;
+  - `ctx.baseUrl` — loader-context свойство reference Cordis: `file://` URL
+    корня пакета плагина, нужен host-половинам (например,
+    `dsh-plugin-studio`), которые резолвят пути от `baseUrl`;
+  - `configForms` (`packages/client/ui-settings/src/client/config-form-types.ts`):
+    snapshot ровно `{status, value, base, user, revision: number, writable}` со
+    стабильной идентичностью между чтениями, `mutate(ops, expectedRevision?)` с
+    атомарными `set`/`unset` и числовым revision-fence, хелперы
+    `set(field, value)`/`unset(field)`; форма в кадре in-memory (правки не
+    переживают reload), у host-половин — файловая
+    `<home>/cordis/config-forms/<entry>.json` (`bridge.js`, `bootstrap.mjs`);
+  - Проверки: bridge harness **102** (+4: форма-контракт, стабильный snapshot,
+    set с числовой ревизией, unset), server `plugins_live` 16 (proxy-тест
+    расширен правилами duplicate-route и trailing-slash), smoke 82/82, cordis
+    lib 26, workspace 365 passed + 3 ignored (desktop 21, итого 386), web-e2e
+    16/16; общий рантайм-артефакт не менялся — 176 725 байт.
+  - Границы C1.4: `registerFallback`/`registerUpgrade` не поддержаны в sidecar
+    (нужны для чужих SPA/WS-плагинов), browser-`configForms` не персистится
+    через reload кадра, живого RPC-зеркала настроек нет (in-memory/файловые
+    stand-in'ы); остаток reference-работы — реальный порт `ui-primitives` из
+    `packages/client/ui-primitives` (следующий кандидат), store seats/renderer,
+    chain dispatch/hoc-nesting и ownerProps от реальных shell-сайтов.
+
 ## Что осталось
 
 Закрыто по плану 14.11.2026: eval-набор (2.12), perf-гейты §20, live-гейт
 compaction 100k, браузерный e2e, plugin market (каталог/поиск/карточка),
-матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–89 закрыли
+матрица §4 для T3, синхронизация TECH-DEBT/ROUNDS. Раунды 74–92 закрыли
 визуальный diff в Web UI, экран настроек провайдера, региональный монтаж
 слотов клиентской половины, enabler `dsh.client.runtime` (плагин приносит свой
 UI-стек, включая React, внутрь слота), PoC тира B — общую модульную таблицу
@@ -734,7 +768,12 @@ sidecar получает DSH-shaped сервисы `sessions`/`sessionProjection
 рендерится; раунд 91 (**C1.3**) перевёл слот-контракт на сгенерированный каталог
 DSH (122 слота с kind/scope/standard-kit) и референсные правила `SlotCore`
 (undeclared/keyed/chain/duplicate, shadowing-winners, children-декларации,
-deferred inject, standard-kit + ownerProps) — bridge harness 98 (+8).
+deferred inject, standard-kit + ownerProps) — bridge harness 98 (+8); раунд 92
+(**C1.4**) выровнял host-сервисы `webServer`/`ctx.baseUrl`/`configForms` по
+reference-контракту — правила exact/prefix-маршрутов и duplicate-throw,
+origin-аксессоры из host-bridge, `file://`-baseUrl, snapshot
+`{status, value, base, user, revision, writable}` с числовой ревизией и
+`set`/`unset` (bridge harness 102, +4).
 
 Открыто и не заблокировано:
 
@@ -778,6 +817,15 @@ deferred inject, standard-kit + ownerProps) — bridge harness 98 (+8).
   (`PropsStore`/`BoundActions`) и mounted-model сессий отсутствуют; ownerProps
   поставляет только frame-seam (harness/расширения shell) — реальные
   render-сайты шелла (`conversation.chat.node` и т.п.) данных пока не дают.
+- C1.4-остатки (раунд 92): `webServer.registerFallback`/`registerUpgrade` в
+  sidecar не поддержаны и бросают явную ошибку (нужны для чужих SPA/WS-плагинов;
+  реальным плагинам набора не нужны); browser-`configForms` по-прежнему
+  in-memory — правки не переживают reload кадра, живого RPC-зеркала настроек
+  нет (in-memory/файловые stand-in'ы, семантика конфигурационного движка DSH не
+  воспроизведена). Следующий кандидат reference-работы — реальный порт
+  `ui-primitives` из `packages/client/ui-primitives`, затем store
+  seats/renderer, chain dispatch/hoc-nesting и ownerProps от реальных
+  shell-сайтов.
 - C1-остатки (раунды 84–87): раунд 87 (C1.1) закрыл отсутствие сервисов
   `sessions`/`sessionProjections` — sidecar строит их из снимка сервера
   (задержка ≤ 5 с, упрощённые проекции: `llmMs`=0, без истории тредов,
@@ -819,7 +867,13 @@ deferred inject, standard-kit + ownerProps) — bridge harness 98 (+8).
   settings-плагинов; раунд 91 — **C1.3**: слот-контракт по референсному
   каталогу (122 слота с kind/scope/standard-kit; правила `SlotCore`:
   undeclared/keyed/chain/duplicate, shadowing-winners, children-декларации,
-  deferred inject, standard-kit + ownerProps).
+  deferred inject, standard-kit + ownerProps); раунд 92 — **C1.4**: host-сервисы
+  `webServer`/`ctx.baseUrl`/`configForms` по reference-контракту (exact/prefix-
+  таблицы и правила путей с duplicate-throw, `getOrigin()`/`port`/`protocol` из
+  host-bridge, `file://`-baseUrl, snapshot
+  `{status, value, base, user, revision: number, writable}` с `mutate`/`set`/
+  `unset` и числовым revision-fence; `registerFallback`/`registerUpgrade` в
+  sidecar не поддержаны).
   Чего по-прежнему нет: полного design-system `@deepseek-ai/dsh-client-ui-*`,
   SlotMap-остатков (chain select-диспетчеризация, hoc-вложение, store seats,
   ownerProps от реальных shell-сайтов),

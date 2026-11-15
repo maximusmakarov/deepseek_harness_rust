@@ -2093,11 +2093,16 @@ def run(args: argparse.Namespace) -> int:
             timeout=FRAME_TIMEOUT,
             label="studio settings tab frames",
         )
-        studio_target = frame_target(
-            debug_port, "dsh-plugin-studio", "slot", "settings.plugins.tab"
-        )
+        # The tab may still be loading its own bundle; poll its rendered state a
+        # few times instead of judging the first paint.
         studio_state = {"error": "no studio frame"}
-        if studio_target is not None:
+        for _attempt in range(10):
+            studio_target = frame_target(
+                debug_port, "dsh-plugin-studio", "slot", "settings.plugins.tab"
+            )
+            if studio_target is None:
+                time.sleep(0.3)
+                continue
             studio_frame = DevTools(studio_target["webSocketDebuggerUrl"])
             try:
                 studio_frame.call("Runtime.enable")
@@ -2114,6 +2119,16 @@ def run(args: argparse.Namespace) -> int:
                 studio_state = {"error": str(error)}
             finally:
                 studio_frame.close()
+            rendered = studio_state.get("error") is None and (
+                (studio_state.get("dspm") or 0) > 0
+                or any(
+                    marker in (studio_state.get("text") or "")
+                    for marker in ("Plugin manager", "Plugin market", "Retry", "插件")
+                )
+            )
+            if rendered:
+                break
+            time.sleep(0.3)
         check(
             "a real plugin settings tab renders with seat inject (C1.2)",
             studio_state.get("error") is None
