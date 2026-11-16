@@ -16,6 +16,12 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Desktop: "Sign in with DeepSeek" uses the public platform OAuth the official
+  client uses (PKCE S256 against `/auth-api/v0/dsh/auth_init` +
+  `/auth_exchange`, five `x-client-*` headers, loopback callback); the grant is
+  stored as `DSH_DEEPSEEK_TOKEN` in `desktop.env`. Settings gained the Models,
+  Web search (Brave key) and Plugins sections, the plugin list driving the same
+  `/v1/plugins/*` endpoints as the web UI.
 - Desktop: self-contained by default again, like the official app — the shell
   runs its embedded `dshr serve` and opens the UI; attach to an external server
   is an option. The native provider dialogs are gone: the in-app Settings window

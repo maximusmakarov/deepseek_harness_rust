@@ -29,6 +29,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 mod cli;
 mod instance;
 mod login_env;
+mod signin;
 
 struct DesktopState {
     server: Mutex<Option<Child>>,
@@ -235,7 +236,13 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
          <option value=\"api_key\"{api_key_selected}>API key</option></select></label>\
          <label>Token / API key<input id=\"secret\" type=\"password\" placeholder=\"leave empty to keep the saved value\"></label>\
          <label id=\"base-row\">Base URL<input id=\"base_url\" value=\"{base_url}\"></label>\
+         <button onclick=\"signIn()\">Sign in with DeepSeek</button>\
          <p>Account tokens and keys come from <a href=\"https://platform.deepseek.com/api_keys\">platform.deepseek.com</a>; they are stored in <code>~/.dshr/desktop.env</code> with mode 0600.</p>\
+         <h3>Web search</h3>\
+         <label>Brave Search API key<input id=\"brave_key\" type=\"password\" placeholder=\"leave empty to keep the saved key\"></label>\
+         <p>The <code>web_search</code> tool uses <code>BRAVE_SEARCH_API_KEY</code>; the embedded server reads it at start.</p>\
+         <h3>Plugins</h3>\
+         <div id=\"plugins\">loading…</div>\
          <h3>Server</h3>\
          <label><input type=\"radio\" name=\"server_mode\" value=\"local\"{local_checked}> Run the embedded server (default, self-contained)</label>\
          <label><input type=\"radio\" name=\"server_mode\" value=\"attach\"{attach_checked}> Attach to a running dshr serve</label>\
@@ -245,7 +252,7 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
          <button onclick=\"window.__TAURI__.window.getCurrentWindow().close()\">Cancel</button>\
          <p id=\"status\"></p>\
          <script>\
-         function toggleBase() {{\n           const openai = document.getElementById('provider').value !== 'deepseek-account';\n           document.getElementById('base-row').style.display = openai ? 'block' : 'none';\n         }}\n         toggleBase();\n         async function save() {{\n           const form = {{\n             provider: document.getElementById('provider').value,\n             model: document.getElementById('model').value,\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             baseUrl: document.getElementById('base_url').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
+         async function signIn() {{\n           const status = document.getElementById('status');\n           status.textContent = 'waiting for the browser…';\n           try {{\n             await window.__TAURI__.core.invoke('sign_in_deepseek');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         function toggleBase() {{\n           const openai = document.getElementById('provider').value !== 'deepseek-account';\n           document.getElementById('base-row').style.display = openai ? 'block' : 'none';\n         }}\n         toggleBase();\n         loadPlugins();\n         async function loadPlugins() {{\n           const box = document.getElementById('plugins');\n           try {{\n             const plugins = await window.__TAURI__.core.invoke('plugins_list');\n             if (!plugins.length) {{ box.textContent = 'no Cordis plugins installed'; return; }}\n             box.innerHTML = '';\n             for (const plugin of plugins) {{\n               const row = document.createElement('label');\n               const input = document.createElement('input');\n               input.type = 'checkbox';\n               input.checked = plugin.enabled;\n               input.onchange = async () => {{\n                 try {{ await window.__TAURI__.core.invoke('plugin_toggle', {{ name: plugin.name, enabled: input.checked }}); }}\n                 catch (error) {{ box.textContent = String(error); }}\n               }};\n               row.appendChild(input);\n               row.appendChild(document.createTextNode(' ' + plugin.name));\n               box.appendChild(row);\n             }}\n           }} catch (error) {{\n             box.textContent = String(error);\n           }}\n         }}\n         async function save() {{\n           const form = {{\n             provider: document.getElementById('provider').value,\n             model: document.getElementById('model').value,\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             baseUrl: document.getElementById('base_url').value,\n             braveKey: document.getElementById('brave_key').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
     );
     let url = data_url(&html)
         .parse::<tauri::Url>()
@@ -267,6 +274,8 @@ struct SettingsForm {
     auth: String,
     secret: String,
     base_url: String,
+    #[serde(default)]
+    brave_key: String,
     server_mode: String,
     server_url: String,
     server_token: String,
@@ -349,6 +358,108 @@ fn validated_provider_form(
     })
 }
 
+fn open_browser(url: &str) -> Result<(), String> {
+    open_url(url);
+    Ok(())
+}
+
+/// Browser sign-in against the public DeepSeek platform OAuth endpoints; the
+/// grant is stored as `DSH_DEEPSEEK_TOKEN` in `desktop.env`.
+#[tauri::command]
+fn sign_in_deepseek(app: AppHandle) -> Result<String, String> {
+    std::thread::spawn(move || match signin::sign_in(open_browser) {
+        Ok(signed) => {
+            let home = home_dir();
+            let mut settings = load_provider_settings(&home).unwrap_or_default();
+            settings.provider = Some("deepseek-account".to_owned());
+            if settings.model.is_none() {
+                settings.model = Some("deepseek-flash".to_owned());
+            }
+            settings.env.retain(|key, _| !key.starts_with("OPENAI_"));
+            settings
+                .env
+                .insert("DSH_DEEPSEEK_TOKEN".to_owned(), signed.token.clone());
+            match save_provider_settings(&home, &settings) {
+                Ok(()) => log_line(
+                    &home,
+                    &format!(
+                        "signed in as {}",
+                        signed.user.as_deref().unwrap_or("(unknown)")
+                    ),
+                ),
+                Err(error) => log_line(&home, &format!("sign-in save failed: {error}")),
+            }
+            app.restart();
+        }
+        Err(error) => log_line(&home_dir(), &format!("sign-in failed: {error}")),
+    });
+    Ok("waiting for the browser".to_owned())
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct PluginEntry {
+    name: String,
+    enabled: bool,
+}
+
+fn server_call(
+    app: &tauri::AppHandle,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+) -> Result<String, String> {
+    let state = app
+        .try_state::<DesktopState>()
+        .ok_or_else(|| "the app is not running a server yet".to_owned())?;
+    let url = format!("{}{path}", server_base(&state.base_url));
+    let mut command = Command::new("curl");
+    command.args(["-fsS", "--max-time", "20", "-X", method, &url]);
+    command
+        .arg("-H")
+        .arg(format!("Authorization: Bearer {}", state.token));
+    if let Some(body) = body {
+        command.args(["-H", "content-type: application/json"]);
+        command.arg("--data-binary").arg(body);
+    }
+    let output = command.output().map_err(|error| format!("curl: {error}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("server request failed: {}", stderr.trim()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Plugin list for the Settings window (same endpoint the web UI uses).
+#[tauri::command]
+fn plugins_list(app: AppHandle) -> Result<Vec<PluginEntry>, String> {
+    let body = server_call(&app, "GET", "/v1/plugins/installed", None)?;
+    let parsed: serde_json::Value =
+        serde_json::from_str(&body).map_err(|error| format!("plugins: {error}"))?;
+    Ok(parsed
+        .get("plugins")
+        .and_then(serde_json::Value::as_array)
+        .map(|plugins| {
+            plugins
+                .iter()
+                .filter_map(|plugin| {
+                    Some(PluginEntry {
+                        name: plugin.get("name")?.as_str()?.to_owned(),
+                        enabled: plugin.get("enabled")?.as_bool().unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Enables or disables one Cordis plugin through the server.
+#[tauri::command]
+fn plugin_toggle(app: AppHandle, name: String, enabled: bool) -> Result<(), String> {
+    let body = serde_json::json!({ "name": name, "enabled": enabled }).to_string();
+    server_call(&app, "POST", "/v1/plugins/toggle", Some(&body))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn save_settings_form(app: AppHandle, form: SettingsForm) -> Result<(), String> {
     let home = home_dir();
@@ -367,6 +478,13 @@ fn save_settings_form(app: AppHandle, form: SettingsForm) -> Result<(), String> 
         && let Some(url) = server.url.as_deref()
     {
         attach_health(url)?;
+    }
+    let mut provider = provider;
+    let brave = form.brave_key.trim();
+    if !brave.is_empty() {
+        provider
+            .env
+            .insert("BRAVE_SEARCH_API_KEY".to_owned(), brave.to_owned());
     }
     save_provider_settings(&home, &provider)?;
     save_server_settings(&home, &server)?;
@@ -435,7 +553,10 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             recovery_action,
-            save_settings_form
+            save_settings_form,
+            sign_in_deepseek,
+            plugins_list,
+            plugin_toggle
         ])
         .setup(move |app| {
             let home = home_dir();

@@ -12,16 +12,44 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 
 | Секция | Поля | Куда сохраняется |
 |---|---|---|
-| Account | провайдер (DeepSeek / OpenAI-compatible), модель, тип аутентификации (account token / API key), токен/ключ, Base URL для OpenAI-совместимых | `<home>/desktop.env` (0600): `DSHR_DESKTOP_PROVIDER`, `DSHR_DESKTOP_MODEL`, `DSH_DEEPSEEK_TOKEN` или `DEEPSEEK_API_KEY`, `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
+| Account | **Sign in with DeepSeek** (браузерный OAuth), тип аутентификации (account token / API key), токен/ключ | `<home>/desktop.env` (0600): `DSH_DEEPSEEK_TOKEN` / `DEEPSEEK_API_KEY` |
+| Models | провайдер (DeepSeek / OpenAI-compatible), модель, Base URL | `<home>/desktop.env`: `DSHR_DESKTOP_PROVIDER`, `DSHR_DESKTOP_MODEL`, `OPENAI_BASE_URL` |
+| Web search | Brave Search API key | `<home>/desktop.env`: `BRAVE_SEARCH_API_KEY` (встроенный сервер читает его при старте) |
+| Plugins | список Cordis-плагинов с переключателями (те же `/v1/plugins/installed` и `/v1/plugins/toggle`, что у веб-UI) | конфиг профиля (через сервер) |
 | Server | «Run the embedded server» (по умолчанию) или «Attach to a running dshr serve» + URL/токен | `<home>/desktop-server.json` (0600) |
 
 Кнопка **Save and restart** валидирует поля (схема URL, `http(s)`, непустой
 ключ), для attach проверяет `/v1/health`, пишет файлы и перезапускает оболочку.
 Пустое поле токена при сохранении оставляет ранее записанный секрет.
 
-Токены аккаунта/ключи берутся на [platform.deepseek.com](https://platform.deepseek.com/api_keys);
-настоящего OAuth-входа, как в официальном Electron-приложении, нет — это
-единственное осознанное отличие (у нас нет клиента официального аккаунт-сервиса).
+### Sign in with DeepSeek
+
+Кнопка **Sign in with DeepSeek** запускает тот же браузерный OAuth, что и
+официальный клиент (`@deepseek-ai/dsh-deepseek-account` 0.2.2-rc.3):
+
+1. локальный callback-сервер на `127.0.0.1:<порт>/oauth/callback`, PKCE S256 и
+   случайный `state`;
+2. `POST https://platform.deepseek.com/auth-api/v0/dsh/auth_init` с пятью
+   заголовками `x-client-*` (`bundle-id` пустой, `platform: desktop-mac`,
+   `version`, `locale: en_US`, `timezone-offset`) и
+   `login_source: "desktop"`;
+3. системный браузер открывает выданный `authorize_url`, пользователь
+   подтверждает вход;
+4. платформа редиректит на callback с `code`, приложение проверяет `state` и
+   делает `POST .../auth_exchange` (`code`, `code_verifier`, `redirect_uri`,
+   `device_id`, `device_model`, `os_version`);
+5. полученный grant сохраняется как `DSH_DEEPSEEK_TOKEN` в `desktop.env` (0600),
+   после чего shell перезапускается.
+
+Проверено в этой сессии: `auth_init` отвечает 200 и выдаёт настоящий
+`authorize_url` при `redirect_uri` на loopback и наших заголовках; парсинг
+конверта, PKCE и callback-проверки покрыты юнит-тестами. Полный round-trip
+(подтверждение в браузере → `auth_exchange`) требует живого входа в аккаунт и
+здесь не прогонялся — если платформа не примет loopback-redirect после
+подтверждения, это выяснится на первом реальном входе.
+
+Альтернатива — вставить account token или API key вручную (ключи берутся на
+[platform.deepseek.com](https://platform.deepseek.com/api_keys)).
 
 ## Attach-режим (опция)
 

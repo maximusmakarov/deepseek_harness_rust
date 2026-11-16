@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–129)
+# Журнал раундов паритета (1–130)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -1982,6 +1982,31 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Осознанное отличие от официального: нет OAuth-входа в аккаунт DeepSeek (у нас
   нет клиента официального account-сервиса) — токен/ключ вводится в Settings и
   хранится в `desktop.env` с правами 0600.
+
+## Раунд 130 — desktop: настоящий «Sign in with DeepSeek» и секции Settings (16.11.2026)
+
+- Найден и проверен публичный OAuth официального клиента
+  (`@deepseek-ai/dsh-deepseek-account` 0.2.2-rc.3): `POST
+  /auth-api/v0/dsh/auth_init` (PKCE S256, `state`, `redirect_uri`,
+  `login_source: desktop`, пять заголовков `x-client-*`) и
+  `POST /auth-api/v0/dsh/auth_exchange` (`code`, `code_verifier`,
+  `redirect_uri`, `device_id`, `device_model`, `os_version`) →
+  `{token, authorized_url}`; профиль — `GET /auth-api/v0/users/current` с
+  `x-dsh-auth-token`. Живой `auth_init` вернул 200 и `authorize_url` при
+  loopback-redirect.
+- В десктоп добавлен модуль `signin.rs`: локальный callback-сервер, PKCE и
+  `state`, открытие системного браузера, проверка callback, exchange, сохранение
+  grant как `DSH_DEEPSEEK_TOKEN` в `desktop.env` (0600) и перезапуск.
+  Кнопка **Sign in with DeepSeek** — в Settings.
+- Settings получил секции официального приложения: **Models** (провайдер,
+  модель, Base URL), **Web search** (Brave key → `BRAVE_SEARCH_API_KEY`),
+  **Plugins** (список Cordis-плагинов с переключателями через
+  `/v1/plugins/installed` и `/v1/plugins/toggle` — те же эндпоинты, что у
+  веб-UI). Модели/ключи по-прежнему пишутся в `desktop.env`, плагины — через
+  сервер в конфиг профиля.
+- Тесты: 45 unit (включая конверт платформы, разбор callback с `state`,
+  S256-челлендж) + 3 integration. Полный browser round-trip не прогонялся:
+  нужен живой вход в аккаунт.
 
 ## Формализация и каталог тестов (14.11.2026)
 
