@@ -268,6 +268,24 @@ pub fn describe(home: &Path, reference: &str) -> CredentialDescription {
     }
 }
 
+/// The conventional reference for a route: `<ROUTE>_API_KEY` with every
+/// non-alphanumeric character replaced by `_`.
+#[must_use]
+pub fn derive_reference(route: &str) -> String {
+    let mut name: String = route
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    name.push_str("_API_KEY");
+    name
+}
+
 /// A usable credential reference: an environment-style variable name.
 #[must_use]
 pub fn valid_reference(reference: &str) -> bool {

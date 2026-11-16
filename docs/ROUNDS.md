@@ -2301,14 +2301,15 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   выбранной/производной `<ROUTE>_API_KEY`; частичный сбой показывает
   «profile saved, but the key was not stored». First-run onboarding получил
   поле DeepSeek-ключа и сохраняет его как `DEEPSEEK_API_KEY` перед
-  подтверждением notice.
+  подтверждением notice. Удаление профиля убирает сохранённый ключ только если
+  профиль называл производную `<ROUTE>_API_KEY`; кастомные/inherited
+  reference'ы остаются.
 - Проверки: config 25 (+3 credentials, 0600/маска/revision), server 8
   (+write-only round-trip, join в строку, 409), web 19, web-e2e **24/25**
   (+«onboarding stores the key write-only», +«the credentials file is
   private», ключ из редактора openai); единственный FAIL — прежний bash
   timeout среды.
-- Осталось: i18n, отправка reasoning effort, ключи в `run`/`tui`, очистка
-  ключа при удалении провайдера.
+- Осталось: i18n, отправка reasoning effort, ключи в `run`/`tui`.
 
 ## Формализация и каталог тестов (14.11.2026)
 

@@ -605,3 +605,65 @@ async fn stores_credentials_write_only_and_joins_them_into_rows() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn deleting_a_provider_cleans_only_its_derived_key() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    for (reference, value) in [
+        ("ACME_GATEWAY_API_KEY", "derived-value"),
+        ("CUSTOM_KEY", "custom-value"),
+    ] {
+        let (status, _) = call(
+            &app,
+            "PUT",
+            &format!("/v1/credentials/{reference}"),
+            Some(json!({"value": value})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    for (revision, (route, reference)) in [
+        ("acme-gateway", "ACME_GATEWAY_API_KEY"),
+        ("other-gateway", "CUSTOM_KEY"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (status, _) = call(
+            &app,
+            "PUT",
+            &format!("/v1/config/providers/{route}"),
+            Some(json!({
+                "expected_revision": revision,
+                "protocol": "openai-chat",
+                "base_url": "https://gateway.example/v1",
+                "api_key_env": reference,
+                "models": [],
+                "retry": null
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (status, _) = call(
+        &app,
+        "DELETE",
+        "/v1/config/providers/acme-gateway?expected_revision=2",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, answer) = call(
+        &app,
+        "POST",
+        "/v1/credentials/describe",
+        Some(json!({"references": ["ACME_GATEWAY_API_KEY", "CUSTOM_KEY"]})),
+    )
+    .await;
+    assert_eq!(
+        answer["credentials"]["ACME_GATEWAY_API_KEY"]["configured"],
+        false
+    );
+    assert_eq!(answer["credentials"]["CUSTOM_KEY"]["configured"], true);
+}

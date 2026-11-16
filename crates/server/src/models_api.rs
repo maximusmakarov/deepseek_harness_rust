@@ -706,13 +706,21 @@ pub async fn delete_provider(
     authorized(&state, &headers)?;
     let document =
         ModelsDocument::load(&state.config.home).map_err(|error| models_error(&error))?;
-    if !document.providers.contains_key(&route) {
+    let Some(profile) = document.providers.get(&route).cloned() else {
         return Err(error(StatusCode::NOT_FOUND, "no profile for that provider"));
-    }
+    };
     let saved = ModelsDocument::update(&state.config.home, query.expected_revision, |document| {
         document.providers.remove(&route);
     })
     .map_err(|error| models_error(&error))?;
+    // Upstream removes a stored key only when the profile names the exact
+    // page-derived reference; inherited/custom references stay untouched.
+    if let Some(reference) = profile
+        .api_key_env
+        .filter(|reference| *reference == credentials::derive_reference(&route))
+    {
+        let _ = CredentialsDocument::remove(&state.config.home, &reference, None);
+    }
     Ok(Json(json!({
         "ok": true,
         "revision": saved.revision,
