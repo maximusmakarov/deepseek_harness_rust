@@ -10,6 +10,10 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Cordis compat: the sidecar exposes a `subagents` service (provider registry
+  with `list`/`getProvider`/`registerProvider` and `subagent/provider-*`
+  events). It is a registry, not a runtime: the agent tree lives in the host, so
+  plugins that need to start children degrade through their own feature probes.
 - Cordis compat: the sidecar exposes the reference `ctx` surface (`effect`,
   `on`/`emit`, `provide`, `tools.register`, `systemPrompt.section`,
   `sandbox.confine`, `config`), resolves a named `export const Config` for

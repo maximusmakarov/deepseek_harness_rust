@@ -612,8 +612,31 @@ function loadConfigForm(entryId) {
 }
 
 const configFormsService = {
+  // Forms are created lazily: an unknown entry yields a writable form (C1.2
+  // seat injection), never `undefined`.
   get: (entryId) => loadConfigForm(String(entryId)),
   entries: () => [...configForms.keys()],
+};
+
+// `subagents` service: provider registry only. dshr's agent tree lives in the
+// host process, so the sidecar cannot start children itself; plugins that need a
+// provider find the registered ones and degrade when there are none.
+const subagentProviders = new Map();
+const subagentsService = {
+  list: () => [...subagentProviders.keys()],
+  getProvider: (name) => subagentProviders.get(String(name)),
+  registerProvider: (provider) => {
+    const name = provider?.name;
+    if (typeof name !== "string" || name.length === 0) {
+      throw new Error("subagent provider name is required");
+    }
+    subagentProviders.set(name, provider);
+    ctx.emit("subagent/provider-added", provider);
+    return () => {
+      subagentProviders.delete(name);
+      ctx.emit("subagent/provider-removed", name);
+    };
+  },
 };
 
 const sessionsService = {
@@ -672,6 +695,7 @@ const serviceMap = {
   sessionProjections: sessionProjectionsService,
   configForms: configFormsService,
   pluginManager: pluginManagerService,
+  subagents: subagentsService,
 };
 
 const ctx = {
@@ -682,6 +706,7 @@ const ctx = {
   config: {},
   tool: (definition) => addTool(definition),
   get: (name) => serviceMap[name],
+  subagents: subagentsService,
   webServer,
   configForms: configFormsService,
   // Reference fiber helper: run the callback only when every dependency exists.

@@ -217,7 +217,12 @@ pack `node` → `node` из PATH. Если не нашлось ничего, п�
   `provide` + `get` (сервисы), `tools.register`/`tools.list`, `systemPrompt.section`,
   `sandbox.confine`, `config` и разрешение **именованного** `export const Config`
   (значения по умолчанию из схемы) — `apply(ctx, config)` получает конфиг, как в
-  Cordis.
+  Cordis. С раунда 120 добавлен сервис `subagents`
+  (`list`/`getProvider`/`registerProvider` + события `subagent/provider-*`):
+  это реестр провайдеров, а не рантайм — дерево агентов живёт в хосте, поэтому
+  `start`/`startActivation` намеренно отсутствуют, и плагины деградируют по
+  своим duck-type проверкам. Config-формы создаются лениво (никогда не
+  `undefined`), потому что плагины читают `.writable` без проверки на `null`.
 - **Форма инструментов**: `addTool` принимает и dshr-форму
   (`inputSchema`/`handler`), и хостовую (`parameters`/`execute` от `defineTool`).
 

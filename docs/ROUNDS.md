@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–119)
+# Журнал раундов паритета (1–120)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 408 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **457**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 409 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **458**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1755,6 +1755,27 @@ link-safety) и +5 интеграционных на локальном registry
   и резолвинг именованного `Config` без сети;
 - в `dshr-npm` добавлен тест peer-зависимостей (required ставится, недоступный
   optional пропускается).
+
+## Раунд 120 — сервис `subagents` в sidecar (16.11.2026)
+
+- В `ctx` появился сервис `subagents`: `list()`, `getProvider(name)`,
+  `registerProvider(provider)` (возвращает диспозер и эмитит
+  `subagent/provider-added|removed` через `ctx.emit`); доступен и как
+  `ctx.subagents`, и как `ctx.get('subagents')`. Это реестр, а не рантайм:
+  дерево агентов живёт в процессе хоста, поэтому `start`/`startActivation`
+  намеренно отсутствуют — плагины проверяют их `typeof` и деградируют.
+- Config-формы создаются лениво и никогда не отдают `undefined`: реальные
+  плагины читают `.writable` у снапшота без проверки на `null`. Мёртвый
+  fallback-плейсхолдер, добавленный по первому впечатлению от `dsh-mnemon`,
+  убран после проверки — падение было не в `configForms`, а в отсутствующем
+  сервисе форм настроек.
+- Проверка на живом плагине: `dsh-mnemon@0.5.46` проходит гейт `subagents`
+  (ошибки `subagents.list` больше нет) и упирается в следующий сервис —
+  `agents` (`agents.list`, `agents.get`, `agents.roots`, `agents.isOwnedBy`,
+  `agents.getProvider`, …). Это следующий инкремент шима, записан в TECH-DEBT;
+  `dsh-remote@1.2.0` по-прежнему монтируется и отдаёт 21 инструмент.
+- Тест `exposes_subagent_registry_and_safe_config_forms`: регистрация
+  провайдера, `list`/`getProvider`, диспозер и ленивая config-форма.
 
 ## Формализация и каталог тестов (14.11.2026)
 

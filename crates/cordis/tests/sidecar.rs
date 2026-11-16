@@ -199,3 +199,69 @@ export default {
     );
     assert!(description.contains("get=pong"), "{description}");
 }
+
+/// `subagents` is a provider registry in the sidecar (the agent tree lives in
+/// the host); config forms are created lazily instead of returning `undefined`,
+/// because real plugins read `.writable` without a null check.
+#[tokio::test]
+async fn exposes_subagent_registry_and_safe_config_forms() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+export default {
+  apply(ctx) {
+    const dispose = ctx.subagents.registerProvider({
+      name: "probe",
+      start: async () => ({ id: "child" }),
+    });
+    const providers = ctx.subagents.list().join(",");
+    const found = ctx.subagents.getProvider("probe")?.name ?? "none";
+    const missing = ctx.get("configForms").get("missing-form");
+    ctx.tool({
+      name: "probe",
+      description: `providers=${providers} found=${found} writable=${missing.writable}`,
+      handler: () => {
+        dispose();
+        return `after=${ctx.subagents.list().length}`;
+      },
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "subs".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect");
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cordis__subs__probe")
+        .expect("probe tool");
+    let description = tool.description();
+    assert!(description.contains("providers=probe"), "{description}");
+    assert!(description.contains("found=probe"), "{description}");
+    assert!(
+        description.contains("writable=true"),
+        "config forms are created lazily: {description}"
+    );
+}
