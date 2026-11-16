@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–116)
+# Журнал раундов паритета (1–117)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 376 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **425**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 387 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **436**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1642,6 +1642,38 @@ callback-моста), per-frame фильтрация цепочек (неско�
 
 Остались заблокированными только Windows-хост (sandbox/сеть) и notarization
 (Apple Developer ID). Полный `brew install` — одна команда владельца.
+
+## Раунд 117 — runtime pack для Cordis: `dshr runtime` (16.11.2026)
+
+Закрыт последний пункт M5b, который не требует решения владельца: sidecar больше
+не зависит от системного Node.
+
+- `crates/cordis/src/runtime.rs`: реестр паков `<home>/runtimes/<engine>/<version>/`
+  с `receipt.json` и активной версией в `<engine>/current`. Установка
+  fail-closed: обязательный sha256, опциональная Ed25519-подпись над байтами
+  архива, распаковка `.tar.gz` отклоняет абсолютные пути, `..`, симлинки,
+  выходящие за границы пака, и спецфайлы, ограничивает распакованный объём
+  2 ГиБ, ставится через staging + rename (упавшая установка не оставляет
+  половинчатый пак).
+- `dshr runtime install|list|use|remove`: `--from` — локальный `.tar.gz`
+  (офлайн) или `https://` (кэш в `<home>/cache/runtime`), `--sha256`
+  обязателен, `--signature`/`--public-key` опциональны, `list --json` для
+  скриптов.
+- sidecar: `DSHR_NODE` → активный пак `node` → `node` из PATH; когда нет ничего,
+  предупреждение содержит подсказку с командой установки.
+- проверено вживую: настоящий `node-v22.11.0-darwin-arm64.tar.gz` (47,8 МБ,
+  sha256 из `SHASUMS256.txt`) поставлен по https, `node --version` → v22.11.0,
+  `npm --version` → 10.9.0 (симлинки пака распакованы и разрешаются); с активным
+  паком и `PATH` без Node демо-плагин (`cordis__demo__ping`) загружается, а после
+  снятия `current` sidecar падает с `No such file or directory` — бинарь
+  действительно берётся из пака.
+- тесты: +9 unit (установка/активация, sha256, подпись, `--force`, откат при
+  неудачной замене, remove с fallback, отказ небезопасным путям и симлинкам,
+  `node_program`) и +2 CLI (round-trip install/list/remove, отказ при неверном
+  sha256).
+
+Осталось по M5b: полный шим `@dshr/cordis-compat@1`, собственный npm-резолвер/CAS,
+отчёт матрицы «инструменты/хуки»; C-full — решение владельца ([ADR-040](adr/040-react-client-half.md)).
 
 ## Формализация и каталог тестов (14.11.2026)
 

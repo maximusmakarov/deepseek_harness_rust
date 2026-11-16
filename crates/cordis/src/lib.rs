@@ -21,6 +21,7 @@ use thiserror::Error;
 
 pub mod client;
 pub mod manager;
+pub mod runtime;
 
 pub use client::{ClientHalf, ClientHalfError, discover_client_half};
 pub use dshr_config::CordisGrants;
@@ -194,7 +195,9 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
         std::fs::write(&bootstrap, BOOTSTRAP)
             .map_err(|error| CordisError::Io(error.to_string()))?;
     }
-    let node = std::env::var("DSHR_NODE").unwrap_or_else(|_| "node".to_owned());
+    // `DSHR_NODE` wins, then an installed `node` runtime pack, then PATH.
+    let node = runtime::node_program(home);
+    let using_path_node = node == runtime::NODE_ENGINE;
     let entry = spec.resolved_entry();
     let mut env = spec.env.clone();
     env.insert("DSHR_CORDIS_ROOT".into(), spec.root.display().to_string());
@@ -220,7 +223,16 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
     };
     let (backend, tools) = connect_server(server)
         .await
-        .map_err(|error| CordisError::Sidecar(error.to_string()))?;
+        .map_err(|error| {
+            // A missing `node` is the common failure when no runtime pack is
+            // installed and PATH has no Node; name the fix in the error.
+            let hint = if using_path_node {
+                " (set DSHR_NODE, or install a pack: dshr runtime install node@<version> --from <archive> --sha256 <hex>)"
+            } else {
+                ""
+            };
+            CordisError::Sidecar(format!("{error}{hint}"))
+        })?;
     let tools = tools
         .into_iter()
         // Internal sidecar control tools (`__dshr_*`) are called by the host

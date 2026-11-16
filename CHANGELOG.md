@@ -10,6 +10,13 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Runtime packs: `dshr runtime install|list|use|remove` installs a pinned engine
+  (Node) for Cordis sidecars from a local `.tar.gz` or an https URL. sha256 is
+  mandatory, an optional Ed25519 signature is verified over the archive before
+  unpacking, extraction rejects absolute paths, `..`, escaping symlinks and
+  special files, and the pack is staged then renamed into place. The sidecar now
+  resolves `DSHR_NODE` → installed `node` pack → PATH, and its failure message
+  names the install command.
 - Distribution: first tagged release `v0.1.0` (run 43832256936) shipped all 17
   artifacts, including the Linux `.deb` and a multi-platform GHCR bottle index;
   `maximusmakarov/homebrew-dshr` carries the GHCR formula, and

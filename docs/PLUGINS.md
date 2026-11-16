@@ -128,8 +128,41 @@ export default {
 Инструменты получают имена `cordis__<plugin>__<tool>`. Capability-шина:
 `ctx.fs` ограничен workspace-корнем, `ctx.exec` и `ctx.net` бросают ошибку;
 наследования env нет, переменные задаются явно. `DSHR_NODE` переопределяет бинарь
-node, `DSHR_CORDIS_ROOT` — корень (ставится автоматически). Кэша грантов нет:
-каждый запуск sidecar получает гранты заново из конфига.
+node, `DSHR_CORDIS_ROOT` — корень (ставится автоматически). Если `DSHR_NODE` не
+задан, sidecar берёт `node` из установленного runtime pack (см. ниже), иначе из
+PATH. Кэша грантов нет: каждый запуск sidecar получает гранты заново из конфига.
+
+## Runtime pack (Node для sidecar)
+
+Чтобы sidecar не зависел от системного Node, dshr ставит «runtime pack» —
+распакованный движок с закреплённым sha256:
+
+```sh
+dshr runtime install node@22.11.0 \
+  --from https://nodejs.org/dist/v22.11.0/node-v22.11.0-darwin-arm64.tar.gz \
+  --sha256 <hex из SHASUMS256.txt>
+dshr runtime list [--json]
+dshr runtime use node@22.11.0
+dshr runtime remove node@22.11.0
+```
+
+Раскладка: `<home>/runtimes/<engine>/<version>/` плюс `receipt.json`; активная
+версия — файл `<engine>/current`. Порядок выбора бинаря: `DSHR_NODE` → активный
+pack `node` → `node` из PATH. Если не нашлось ничего, предупреждение sidecar
+содержит подсказку про `dshr runtime install`.
+
+Установка fail-closed: `--sha256` обязателен; опциональная Ed25519-подпись
+(`--signature <hex> --public-key <hex>`) проверяется над байтами архива до
+распаковки; распаковка отклоняет абсолютные пути, `..`, симлинки, выходящие за
+пределы пака, и специальные файлы, ограничивает распакованный объём 2 ГиБ и
+выполняется атомарно (staging-каталог + rename), поэтому упавшая установка не
+оставляет половинчатый пак. `--from` принимает локальный `.tar.gz` (офлайн) или
+`https://` (скачанное кэшируется в `<home>/cache/runtime`). Первая установленная
+версия становится активной; повторная установка той же версии требует `--force`.
+
+Ограничения: только `.tar.gz` — Windows-дистрибутивы Node поставляются `.zip`,
+поэтому на Windows используйте `DSHR_NODE` или системный Node; симлинки внутри
+пака поддерживаются на Unix.
 
 ## Cordis hot reload
 

@@ -12,6 +12,7 @@ mod plugin_cmd;
 mod prompt_cmd;
 mod release_cmd;
 mod run_cmd;
+mod runtime_cmd;
 mod runtime_flags;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod sandbox_exec;
@@ -92,6 +93,8 @@ enum Command {
     Schedule(schedule_cmd::ScheduleArgs),
     /// Run the ACP v1 server over stdio
     Acp(acp_cmd::AcpArgs),
+    /// Manage pinned runtime packs for plugin sidecars
+    Runtime(runtime_cmd::RuntimeArgs),
 }
 
 #[tokio::main]
@@ -144,5 +147,6 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
         Command::Schedule(args) => schedule_cmd::execute(&loader, &args).await,
         Command::Acp(args) => acp_cmd::execute(&loader, &args).await,
+        Command::Runtime(args) => runtime_cmd::execute(&loader, &args).await,
     }
 }

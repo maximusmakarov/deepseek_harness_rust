@@ -1698,3 +1698,128 @@ fn json_outputs_do_not_depend_on_lang() {
     };
     assert_eq!(list("ru"), list("en"));
 }
+
+/// Builds a tiny `.tar.gz` runtime pack whose executable prints its version.
+fn runtime_pack(dir: &std::path::Path, version: &str) -> (std::path::PathBuf, String) {
+    use std::io::Write;
+
+    let archive = dir.join(format!("node-v{version}.tar.gz"));
+    let file = std::fs::File::create(&archive).expect("create archive");
+    let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+    let mut builder = tar::Builder::new(encoder);
+    let body = format!("#!/bin/sh\necho {version}\n");
+    let mut header = tar::Header::new_gnu();
+    header.set_mode(0o755);
+    header.set_size(body.len() as u64);
+    header.set_cksum();
+    builder
+        .append_data(
+            &mut header,
+            format!("node-v{version}/bin/node"),
+            body.as_bytes(),
+        )
+        .expect("append binary");
+    let encoder = builder.into_inner().expect("finish tar");
+    let mut encoder = encoder;
+    encoder.flush().expect("flush");
+    encoder.finish().expect("finish gzip");
+
+    let bytes = std::fs::read(&archive).expect("read archive");
+    let digest = ring_sha256(&bytes);
+    (archive, digest)
+}
+
+/// `dshr-sign` only exposes hex helpers, so the test hashes with the same ring
+/// primitive the pack installer uses.
+fn ring_sha256(bytes: &[u8]) -> String {
+    let digest = ring::digest::digest(&ring::digest::SHA256, bytes);
+    digest
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+#[test]
+fn runtime_install_list_and_remove_round_trip() {
+    let home = tempfile::tempdir().expect("home");
+    let work = tempfile::tempdir().expect("work");
+    let home_arg = home.path().to_str().expect("utf8");
+
+    dshr()
+        .args(["--home", home_arg, "runtime", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no runtime packs installed"));
+
+    let (archive, sha) = runtime_pack(work.path(), "22.11.0");
+    dshr()
+        .args([
+            "--home",
+            home_arg,
+            "runtime",
+            "install",
+            "node@22.11.0",
+            "--from",
+            archive.to_str().expect("utf8"),
+            "--sha256",
+            &sha,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("installed node@22.11.0"))
+        .stdout(predicate::str::contains("active"));
+
+    let output = dshr()
+        .args(["--home", home_arg, "runtime", "list", "--json"])
+        .output()
+        .expect("list");
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(report["packs"][0]["engine"], "node");
+    assert_eq!(report["packs"][0]["version"], "22.11.0");
+    assert_eq!(report["packs"][0]["current"], true);
+    let program = report["packs"][0]["program"].as_str().expect("program");
+    assert!(
+        std::path::Path::new(program).is_file(),
+        "pack executable exists"
+    );
+
+    dshr()
+        .args(["--home", home_arg, "runtime", "remove", "node@22.11.0"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed node@22.11.0"));
+    dshr()
+        .args(["--home", home_arg, "runtime", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no runtime packs installed"));
+}
+
+#[test]
+fn runtime_install_rejects_a_wrong_sha256() {
+    let home = tempfile::tempdir().expect("home");
+    let work = tempfile::tempdir().expect("work");
+    let (archive, _) = runtime_pack(work.path(), "22.11.0");
+
+    dshr()
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "runtime",
+            "install",
+            "node@22.11.0",
+            "--from",
+            archive.to_str().expect("utf8"),
+            "--sha256",
+            &"0".repeat(64),
+        ])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("sha256 mismatch"));
+    assert!(
+        !home.path().join("runtimes/node/22.11.0").exists(),
+        "a rejected archive installs nothing"
+    );
+}
