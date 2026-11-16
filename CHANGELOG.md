@@ -521,7 +521,8 @@
   (unsafe protocols — `javascript:`/`data:` — are dropped and relative images are not rendered), raw HTML rendered
   as nothing and `variant="compact"` data attributes. The upstream
   micromark/mdast pipeline, shiki highlighting, KaTeX, footnotes and
-  incremental streaming are **not** bundled. The C2 smoke probe now renders
+  incremental streaming are **not** bundled at this round (closed by the
+  round-103 C2.7 entry below). The C2 smoke probe now renders
   `MarkdownText` (heading, bold, fenced code, link) and `JsonBlock` (expanded
   JSON) and asserts the DOM/text. Evidence: smoke 82/82, bridge harness 102,
   cordis lib 26, server `plugins_live` 16, workspace 365 passed + 3 ignored
@@ -589,4 +590,89 @@
   filtering, not one owner renderer), and `conversation.chat.node` plus the
   other conversation slots still need a full chat view.
 
-Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose settings UI stayed inert without the `pluginManager`/settings host services until the round-89 C1.2 seat-inject/`configForms` work made it render — browser forms are in-memory and the DSH configuration engine is not reproduced), the round-91 C1.3 reference slot contract is generated from the reference catalog (122 slots with kind/scope/standard kit; undeclared/keyed/chain/duplicate registration rules, shadowing winners, children declarations, deferred inject, standard kit + ownerProps; `chain` select dispatch and owner shares of three real shell sites were closed by the round-102 C4.1 work, while `hoc` nesting, renderer semantics, owner props carrying functions and a full chat view remain debt; store seats are closed by the round-98–101 C3.1 work), the round-92 C1.4 host services follow the reference contract (`webServer` independent exact/prefix tables, duplicate `(kind, path)` throws, absolute pathname rules, `getOrigin()`/`port`/`protocol` read from the host bridge, the `file://`-baseUrl, and the reference `configForms` snapshot `{status, value, base, user, revision, writable}` with a numeric revision fence and `set`/`unset`; the round-98–101 C1.5 work implemented `registerFallback` — one seat, non-reserved unmatched paths only — while `registerUpgrade` stays unsupported) and, since the round-93 C2.1 port (with the round-94 C2.2 full Tooltip, the round-95 C2.3 Menu core, the round-96 C2.4 submenu page-layout/`MenuGroup`, the round-97 C2.5 reference `JsonBlock` plus the dependency-free `MarkdownText` GFM subset and the round-98–101 C2.6 submenu mechanics + C3.1 `@deepseek-ai/dsh-client-store`), design-system atoms, the full Tooltip, the reference Menu (core + submenu page layout + sticky groups), the reference `JsonBlock`, the API-compatible `MarkdownText`, all 204 icons and the store-seat module following the reference sources (`primitives.js`/`bootstrap.js` are a reference port, not an independent shim; the shared runtime artifact is 430,139 bytes; the upstream markdown stack — micromark/mdast, shiki, KaTeX, footnotes, streaming — is not bundled), but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, the SlotMap remainder (hoc nesting, renderer semantics, owner props carrying functions without a callback bridge, per-frame chain filtering and a full chat view; chain election by `select(ownerProps)` and owner shares of three real shell sites were closed by the round-102 C4.1 work), a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: C1.1 now bridges `sessions`/`sessionProjections` from an internal server snapshot (≤ 5 s staleness, simplified projections: `llmMs=0`, no thread history; session content deliberately not bridged), so usage routes see real dshr sessions; there is still no SSE/WebSocket/streaming, and plugin routes still lack authentication. The bridge services are a subset (snapshot-based `sessions`/`sessionProjections` with simplified projections), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.
+- Plugins: C2.7 (round 103) — the upstream markdown stack ships in the shared
+  runtime. `markdown.js` (**814,222 bytes**) is built by
+  `scripts/build-markdown-runtime.mjs` from pinned npm packages
+  (`scripts/markdown-runtime/pins.json` pins every one of the 135 installed
+  packages through `overrides`; the install tree lives in the gitignored
+  `target/markdown-runtime`) and concatenated after `primitives.js`, so client
+  halves get the real `MarkdownText` instead of the dependency-free GFM subset:
+  the reference component over micromark/mdast + GFM (tables, task lists,
+  strikethrough, autolinks, footnotes) + math/KaTeX 0.16.47, shiki 4.3.1 core
+  with the JavaScript regex engine and the TypeScript/shellscript/JSON boot
+  grammars, and the reference incremental streaming parser (frozen blocks plus
+  trailing-tail reparse). The build is a classic-script IIFE (no ESM import, no
+  `eval`) with React, ReactDOM and `react/jsx-runtime` aliased to small shims
+  over `window.React`/`window.ReactDOM`/`window.__DSHR_MODULES__`, so no second
+  React is bundled. `markdown.js` overrides `MarkdownText` in the
+  `@deepseek-ai/dsh-client-ui-primitives` module entry (plus the additive
+  `extractMarkdownPlainText`) and keeps every other port export; the port's
+  `.dshr-markdown` styling hooks are restored on an outer div and `JsonBlock`
+  stays the reference port (`primitives.js`) because it matches the upstream
+  DOM and keeps the `.dshr-json-block-*` classes. KaTeX's `@font-face` is
+  stripped (no font files ride in the artifact) and the reference's lazy
+  read-card shiki grammars are stubbed empty so ~1.6 MB of never-used grammars
+  stay out (such fences render as plain code). Evidence: smoke **84/84** (+2
+  C2.7 probes: `$x^2$` and a display block → `.katex`/MathML; a TypeScript
+  fence → `pre.shiki` with `--shiki-*` spans and a computed color; `[^1]` +
+  definition → `.footnotes` with `#user-content-fn-1` and a backref; an
+  unfinished streaming tail renders with no error), `cargo test -p dshr-server`
+  47 passed, `scripts/check-runtime-assets.sh` OK (5 files),
+  `node scripts/build-markdown-runtime.mjs --check` OK; the shared runtime
+  artifact grew from 430,139 to **1,244,361 bytes**.
+
+- Plugins: C4.2 (round 104) — the SlotMap remainder is closed: owner props carry
+  functions, a chain slot renders through one owner-renderer, `hoc` children nest
+  across frames, the shell has a full chat view, and `webServer.registerUpgrade`
+  (WebSocket) works end-to-end. Owner props with callbacks: the shell encodes a
+  callback as the JSON marker `{"$callback": "<name>"}` (the server still
+  validates `ownerProps` as a JSON object), and `crates/cordis/src/bridge.js`
+  materializes markers into functions that post
+  `ctx.action("callback", {name, args})` to the shell and resolve with its
+  `action-result`; `settings.section.close` closes the settings dialog,
+  `openFile` opens the new `/v1/workspace/file` inspector (workspace-confined
+  after canonicalization, 64 KiB cap, truncation flag), `inspectCall` opens the
+  tool-call inspector. Materialized callbacks keep their marker, so a parent
+  component forwarding owner props into a child slot re-serializes them, and big
+  owner shares (a whole chat node) travel out of band as an `owner-props` bridge
+  message instead of a URL. Chain: `select(ownerProps)` follows the reference
+  election (the first registration whose selector does not decline wins and the
+  component receives `{...ownerProps, matched}`); `SlotRegion` serves every chain
+  slot through a single `ChainHost` owner-renderer that mounts one candidate
+  frame at a time and advances on `chain-unselected` (or a candidate `error`), so
+  several `select === true` registrations no longer render several frames. `hoc`:
+  an entry that declares `children` gets `renderSlot`/`renderSlotChain`; the
+  frame reports each placeholder box (`anchor`), the shell mounts the declared
+  child slot frames absolutely over it inside the parent wrapper, and reports the
+  child's measured height back (`anchor-size`) so the parent reserves that space
+  — children nest in the parent's layout instead of being flattened into a
+  region. Shell chat view: the transcript is projected into the reference
+  turn/node model (`user`/`assistant-step` nodes with text, thinking, images and
+  tool calls; tool results attach to their call) and the conversation slots mount
+  per node: `conversation.chat.node` (keyed by node kind; the shell's two core
+  kinds stay built-in and plugin-specific kinds are replaced by their
+  registration), `assistant-actions`, `message.images`/`user.images`,
+  `reasoning.body`, `text-interaction`, `turnTail`, `user.before` (chain),
+  `flow`, `markdown.fence` (hoc) and the `conversation.composer` chain seat.
+  The shell's two core node kinds keep their built-in renderer (`user`,
+  `assistant-step`) because a plugin frame cannot host the shell's rendering and
+  the reference plugins fall back to a builtin component dshr does not publish —
+  a documented divergence. Owner callback surfaces are wired at
+  `settings.section` (`close`), `conversation.chat.node`
+  (`openFile`/`inspectCall`/`forkAt`/`loadImage`) and `tool.call.toolview`
+  (`openFile`/`inspectCall`). `webServer.registerUpgrade`: the sidecar keeps an
+  exact-path upgrade table (duplicate path throws, the same path rules as HTTP
+  routes), publishes it in `__dshr_routes` and the per-plugin `upgrades` array of
+  `GET /v1/plugins/status`; dshr tunnels the upgraded connection (request-head
+  replay, upstream handshake replay, bidirectional copy) under the same
+  loopback/exact-route policy as HTTP routes. Evidence: bridge harness **119**
+  (+12: callback materialization and resolution, deferred owner props, chain
+  `matched`, hoc anchors/`anchor-size`/undeclared-child rejection, wire
+  metadata), `crates/server/tests/plugins_live.rs` **18**
+  (+`proxies_plugin_websocket_upgrade`: real-socket 101 handshake, byte
+  tunneling, duplicate/trailing rejection, status surface), web-e2e **18/18**,
+  smoke **88/88** (+owner callback closes the Settings dialog; +3 hoc-nesting probes: child frame mounts inside the parent wrapper, gets its own measured height, and renders the declared child slot), cordis 26,
+  workspace 367 passed + 3 ignored (desktop 21, total 388); the shared runtime
+  artifact is unchanged at 1,244,361 bytes.
+
+Known gaps: Windows AppContainer is experimental/opt-in; desktop Tauri and full i18n are deferred; full React compatibility is not a host contract (iframe bridge, ADR-013 §5): C-lite supports React slot components with host hooks/services (`ctx.get('sessions')`, plus the round-80 `ctx.get('slots')`/`ctx.get('locale')`/`ctx.inject` and `__DSHR_LAST_ERROR__` diagnostics, the round-81 React contract — `React.memo`/`forwardRef` types, keyed ids, `ctx.locale.register`/`t()`, `ctx.interval`/`ctx.timeout` — the round-82 reference slots surface check via the real `dsh-mnemon@0.5.46` and the round-83 conformance n=9 set with `dsh-plugin-market@1.2.2`, `dsh-plugin-codegraph-panel@0.6.5` and `@goodandready/dsh-plugin-notify@0.4.9`, and the round-85 C2 expansion — 30+ design-system exports and conformance n=11 with `dsh-plugin-debugging@0.8.1`/`dsh-plugin-studio@0.3.1`, whose settings UI stayed inert without the `pluginManager`/settings host services until the round-89 C1.2 seat-inject/`configForms` work made it render — browser forms are in-memory and the DSH configuration engine is not reproduced), the round-91 C1.3 reference slot contract is generated from the reference catalog (122 slots with kind/scope/standard kit; undeclared/keyed/chain/duplicate registration rules, shadowing winners, children declarations, deferred inject, standard kit + ownerProps; `chain` select dispatch and owner shares of three real shell sites were closed by the round-102 C4.1 work, while `hoc` nesting, owner props carrying functions and the full chat view were closed by the round-104 C4.2 work (the shell's two core node kinds keep a built-in renderer); store seats are closed by the round-98–101 C3.1 work), the round-92 C1.4 host services follow the reference contract (`webServer` independent exact/prefix tables, duplicate `(kind, path)` throws, absolute pathname rules, `getOrigin()`/`port`/`protocol` read from the host bridge, the `file://`-baseUrl, and the reference `configForms` snapshot `{status, value, base, user, revision, writable}` with a numeric revision fence and `set`/`unset`; the round-98–101 C1.5 work implemented `registerFallback` — one seat, non-reserved unmatched paths only — and the round-104 C4.2 work implemented `registerUpgrade` (exact-path socket protocol owners tunneled to the sidecar)) and, since the round-93 C2.1 port (with the round-94 C2.2 full Tooltip, the round-95 C2.3 Menu core, the round-96 C2.4 submenu page-layout/`MenuGroup`, the round-97 C2.5 reference `JsonBlock` plus the dependency-free `MarkdownText` GFM subset, the round-98–101 C2.6 submenu mechanics + C3.1 `@deepseek-ai/dsh-client-store`, and the round-103 C2.7 upstream markdown stack), design-system atoms, the full Tooltip, the reference Menu (core + submenu page layout + sticky groups), the reference `JsonBlock`, the upstream `MarkdownText` markdown stack (C2.7; `markdown.js`, 814,222 bytes), all 204 icons and the store-seat module following the reference sources (`primitives.js`/`bootstrap.js` are a reference port, not an independent shim; the shared runtime artifact is 1,244,361 bytes), but the full `@deepseek-ai/dsh-client-ui-*` design-system, host React context/state, the SlotMap remainder (hoc nesting, renderer semantics, owner props carrying functions without a callback bridge, per-frame chain filtering and a full chat view — all closed by the round-104 C4.2 work; chain election by `select(ownerProps)` and owner shares of three real shell sites were closed by the round-102 C4.1 work), a selectable React version and the conformance report/nightly run await the ADR-040 C-full decision, which is now an owner decision rather than unfinished C-lite work (D not recommended). C1 host HTTP routes work (sidecar loopback server + allowlist proxy + `connect-src` for opt-in frames, with the real `@kt11/dsh-deepseek-balance` host half answering through the plugin frame); round 86 added exact and prefix routes, a live per-plugin `routes` table in `GET /v1/plugins/status`, a filter for MCP pseudo-tools (`list_resources`/`read_resource`/`list_prompts`/`get_prompt`) in the plugin tool registry, and a loopback-only LAN policy (403 unless `--allow-lan-plugin-routes`). Remaining C1 limits are recorded too: C1.1 now bridges `sessions`/`sessionProjections` from an internal server snapshot (≤ 5 s staleness, simplified projections: `llmMs=0`, no thread history; session content deliberately not bridged), so usage routes see real dshr sessions; dshr's own API still has no SSE/WebSocket/streaming (plugin upgrades are tunneled since round 104), and plugin routes still lack authentication. The bridge services are a subset (snapshot-based `sessions`/`sessionProjections` with simplified projections), eval-based bundles need an opt-in `'unsafe-eval'` CSP (not enabled) and `@michengai/dsh-skills-manager` still fails at bundle init — all recorded in TECH-DEBT/LIMITATIONS.

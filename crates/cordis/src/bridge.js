@@ -179,14 +179,81 @@
     return Boolean(spec && spec.inject);
   }
 
+  // ---------------------------------------------------------------------------
+  // Owner props (reference `renderSlot` owner share). The shell can only hand
+  // JSON to a frame, while real render sites also pass callbacks
+  // (`settings.section.close`, `openFile`, `inspectCall`, ...). Those travel as
+  // `{ "$callback": "<name>" }` markers (server-side they stay a plain JSON
+  // object) and are materialized into functions here; calling one posts an
+  // `action: "callback"` to the shell, which dispatches by name and answers
+  // through `action-result`, so `openFile(path).then(...)` keeps the reference
+  // promise shape. Callbacks keep their marker name, so a component forwarding
+  // owner props into a child slot re-serializes them instead of losing them.
+  // ---------------------------------------------------------------------------
+  const CALLBACK_MARKER = "$callback";
+
+  function ownerCallback(name) {
+    const callback = function () {
+      const args = Array.prototype.slice.call(arguments);
+      return ctx.action("callback", { name: name, args: args });
+    };
+    callback[CALLBACK_MARKER] = name;
+    return callback;
+  }
+
+  function materializeOwnerProps(value) {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(materializeOwnerProps);
+    if (typeof value[CALLBACK_MARKER] === "string") return ownerCallback(value[CALLBACK_MARKER]);
+    const out = {};
+    for (const key of Object.keys(value)) out[key] = materializeOwnerProps(value[key]);
+    return out;
+  }
+
+  // JSON-safe projection of owner props for a child slot anchor: materialized
+  // callbacks go back to their marker form, plain functions are dropped (a
+  // frame cannot clone arbitrary closures into another frame).
+  function serializeOwnerProps(value) {
+    const seen = new Set();
+    function walk(node) {
+      if (node === null) return null;
+      const type = typeof node;
+      if (type === "function") {
+        return typeof node[CALLBACK_MARKER] === "string"
+          ? { [CALLBACK_MARKER]: node[CALLBACK_MARKER] }
+          : undefined;
+      }
+      if (type !== "object") return type === "undefined" ? undefined : node;
+      if (seen.has(node)) return undefined;
+      seen.add(node);
+      if (Array.isArray(node)) {
+        const list = node.map(walk);
+        seen.delete(node);
+        return list;
+      }
+      const out = {};
+      for (const key of Object.keys(node)) {
+        const next = walk(node[key]);
+        if (next !== undefined) out[key] = next;
+      }
+      seen.delete(node);
+      return out;
+    }
+    try {
+      return JSON.stringify(walk(value) || {});
+    } catch (error) {
+      return "{}";
+    }
+  }
+
   let frameOwnerProps = {};
   try {
     const configured = frameConfig ? frameConfig.ownerProps : undefined;
     if (configured && typeof configured === "object") {
-      frameOwnerProps = configured;
+      frameOwnerProps = materializeOwnerProps(configured);
     } else if (typeof configured === "string" && configured !== "") {
       const parsed = JSON.parse(configured);
-      if (parsed && typeof parsed === "object") frameOwnerProps = parsed;
+      if (parsed && typeof parsed === "object") frameOwnerProps = materializeOwnerProps(parsed);
     }
   } catch (error) {
     frameOwnerProps = {};
@@ -707,18 +774,18 @@
     "contextMenu.content": "panel",
     "contextMenu.icon": "panel",
     "conversation.approval.detail": "approval.detail",
-    "conversation.chat.assistant-actions": "message.action",
-    "conversation.chat.commandview": "message.action",
-    "conversation.chat.flow": "panel",
-    "conversation.chat.markdown.fence": "panel",
-    "conversation.chat.message.images": "panel",
-    "conversation.chat.node": "panel",
-    "conversation.chat.reasoning.body": "panel",
-    "conversation.chat.text-interaction": "message.action",
-    "conversation.chat.turnTail": "message.action",
-    "conversation.chat.user.before": "message.action",
-    "conversation.chat.user.images": "panel",
-    "conversation.composer": "composer.actions",
+    "conversation.chat.assistant-actions": "chat.assistant-actions",
+    "conversation.chat.commandview": "chat.commandview",
+    "conversation.chat.flow": "chat.flow",
+    "conversation.chat.markdown.fence": "chat.markdown.fence",
+    "conversation.chat.message.images": "chat.images",
+    "conversation.chat.node": "chat.node",
+    "conversation.chat.reasoning.body": "chat.reasoning",
+    "conversation.chat.text-interaction": "chat.text-interaction",
+    "conversation.chat.turnTail": "chat.turnTail",
+    "conversation.chat.user.before": "chat.user.before",
+    "conversation.chat.user.images": "chat.user.images",
+    "conversation.composer": "composer.chain",
     "conversation.composer.bar": "composer.actions",
     "conversation.composer.dock": "composer.actions",
     "conversation.header": "conversation.header",
@@ -1116,14 +1183,21 @@
 
   // One wire shape for registrations, so `slots` messages and `slots.list()`
   // agree and the shell can place every entry without recomputing the region.
+  // `kind`/`priority`/`key` drive the shell's owner-renderer (chain election,
+  // keyed occurrences) and `children` is the child-slot declaration, so the
+  // shell mounts nested slots through their parent entry instead of flatly.
   function described(entry) {
     return {
       name: entry.name,
       slot: entry.name,
       id: entry.id,
+      key: entry.key,
+      kind: entry.kind,
       title: entry.title,
       order: entry.order,
+      priority: entry.priority,
       region: slotRegion(entry.name),
+      children: entry.children ? Object.keys(entry.children) : [],
     };
   }
 
@@ -1161,7 +1235,130 @@
   let reactRoot = null;
   let reactEntry = null;
   let reactProps = null;
+  let reactExtra = null;
   let cachedBoundary = null;
+  let cachedAnchorComponent = null;
+
+  // ---------------------------------------------------------------------------
+  // Nested slot anchors (reference `renderSlot`/`renderSlotChain` children).
+  // A parent entry cannot mount another plugin's frame inside its own document,
+  // so it renders a placeholder anchor element, reports the anchor's box to the
+  // shell, and the shell mounts the declared child slot frames absolutely over
+  // it — the children nest inside the parent instead of being flattened into a
+  // shell region.
+  // ---------------------------------------------------------------------------
+  let anchorSeq = 0;
+  // Anchor elements by id: the shell reports the mounted child's height back so
+  // the parent reserves that space in its own layout (nested slots are not just
+  // absolutely positioned overlays).
+  const anchorElements = new Map();
+
+  function reportAnchor(anchor, element, slotKey, ownerProps, hostId) {
+    if (!element || typeof element.getBoundingClientRect !== "function") return;
+    const rect = element.getBoundingClientRect();
+    post({
+      type: "anchor",
+      anchor: anchor,
+      host: hostId,
+      slot: slotKey,
+      ownerProps: serializeOwnerProps(ownerProps),
+      rect: {
+        x: Math.round((Number(rect.x) || 0) * 100) / 100,
+        y: Math.round((Number(rect.y) || 0) * 100) / 100,
+        width: Math.round((Number(rect.width) || 0) * 100) / 100,
+        height: Math.round((Number(rect.height) || 0) * 100) / 100,
+      },
+    });
+  }
+
+  function anchorComponent() {
+    const runtime = reactRuntimeNow();
+    if (!runtime) return null;
+    if (cachedAnchorComponent) return cachedAnchorComponent;
+    const React = runtime.React;
+    cachedAnchorComponent = function DshrSlotAnchor(props) {
+      const ref = React.useRef(null);
+      React.useLayoutEffect(
+        function () {
+          const element = ref.current;
+          if (!element) return undefined;
+          anchorElements.set(props.anchor, element);
+          reportAnchor(props.anchor, element, props.slotKey, props.ownerProps, props.hostId);
+          let disconnect = null;
+          if (typeof window.ResizeObserver === "function") {
+            const observer = new window.ResizeObserver(function () {
+              reportAnchor(props.anchor, element, props.slotKey, props.ownerProps, props.hostId);
+            });
+            observer.observe(element);
+            disconnect = function () {
+              observer.disconnect();
+            };
+          }
+          return function () {
+            if (disconnect) disconnect();
+            anchorElements.delete(props.anchor);
+            post({ type: "anchor-clear", anchor: props.anchor, host: props.hostId });
+          };
+        },
+        [props.anchor],
+      );
+      // Owner props are re-projected on every render: a child seat sees the
+      // parent's latest share (node data, selection, forwarded callbacks).
+      React.useEffect(function () {
+        reportAnchor(props.anchor, ref.current, props.slotKey, props.ownerProps, props.hostId);
+      });
+      return React.createElement("div", {
+        className: "dshr-slot-anchor",
+        "data-dshr-slot-anchor": props.slotKey,
+        ref: ref,
+      });
+    };
+    return cachedAnchorComponent;
+  }
+
+  // One binding per entry (reference `boundRenderSlot`): only slots the entry
+  // declared in `children` may be rendered, and the binding dies with the entry
+  // because the frame is torn down with it.
+  function boundRenderSlot(entry) {
+    return function renderSlot(key, owner) {
+      const declared = entry.children && entry.children[key];
+      if (!declared) {
+        throw new Error('slot "' + key + '" is not declared by this entry\'s children');
+      }
+      const anchor = entry.id + "#" + key + "#" + ++anchorSeq;
+      const runtime = reactRuntimeNow();
+      if (runtime) {
+        return runtime.React.createElement(anchorComponent(), {
+          anchor: anchor,
+          slotKey: key,
+          ownerProps: owner || {},
+          hostId: entry.id,
+        });
+      }
+      const element = document.createElement("div");
+      element.className = "dshr-slot-anchor";
+      if (element.dataset) element.dataset.dshrSlotAnchor = key;
+      anchorElements.set(anchor, element);
+      reportAnchor(anchor, element, key, owner || {}, entry.id);
+      return element;
+    };
+  }
+
+  // Entry-stable bindings: a memoized parent must not rebuild its renderSlot
+  // props on an unrelated host-state re-render (reference caches the same way).
+  const renderSlotBindings = new WeakMap();
+
+  function anchorProps(entry) {
+    if (!entry.children) return {};
+    let renderSlot = renderSlotBindings.get(entry);
+    if (!renderSlot) {
+      renderSlot = boundRenderSlot(entry);
+      renderSlotBindings.set(entry, renderSlot);
+    }
+    // Reference: `renderSlotChain` exists for chain children; dshr renders the
+    // same anchor and lets the shell run the chain election for the child key.
+    return { renderSlot: renderSlot, renderSlotChain: renderSlot };
+  }
 
   function slotBoundary() {
     const runtime = reactRuntimeNow();
@@ -1200,13 +1397,14 @@
     return cachedBoundary;
   }
 
-  function mountReact(entry, props) {
+  function mountReact(entry, props, extra) {
     const runtime = reactRuntimeNow();
     if (!runtime) return false;
     const React = runtime.React;
     if (!reactRoot) reactRoot = runtime.ReactDOM.createRoot(root);
     reactEntry = entry;
     reactProps = props;
+    reactExtra = extra || {};
     reactRoot.render(
       React.createElement(
         slotBoundary(),
@@ -1220,6 +1418,8 @@
             injectedProps(entry),
             storeProps(entry),
             frameOwnerProps,
+            reactExtra,
+            anchorProps(entry),
             { t: translatorFor(entry.locale) },
           ),
         ),
@@ -1230,7 +1430,7 @@
 
   function rerenderActive() {
     if (!reactRoot || !reactEntry || !reactProps) return;
-    mountReact(reactEntry, reactProps);
+    mountReact(reactEntry, reactProps, reactExtra);
   }
 
   function clear() {
@@ -1243,6 +1443,7 @@
       reactRoot = null;
       reactEntry = null;
       reactProps = null;
+      reactExtra = null;
     }
     while (root.firstChild) root.removeChild(root.firstChild);
     root.removeAttribute("data-dshr-slot");
@@ -1276,33 +1477,49 @@
     });
   }
 
-  // Chain election (reference chain slots): the owner share is the argument of
-  // the registration's `select`; a false election renders nothing in this frame.
-  function chainElected(entry) {
-    if (entry.kind !== "chain" || typeof entry.select !== "function") return true;
+  // Chain election (reference chain slots): `select(ownerProps)` returns the
+  // matched owner — the first entry whose selector does not decline wins, and
+  // its component receives `{...ownerProps, matched}`. The shell mounts one
+  // frame per chain slot at a time (owner-renderer): a declining frame reports
+  // `chain-unselected` and the shell advances to the next candidate, so several
+  // matching registrations never render several frames.
+  //
+  // Compatibility: the round-102 dshr contract documented boolean selectors, so
+  // `false`/`undefined` also decline here; reference selectors return `null` to
+  // decline, which is the same path.
+  function chainElection(entry) {
+    if (entry.kind !== "chain" || typeof entry.select !== "function") {
+      return { elected: true, matched: undefined };
+    }
     try {
-      return Boolean(entry.select(frameOwnerProps, { slot: entry.name, id: entry.id }));
+      const matched = entry.select(frameOwnerProps, { slot: entry.name, id: entry.id });
+      if (matched === null || matched === undefined || matched === false) {
+        return { elected: false, matched: matched };
+      }
+      return { elected: true, matched: matched };
     } catch (error) {
       report("select " + entry.id, error);
-      return false;
+      return { elected: false, matched: null };
     }
   }
 
   async function mount(entry, props) {
-    if (!chainElected(entry)) {
+    const election = chainElection(entry);
+    if (!election.elected) {
       clear();
       root.dataset.dshrSlot = entry.id;
       active = null;
       post({ type: "chain-unselected", slot: entry.name, id: entry.id });
       return;
     }
+    const electionProps = entry.kind === "chain" ? { matched: election.matched } : {};
     try {
       const reactPropsHost = Object.assign({}, props, {
         theme: theme,
         wide: hostState.wide,
         context: props && props.context !== undefined ? props.context : null,
       });
-      if (mountReact(entry, reactPropsHost)) {
+      if (mountReact(entry, reactPropsHost, electionProps)) {
         root.dataset.dshrSlot = entry.id;
         active = entry;
       } else {
@@ -1312,7 +1529,15 @@
         active = entry;
         await entry.render(
           root,
-          Object.assign({}, props, injectedProps(entry), storeProps(entry), frameOwnerProps),
+          Object.assign(
+            {},
+            props,
+            injectedProps(entry),
+            storeProps(entry),
+            frameOwnerProps,
+            electionProps,
+            anchorProps(entry),
+          ),
         );
       }
       reportResize(entry);
@@ -1437,6 +1662,30 @@
     else if (data.type === "deactivate") deactivate();
     else if (data.type === "theme") setTheme(data.theme);
     else if (data.type === "host-state") setHostState(data.state);
+    else if (data.type === "anchor-size") {
+      // The shell mounted the child slot and reports its height: reserve it in
+      // the parent's layout (the anchor element is the placeholder).
+      const element = anchorElements.get(data.anchor);
+      const height = Number(data.height);
+      if (element && element.style && Number.isFinite(height) && height > 0) {
+        element.style.height = height + "px";
+      }
+    }
+    else if (data.type === "owner-props") {
+      // Big owner shares (a whole chat node) cannot ride a URL; the shell sends
+      // them once the frame is ready and the active slot re-renders with them.
+      if (typeof data.ownerProps === "string" && data.ownerProps !== "") {
+        try {
+          const parsed = JSON.parse(data.ownerProps);
+          if (parsed && typeof parsed === "object") {
+            frameOwnerProps = materializeOwnerProps(parsed);
+            rerenderActive();
+          }
+        } catch (error) {
+          report("owner-props", error);
+        }
+      }
+    }
     else if (data.type === "action-result") {
       const settle = actionWaiters.get(data.id);
       if (settle) {

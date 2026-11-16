@@ -65,3 +65,25 @@ dialog:has(.plugin-frame) { max-width: 760px; width: 760px; }
 [data-region="settings.icon"], [data-region="approval.detail"] { margin: 6px 0; }
 [data-region="settings.icon"] { flex-direction: row; }
 #plugin-stage .slot-region[data-region="panel"] { display: block; }
+
+/* ---- Chat view, nested slots and owner-callback inspectors (round 103) ---- */
+.slot-host { position: relative; }
+.nested-slot { position: absolute; z-index: 1; }
+.nested-slot .slot-frame { display: block; width: 100%; }
+.nested-seat { display: block; }
+.chain-host { display: contents; }
+.chat-node { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.chat-node.user { align-items: flex-end; }
+.chat-node .bubble { background: var(--user); border-radius: 12px; padding: 8px 12px; max-width: 82%; white-space: pre-wrap; }
+.assistant-text { white-space: pre-wrap; }
+.reasoning { border-left: 2px solid var(--border); padding-left: 8px; margin: 4px 0; }
+.reasoning-text { white-space: pre-wrap; font-family: inherit; color: var(--muted); margin: 4px 0; }
+.tool-card { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; margin: 4px 0; }
+.tool-head { display: flex; gap: 8px; align-items: center; }
+.tool-status { font-size: 12px; color: var(--muted); }
+.tool-output { max-height: 160px; overflow: auto; margin: 4px 0 0; }
+.chat-image { max-width: 240px; border-radius: 8px; display: block; margin: 4px 0; }
+.turn-tail { display: flex; gap: 8px; align-items: center; margin: 4px 0 14px; }
+dialog.inspector { position: fixed; inset: 8vh auto auto 50%; transform: translateX(-50%); width: min(760px, 92vw); max-height: 76vh; overflow: auto; z-index: 45; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.file-content, .call-json { white-space: pre-wrap; max-height: 56vh; overflow: auto; font-family: ui-monospace, monospace; font-size: 12px; }
+[data-region="composer.chain"], [data-region="chat.node"], [data-region="chat.user.before"] { display: block; }

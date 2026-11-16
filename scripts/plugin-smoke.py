@@ -676,6 +676,17 @@ export default function activate(ctx) {
     element.innerHTML =
       '<p class="slot-label">' + VERSION + ' region:' + region + ' slot:' + name + '</p>' +
       '<p class="slot-context">context:' + role + '/' + index + '</p>';
+    // C4.2 owner callback: the shell sends `{close: {$callback: ...}}` as owner
+    // props, the bridge materializes it into a function.
+    if (name === "settings.section" && props && typeof props.close === "function") {
+      const button = document.createElement("button");
+      button.className = "owner-callback";
+      button.textContent = "close via owner callback";
+      button.addEventListener("click", () => {
+        props.close();
+      });
+      element.appendChild(button);
+    }
   };
   NAMES.forEach((name, index) => {
     const id = "regions-" + name.replace(/[^A-Za-z0-9]+/g, "-");
@@ -684,6 +695,32 @@ export default function activate(ctx) {
     const keyed = name === "tool.call.toolview" ? { key: "smoke" } : {};
     ctx.slots.register({ name: name, id: id, title: "Regions " + name, order: index + 10, ...keyed }, render(name));
   });
+  // C4.2 hoc nesting: a parent entry declares a child slot and renders it through
+  // `renderSlot`; the shell mounts the child frame inside the parent's wrapper.
+  ctx.slots.register(
+    {
+      name: "sidebar.session.action",
+      id: "regions-hoc",
+      title: "Hoc parent",
+      order: 90,
+      children: { "x-regions.child": { kind: "list", scope: "root" } },
+    },
+    (element, props) => {
+      element.innerHTML = '<p class="slot-label">' + VERSION + ' hoc-parent</p>';
+      if (props && typeof props.renderSlot === "function") {
+        element.appendChild(props.renderSlot("x-regions.child", { from: "parent" }));
+      }
+    },
+  );
+  ctx.slots.inject("x-regions.child", () =>
+    ctx.slots.register(
+      { name: "x-regions.child", id: "regions-nested", title: "Nested child", order: 91 },
+      (element) => {
+        element.innerHTML =
+          '<p class="slot-label">' + VERSION + ' region:nested slot:x-regions.child</p>';
+      },
+    ),
+  );
   ctx.onTheme((theme) => { document.body.dataset.pluginTheme = theme; });
 }
 """
@@ -699,6 +736,8 @@ REGION_MAPPING = {
     "sidebar.footer.action": "sidebar.footer",
     "sidebar.workspaces": "sidebar.top",
     "sidebar.session.row.trailing": "sidebar.session.action",
+    "sidebar.session.action": "sidebar.session.action",
+    "x-regions.child": "panel",
     "shell.overlay": "shell.overlay",
     "shell.leading": "shell.leading",
     "shell.bottom": "shell.bottom",
@@ -1498,6 +1537,43 @@ def run(args: argparse.Namespace) -> int:
             session_row or session_rows,
         )
 
+        # C4.2 hoc nesting: the child slot frame mounts inside the parent frame's
+        # wrapper (anchored, not flatly in a region) and reserves its height.
+        nested_state = json.loads(
+            str(
+                shell.eval(
+                    """JSON.stringify([...document.querySelectorAll('.session-row .slot-host')]
+                        .map(host => ({
+                            parent: !!host.querySelector('iframe[data-slot="sidebar.session.action"][data-slot-id="regions-hoc"]'),
+                            child: host.querySelectorAll('iframe[data-slot="x-regions.child"]').length,
+                            childHeight: (host.querySelector('iframe[data-slot="x-regions.child"]')?.style.height) || '',
+                        })))"""
+                )
+            )
+        )
+        check(
+            "hoc child frame mounts inside the parent wrapper",
+            any(item["parent"] and item["child"] >= 1 for item in nested_state),
+            nested_state,
+        )
+        check(
+            "nested child frame gets its own measured height",
+            any(item["parent"] and item["child"] >= 1 and item["childHeight"].endswith("px") for item in nested_state),
+            nested_state,
+        )
+        nested_text = str(
+            poll_frame(
+                debug_port,
+                "document.querySelector('.slot-label')?.textContent || ''",
+                lambda value: "x-regions.child" in str(value),
+                plugin="regions",
+                mode="slot",
+                slot="x-regions.child",
+                label="nested child frame",
+            )
+        )
+        check("nested child frame renders the declared child slot", "x-regions.child" in nested_text, nested_text)
+
         # Messages: open the replayed session so per-message rows exist. The
         # row itself is already covered by the sidebar.session.action check.
         wait_until(
@@ -2053,7 +2129,14 @@ def run(args: argparse.Namespace) -> int:
                                     defaultOpen: true,
                                     truncatedLabel: () => "truncated",
                                 }),
-                                e(primitives.IconChevronDownOutlineRegular, { size: 12 })
+                                e(primitives.IconChevronDownOutlineRegular, { size: 12 }),
+                                e("div", { className: "c2-upstream-md" }, e(primitives.MarkdownText, {
+                                    text: "Inline math $x^2$ and display math $$\\\\frac{1}{2}$$.\\n\\n```ts\\nconst upstream: number = 42;\\n```\\n\\nFootnote ref[^1].\\n\\n[^1]: Footnote body from upstream.",
+                                })),
+                                e("div", { className: "c2-streaming-md" }, e(primitives.MarkdownText, {
+                                    text: "# Stream head\\n\\nSome **bo\\n\\n```ts\\nconst partial: number",
+                                    streaming: true,
+                                }))
                             ));
                             setTimeout(() => resolve(JSON.stringify({
                                 text: document.body.innerText,
@@ -2070,6 +2153,23 @@ def run(args: argparse.Namespace) -> int:
                                 store: window.__c2Store === true,
                                 checkbox: !!document.querySelector('label.dshr-checkbox'),
                                 path: (document.querySelector('[data-path-label]') || {}).textContent || '',
+                                katex: document.querySelectorAll('#dshr-c2-probe .katex').length,
+                                katexHtml: document.querySelectorAll('#dshr-c2-probe .katex .katex-html').length,
+                                katexMathml: document.querySelectorAll('#dshr-c2-probe .katex math').length,
+                                shikiPre: document.querySelectorAll('#dshr-c2-probe pre.shiki').length,
+                                shikiSpans: document.querySelectorAll('#dshr-c2-probe pre.shiki code span span[style*="--shiki-"]').length,
+                                shikiColor: (() => {
+                                    const span = document.querySelector('#dshr-c2-probe pre.shiki code span span[style*="--shiki-"]');
+                                    return span ? getComputedStyle(span).color : null;
+                                })(),
+                                markdownEngine: !!document.querySelector('#dshr-c2-probe [data-markdown-engine]'),
+                                markdownRuntime: window.__DSHR_MARKDOWN_RUNTIME__ || null,
+                                footnoteSection: !!document.querySelector('#dshr-c2-probe section[data-footnotes]'),
+                                footnoteItem: !!document.querySelector('#dshr-c2-probe section[data-footnotes] li#user-content-fn-1'),
+                                footnoteLabel: !!document.querySelector('#dshr-c2-probe #footnote-label'),
+                                footnoteBackref: !!document.querySelector('#dshr-c2-probe section[data-footnotes]') && (document.querySelector('#dshr-c2-probe section[data-footnotes]').textContent || '').includes('\u21a9'),
+                                streamingRoot: !!document.querySelector('#dshr-c2-probe .c2-streaming-md .dshr-markdown'),
+                                streamingText: (document.querySelector('#dshr-c2-probe .c2-streaming-md') || {}).textContent || '',
                             })), 500);
                         } catch (error) {
                             resolve(JSON.stringify({ error: String(error) }));
@@ -2122,6 +2222,63 @@ def run(args: argparse.Namespace) -> int:
                 **{key: c2_state.get(key) for key in ("switch", "tag", "tabs", "icon", "checkbox", "error")},
                 "text": c2_text[:400],
                 "path": c2_state.get("path"),
+            },
+        )
+
+        # C2.7: the shared runtime now carries the upstream markdown stack
+        # (micromark/mdast + GFM + math/KaTeX + shiki + footnotes + incremental
+        # streaming) instead of the previous dependency-free GFM subset.
+        c2_upstream_ok = (
+            (c2_state.get("katex") or 0) >= 1
+            and (c2_state.get("katexHtml") or 0) >= 1
+            and (c2_state.get("katexMathml") or 0) >= 1
+            and (c2_state.get("shikiPre") or 0) >= 1
+            and (c2_state.get("shikiSpans") or 0) >= 2
+            and str(c2_state.get("shikiColor") or "").startswith("rgb")
+            and c2_state.get("markdownEngine") is True
+            and isinstance(c2_state.get("markdownRuntime"), dict)
+            and c2_state["markdownRuntime"].get("ok") is True
+        )
+        check(
+            "upstream markdown stack renders KaTeX math and shiki fences (C2.7)",
+            c2_upstream_ok,
+            {
+                key: c2_state.get(key)
+                for key in (
+                    "katex",
+                    "katexHtml",
+                    "katexMathml",
+                    "shikiPre",
+                    "shikiSpans",
+                    "shikiColor",
+                    "markdownEngine",
+                    "markdownRuntime",
+                )
+            },
+        )
+        c2_stream_ok = (
+            c2_state.get("footnoteSection") is True
+            and c2_state.get("footnoteItem") is True
+            and c2_state.get("footnoteLabel") is True
+            and c2_state.get("footnoteBackref") is True
+            and c2_state.get("streamingRoot") is True
+            and "Stream head" in (c2_state.get("streamingText") or "")
+            and "partial: number" in (c2_state.get("streamingText") or "")
+        )
+        check(
+            "GFM footnotes and incremental streaming survive a partial tail (C2.7)",
+            c2_stream_ok,
+            {
+                key: c2_state.get(key)
+                for key in (
+                    "footnoteSection",
+                    "footnoteItem",
+                    "footnoteLabel",
+                    "footnoteBackref",
+                    "streamingRoot",
+                    "streamingText",
+                    "error",
+                )
             },
         )
 
@@ -2217,7 +2374,27 @@ def run(args: argparse.Namespace) -> int:
             ("settings.action", "region:settings.action"),
         ]:
             wait_frame_text(debug_port, needle, "regions", slot)
-        click("dialog button", "Close")
+        # C4.2: the plugin calls the owner callback (`settings.section.close`) and
+        # the shell dispatches it — the dialog closes without a DOM dependency.
+        poll_frame(
+            debug_port,
+            "(() => { const b = document.querySelector('button.owner-callback'); if (!b) return null; b.click(); return true; })()",
+            lambda value: bool(value),
+            plugin="regions",
+            slot="settings.section",
+            label="owner callback button",
+        )
+        try:
+            wait_until(
+                lambda: not shell.eval("!!document.querySelector('dialog h3')"),
+                timeout=FRAME_TIMEOUT,
+                label="settings dialog closed by the owner callback",
+            )
+            check("owner callback closes the settings dialog", True)
+        except Exception as error:  # noqa: BLE001 - reported as a failed check
+            check("owner callback closes the settings dialog", False, str(error))
+        if shell.eval("!!document.querySelector('dialog button')"):
+            click("dialog button", "Close")
         wait_until(
             lambda: not shell.eval("!!document.querySelector('dialog h3')"),
             timeout=FRAME_TIMEOUT,

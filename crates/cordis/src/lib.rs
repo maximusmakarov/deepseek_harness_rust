@@ -115,6 +115,9 @@ pub struct SidecarHttp {
     pub port: u16,
     pub token: String,
     pub routes: Vec<SidecarHttpRoute>,
+    /// Exact-path protocol owners (`webServer.registerUpgrade`): dshr tunnels
+    /// the upgraded connection to the sidecar, which owns negotiation.
+    pub upgrades: Vec<String>,
     /// The plugin claimed the reference fallback seat (serves unmatched paths).
     pub fallback: bool,
 }
@@ -145,6 +148,16 @@ pub async fn sidecar_http(connection: &CordisConnection) -> Option<SidecarHttp> 
         .get("fallback")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
+    let upgrades = value
+        .get("upgrades")
+        .and_then(serde_json::Value::as_array)
+        .map(|routes| {
+            routes
+                .iter()
+                .filter_map(|route| route.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
     let routes = value
         .get("routes")?
         .as_array()?
@@ -164,6 +177,7 @@ pub async fn sidecar_http(connection: &CordisConnection) -> Option<SidecarHttp> 
         port,
         token,
         routes,
+        upgrades,
         fallback,
     })
 }

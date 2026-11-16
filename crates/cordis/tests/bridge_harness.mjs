@@ -34,6 +34,18 @@ const REGION_IDS = new Set([
   "settings.icon",
   "settings.action",
   "message.action",
+  "chat.node",
+  "chat.assistant-actions",
+  "chat.images",
+  "chat.user.images",
+  "chat.reasoning",
+  "chat.text-interaction",
+  "chat.flow",
+  "chat.commandview",
+  "chat.turnTail",
+  "chat.user.before",
+  "chat.markdown.fence",
+  "composer.chain",
   "sidebar.top",
   "sidebar.footer",
   "sidebar.session.action",
@@ -535,6 +547,13 @@ async function reactScenario() {
     useState(initial) {
       return [typeof initial === "function" ? initial() : initial, function () {}];
     },
+    useRef(initial) {
+      return { current: initial === undefined ? null : initial };
+    },
+    useLayoutEffect() {},
+    useCallback(fn) {
+      return fn;
+    },
     useEffect() {},
     Component: class Component {
       constructor(props) {
@@ -722,6 +741,22 @@ async function reactScenario() {
     selectedPage.dshr.__frameActivated();
     await tick();
     const selectedTree = selectedPage.root.__reactElement;
+    // Large owner shares arrive after ready (a URL cannot carry a chat node).
+    selectedPage.deliver({
+      v: 1,
+      ns: "dshr-shell",
+      type: "owner-props",
+      ownerProps: '{"late":"value","fn":{"$callback":"openFile"}}',
+    });
+    await tick();
+    const deferredTree = selectedPage.root.__reactElement;
+    const deferredProps =
+      deferredTree && deferredTree.props && deferredTree.props.children && deferredTree.props.children.props;
+    check(
+      "deferred owner props re-render the active slot with materialized callbacks",
+      Boolean(deferredProps) && deferredProps.late === "value" && typeof deferredProps.fn === "function",
+      deferredProps && Object.keys(deferredProps),
+    );
     check(
       "chain select true renders the elected entry",
       Boolean(selectedTree) && selectedTree.props.children.type === MemoSlot,
@@ -1079,9 +1114,230 @@ function slotMissingScenario() {
   checkEnvelope("slot missing", page, "slot:harness:missing:0", "slot");
 }
 
+
+// Owner props carrying functions (reference render-site callbacks), the chain
+// owner election (`matched`, not a boolean) and nested-slot anchors (hoc
+// children rendered through the parent entry instead of flatly).
+async function ownerPropsScenario() {
+  const page = createPage({
+    frameConfig: {
+      plugin: "harness",
+      frame: "slot:harness:owner:0",
+      mode: "slot",
+      slot: "settings.section",
+      id: "settings-card",
+      theme: "dark",
+      ownerProps: '{"close":{"$callback":"settings.section.close"},"wide":true}',
+    },
+  });
+  let captured = null;
+  page.dshr.slots.register({ name: "settings.section", id: "settings-card" }, function render(_container, props) {
+    captured = props;
+  });
+  page.dshr.__frameActivated();
+  await tick();
+  check(
+    "owner props materialize callback markers into functions",
+    Boolean(captured) && typeof captured.close === "function" && captured.wide === true,
+    captured && Object.keys(captured || {}),
+  );
+  check(
+    "materialized callbacks keep their marker for re-serialization",
+    Boolean(captured) && captured.close.$callback === "settings.section.close",
+    captured && captured.close && captured.close.$callback,
+  );
+  const promise = captured.close("done");
+  const action = page.messages("action").pop();
+  check(
+    "invoking an owner callback posts the bridge action",
+    Boolean(action) &&
+      action.action === "callback" &&
+      action.payload &&
+      action.payload.name === "settings.section.close" &&
+      Array.isArray(action.payload.args) &&
+      action.payload.args[0] === "done",
+    action,
+  );
+  page.deliver({ v: 1, ns: "dshr-shell", type: "action-result", id: action.id, ok: true });
+  const settled = await promise;
+  check("owner callback resolves with the shell result", Boolean(settled) && settled.ok === true, settled);
+
+  // Chain: select returns the matched owner (any non-null value elects).
+  const chainReact = {
+    createElement(type, props) {
+      const children = Array.prototype.slice.call(arguments, 2);
+      return { type, props: Object.assign({}, props || {}, children.length ? { children: children.length === 1 ? children[0] : children } : {}) };
+    },
+    memo(type) {
+      return { $$typeof: Symbol.for("react.memo"), type };
+    },
+    useState(initial) {
+      return [initial, function () {}];
+    },
+    useRef(initial) {
+      return { current: initial === undefined ? null : initial };
+    },
+    useLayoutEffect() {},
+    useEffect() {},
+    Component: class Component {},
+    Fragment: Symbol("Fragment"),
+  };
+  const chainRoot = {
+    createRoot(container) {
+      return {
+        render(element) {
+          container.__reactElement = element;
+        },
+        unmount() {
+          container.__reactElement = null;
+        },
+      };
+    },
+  };
+  const elected = {
+    frameConfig: {
+      plugin: "harness",
+      frame: "slot:harness:chain-match:0",
+      mode: "slot",
+      slot: "conversation.composer",
+      id: "chain-matched",
+      theme: "dark",
+      ownerProps: { pending: { id: "p1" } },
+    },
+  };
+  const electedPage = createPage(elected);
+  electedPage.window.__DSHR_MODULES__ = { react: chainReact, "react-dom/client": chainRoot };
+  electedPage.dshr.slots.register(
+    {
+      name: "conversation.composer",
+      id: "chain-matched",
+      select: (owner) => (owner.pending ? { pending: owner.pending.id } : null),
+    },
+    function ChainMatched() {
+      return null;
+    },
+  );
+  electedPage.dshr.__frameActivated();
+  await tick();
+  const electedTree = electedPage.root.__reactElement;
+  const electedProps = electedTree && electedTree.props && electedTree.props.children && electedTree.props.children.props;
+  check(
+    "chain select returns the matched owner to the component",
+    Boolean(electedProps) &&
+      electedProps.matched &&
+      electedProps.matched.pending === "p1" &&
+      electedPage.messages("chain-unselected").length === 0,
+    electedProps && electedProps.matched,
+  );
+
+  // Nested slot anchors: an entry declaring children renders a placeholder and
+  // reports its box; owner props (including forwarded callbacks) ride along.
+  const hocPage = createPage({
+    frameConfig: {
+      plugin: "harness",
+      frame: "slot:harness:hoc:0",
+      mode: "slot",
+      slot: "conversation.chat.markdown.fence",
+      id: "fence-seat",
+      theme: "dark",
+      ownerProps: '{"openFile":{"$callback":"openFile"}}',
+    },
+  });
+  let hocProps = null;
+  hocPage.dshr.slots.register(
+    {
+      name: "conversation.chat.markdown.fence",
+      id: "fence-seat",
+      children: { "x-harness.child": { kind: "hoc", scope: "root" } },
+    },
+    function renderFence(container, props) {
+      hocProps = props;
+      container.appendChild(
+        props.renderSlot("x-harness.child", { lang: "ts", openFile: props.openFile }),
+      );
+    },
+  );
+  hocPage.dshr.__frameActivated();
+  await tick();
+  check(
+    "hoc entries receive renderSlot for their declared children",
+    Boolean(hocProps) &&
+      typeof hocProps.renderSlot === "function" &&
+      typeof hocProps.renderSlotChain === "function",
+    hocProps && Object.keys(hocProps || {}),
+  );
+  const slotsMessage = hocPage.posted.filter((message) => message.type === "slots").pop();
+  const fenceEntry = slotsMessage ? slotsMessage.slots.find((entry) => entry.id === "fence-seat") : null;
+  check(
+    "slots wire shape carries kind, priority and declared children",
+    Boolean(fenceEntry) &&
+      fenceEntry.kind === "hoc" &&
+      typeof fenceEntry.priority === "number" &&
+      Array.isArray(fenceEntry.children) &&
+      fenceEntry.children.includes("x-harness.child"),
+    fenceEntry,
+  );
+  await tick();
+  const anchor = hocPage.messages("anchor").pop();
+  check(
+    "renderSlot reports a nested slot anchor with its box",
+    Boolean(anchor) &&
+      anchor.slot === "x-harness.child" &&
+      anchor.host === "fence-seat" &&
+      typeof anchor.rect === "object" &&
+      typeof anchor.rect.width === "number" &&
+      typeof anchor.rect.height === "number" &&
+      typeof anchor.anchor === "string",
+    anchor,
+  );
+  let anchorOwner = null;
+  try {
+    anchorOwner = JSON.parse(anchor.ownerProps);
+  } catch (error) {
+    anchorOwner = null;
+  }
+  check(
+    "anchor owner props forward callbacks as markers",
+    Boolean(anchorOwner) &&
+      typeof anchorOwner.openFile === "object" &&
+      anchorOwner.openFile &&
+      anchorOwner.openFile.$callback === "openFile" &&
+      anchorOwner.lang === "ts",
+    anchor && anchor.ownerProps,
+  );
+  let undeclaredChildThrew = false;
+  try {
+    hocProps.renderSlot("x-harness.other", {});
+  } catch (error) {
+    undeclaredChildThrew = /not declared/.test(String(error && error.message));
+  }
+  check("renderSlot rejects keys outside the children declaration", undeclaredChildThrew);
+
+  hocPage.deliver({
+    v: 1,
+    ns: "dshr-shell",
+    type: "anchor-size",
+    anchor: anchor.anchor,
+    height: 120,
+  });
+  const anchorElement = hocPage.root.children.find(
+    (child) => child && child.style && child.style.height === "120px",
+  );
+  check(
+    "anchor-size reserves the child height in the parent layout",
+    Boolean(anchorElement),
+    hocPage.root.children.map((child) => child && child.style),
+  );
+
+  hocPage.dshr.slots.remove("fence-seat");
+  await tick();
+  check("removing the entry drops its registrations", hocPage.messages("slots").length >= 2, hocPage.messages("slots").length);
+}
+
 async function main() {
   await registryScenario();
   await reactScenario();
+  await ownerPropsScenario();
   urlFallbackScenario();
   await slotAutoRenderScenario();
   await slotByNameScenario();

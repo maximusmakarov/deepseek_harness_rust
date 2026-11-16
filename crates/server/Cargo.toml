@@ -20,6 +20,8 @@ dshr-session-jsonl.workspace = true
 dshr-tools.workspace = true
 dshr-wasm.workspace = true
 futures-util.workspace = true
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 reqwest.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true

@@ -396,6 +396,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/plugins/toggle", post(toggle_plugin))
         .route("/v1/plugins/remove", post(remove_plugin))
+        .route("/v1/workspace/file", get(workspace_file))
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{id}", get(get_session))
         .route("/v1/sessions/{id}/turns", post(start_turn))
@@ -1433,6 +1434,149 @@ fn with_plugin_cors(mut response: Response) -> Response {
     response
 }
 
+/// Tunnels one plugin upgrade (WebSocket or any other protocol) to its sidecar.
+///
+/// The upgraded socket is opaque to dshr: the sidecar's `registerUpgrade` handler
+/// owns negotiation, so the proxy forwards the request head, replays the
+/// upstream handshake response, then copies bytes in both directions. Allowlist
+/// and loopback rules mirror the HTTP proxy; upgrades are exact-path only, like
+/// the reference table.
+async fn plugin_upgrade_proxy(state: AppState, mut request: Request) -> Response {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let path = request.uri().path().to_owned();
+    let query = request
+        .uri()
+        .query()
+        .map(|query| format!("?{query}"))
+        .unwrap_or_default();
+    if reserved_plugin_path(&path) {
+        return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
+    }
+    if !state.config.bind.ip().is_loopback() && !state.config.allow_plugin_routes_lan {
+        return plugin_proxy_error(
+            StatusCode::FORBIDDEN,
+            "plugin routes are loopback-only; serve on 127.0.0.1 or pass --allow-lan-plugin-routes",
+        );
+    }
+    let Some(manager) = state.config.plugins.as_ref() else {
+        return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
+    };
+    let Some(target) = manager.http_upgrade(&path) else {
+        return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
+    };
+    let Ok(mut upstream) = tokio::net::TcpStream::connect(("127.0.0.1", target.port)).await else {
+        return plugin_proxy_error(StatusCode::BAD_GATEWAY, "sidecar unavailable");
+    };
+
+    // Forward the browser's request head; the sidecar token is the proxy's own
+    // credential, never one the browser sent.
+    let mut head = format!("{} {}{} HTTP/1.1\r\n", request.method(), path, query);
+    for (name, value) in request.headers() {
+        if name == header::HOST || name.as_str() == "x-dshr-sidecar-token" {
+            continue;
+        }
+        let Ok(value) = value.to_str() else {
+            continue;
+        };
+        head.push_str(name.as_str());
+        head.push_str(": ");
+        head.push_str(value);
+        head.push_str("\r\n");
+    }
+    head.push_str("x-dshr-sidecar-token: ");
+    head.push_str(&target.token);
+    head.push_str("\r\n\r\n");
+    if upstream.write_all(head.as_bytes()).await.is_err() {
+        return plugin_proxy_error(StatusCode::BAD_GATEWAY, "sidecar write failed");
+    }
+
+    // Read the upstream handshake response head before upgrading the browser
+    // side: the accept headers must reach the browser unchanged.
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let head_end = loop {
+        if let Some(end) = find_head_end(&buffer) {
+            break end;
+        }
+        if buffer.len() > 16 * 1024 {
+            return plugin_proxy_error(StatusCode::BAD_GATEWAY, "sidecar handshake too large");
+        }
+        match tokio::time::timeout_at(deadline, upstream.read(&mut chunk)).await {
+            Ok(Ok(0)) => return plugin_proxy_error(StatusCode::BAD_GATEWAY, "sidecar closed"),
+            Ok(Ok(read)) => buffer.extend_from_slice(&chunk[..read]),
+            Ok(Err(_)) | Err(_) => {
+                return plugin_proxy_error(StatusCode::BAD_GATEWAY, "sidecar handshake failed");
+            }
+        }
+    };
+    let Some((status, headers)) = parse_upgrade_head(&buffer[..head_end]) else {
+        return plugin_proxy_error(StatusCode::BAD_GATEWAY, "invalid sidecar handshake");
+    };
+    if status != StatusCode::SWITCHING_PROTOCOLS.as_u16() {
+        return plugin_proxy_error(
+            StatusCode::BAD_GATEWAY,
+            &format!("plugin refused the upgrade with status {status}"),
+        );
+    }
+    let trailing = buffer[head_end..].to_vec();
+    let on_upgrade = hyper::upgrade::on(&mut request);
+    tokio::spawn(async move {
+        let Ok(upgraded) = on_upgrade.await else {
+            return;
+        };
+        let mut upgraded = hyper_util::rt::TokioIo::new(upgraded);
+        if !trailing.is_empty() {
+            let _ = upgraded.write_all(&trailing).await;
+        }
+        let _ = tokio::io::copy_bidirectional(&mut upgraded, &mut upstream).await;
+    });
+
+    let mut response = Response::new(axum::body::Body::empty());
+    *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+    for (name, value) in headers {
+        response.headers_mut().append(name, value);
+    }
+    if !response.headers().contains_key(header::CONNECTION) {
+        response.headers_mut().insert(
+            header::CONNECTION,
+            header::HeaderValue::from_static("upgrade"),
+        );
+    }
+    if !response.headers().contains_key(header::UPGRADE) {
+        response.headers_mut().insert(
+            header::UPGRADE,
+            header::HeaderValue::from_static("websocket"),
+        );
+    }
+    response
+}
+
+fn find_head_end(buffer: &[u8]) -> Option<usize> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|index| index + 4)
+}
+
+fn parse_upgrade_head(
+    head: &[u8],
+) -> Option<(u16, Vec<(header::HeaderName, header::HeaderValue)>)> {
+    let text = std::str::from_utf8(head).ok()?;
+    let mut lines = text.split("\r\n");
+    let code: u16 = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let headers: Vec<(header::HeaderName, header::HeaderValue)> = lines
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            let name = header::HeaderName::from_bytes(name.trim().as_bytes()).ok()?;
+            let value = header::HeaderValue::from_str(value.trim()).ok()?;
+            Some((name, value))
+        })
+        .collect();
+    Some((code, headers))
+}
+
 /// C1: proxy a plugin host-half HTTP route to its sidecar.
 ///
 /// A Cordis host half registers plain Node `(req, res)` routes; the sidecar
@@ -1440,6 +1584,15 @@ fn with_plugin_cors(mut response: Response) -> Response {
 /// present in the live allowlist (no wildcard), keeps the request/response size
 /// bounded and adds permissive CORS because plugin frames have an opaque origin.
 async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> Response {
+    // `webServer.registerUpgrade`: a socket protocol owner. dshr tunnels the
+    // upgraded connection to the sidecar, which owns negotiation.
+    if request
+        .headers()
+        .get(header::UPGRADE)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return plugin_upgrade_proxy(state, request).await;
+    }
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     if reserved_plugin_path(&path) {
@@ -1612,6 +1765,8 @@ fn shared_runtime_body() -> &'static [u8] {
         body.push(b'\n');
         // Partial, independently implemented design-system shim (C-lite).
         body.extend_from_slice(include_bytes!("../assets/runtime/primitives.js"));
+        body.push(b'\n');
+        body.extend_from_slice(include_bytes!("../assets/runtime/markdown.js"));
         body
     })
 }
@@ -2026,6 +2181,59 @@ async fn list_sessions(
     authorize(&state, &headers, None)?;
     let sessions = state.store.list().map_err(not_found)?;
     Ok(Json(json!({"sessions": sessions})))
+}
+
+/// One workspace file for the shell's file inspector (`openFile` owner callback).
+///
+/// Read-only, workspace-confined (after canonicalization), capped at 64 KiB so a
+/// plugin cannot use `openFile` to pull an unbounded payload into the UI.
+async fn workspace_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let requested = query
+        .get("path")
+        .map(String::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    if requested.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let candidate = std::path::Path::new(requested);
+    let joined = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        state.config.workspace.join(candidate)
+    };
+    let root = tokio::fs::canonicalize(&state.config.workspace)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let path = tokio::fs::canonicalize(&joined)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    if !path.starts_with(&root) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let metadata = tokio::fs::metadata(&path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    if !metadata.is_file() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let limit = 64 * 1024usize;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let truncated = bytes.len() > limit;
+    let content = String::from_utf8_lossy(&bytes[..bytes.len().min(limit)]).to_string();
+    let relative = path.strip_prefix(&root).unwrap_or(&path);
+    Ok(Json(json!({
+        "path": relative.to_string_lossy(),
+        "content": content,
+        "truncated": truncated,
+    })))
 }
 
 async fn get_session(

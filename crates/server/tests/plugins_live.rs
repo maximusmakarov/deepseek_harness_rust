@@ -15,6 +15,7 @@ use dshr_server::{AppState, ServerConfig, router};
 use dshr_session_jsonl::SessionStore;
 use dshr_tools::ToolRegistry;
 use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower::ServiceExt;
 
 const TOKEN: &str = "test-token";
@@ -1020,6 +1021,176 @@ async fn proxies_plugin_host_routes() {
     let response = app.oneshot(request).await.expect("response");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn proxies_plugin_websocket_upgrade() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("plugin.mjs"), UPGRADE_PLUGIN).expect("plugin");
+    let (state, _registry, manager) = state(dir.path()).await;
+    let app = router(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("listener");
+    let port = listener.local_addr().expect("addr").port();
+    let served = app.clone();
+    let server = tokio::spawn(async move {
+        let _ = axum::serve(listener, served).await;
+    });
+    // Let the sidecar supervisor register its upgrade route.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // Registered upgrade route: handshake headers and bytes pass through.
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .expect("connect");
+    let request = "GET /probe-ws HTTP/1.1\r\nHost: 127.0.0.1\r\n\
+        Upgrade: websocket\r\nConnection: Upgrade\r\n\
+        Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n";
+    stream.write_all(request.as_bytes()).await.expect("write");
+    let mut head = Vec::new();
+    let mut chunk = [0u8; 512];
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+        let read = tokio::time::timeout_at(deadline, stream.read(&mut chunk))
+            .await
+            .expect("handshake timeout")
+            .expect("handshake read");
+        assert!(read > 0, "handshake closed");
+        head.extend_from_slice(&chunk[..read]);
+    }
+    let head_text = String::from_utf8_lossy(&head);
+    assert!(head_text.starts_with("HTTP/1.1 101"), "{head_text}");
+    assert!(
+        head_text
+            .to_ascii_lowercase()
+            .contains("sec-websocket-accept")
+            && head_text.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="),
+        "{head_text}"
+    );
+    stream.write_all(b"ping").await.expect("ping");
+    let mut echoed = [0u8; 4];
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        stream.read_exact(&mut echoed),
+    )
+    .await
+    .expect("echo timeout")
+    .expect("echo");
+    assert_eq!(&echoed, b"ping", "upgraded bytes are tunneled");
+
+    // Reference route rules: duplicate path throws, trailing slash rejected.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/upgrade-rules")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let rules: Value = serde_json::from_slice(&body).expect("json");
+    assert_eq!(rules["duplicateThrew"], true, "{rules}");
+    assert_eq!(rules["invalidRejected"], true, "{rules}");
+
+    // The status surface lists the upgrade route.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/v1/plugins/status")
+        .header("authorization", format!("Bearer {TOKEN}"))
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let status: Value = serde_json::from_slice(&body).expect("json");
+    assert!(
+        status["plugins"][0]["upgrades"]
+            .as_array()
+            .is_some_and(|routes| routes.iter().any(|route| route == "/probe-ws")),
+        "{status}"
+    );
+
+    // Unregistered and reserved paths are not upgradable.
+    manager.sync(Vec::new()).await;
+    for uri in ["/probe-ws", "/v1/ws"] {
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .expect("connect");
+        let request = format!(
+            "GET {uri} HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.expect("write");
+        let read =
+            tokio::time::timeout(std::time::Duration::from_secs(10), stream.read(&mut chunk))
+                .await
+                .expect("timeout")
+                .expect("read");
+        let text = String::from_utf8_lossy(&chunk[..read]);
+        assert!(text.starts_with("HTTP/1.1 404"), "{uri}: {text}");
+    }
+    server.abort();
+}
+
+const UPGRADE_PLUGIN: &str = r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "probe",
+      description: "probe",
+      inputSchema: { type: "object" },
+      handler: () => "ok",
+    });
+    ctx.inject(["webServer"], (scope) => {
+      scope.webServer.registerUpgrade({
+        name: "probe-ws",
+        path: "/probe-ws",
+        handler: (_req, socket) => {
+          // Minimal handshake for the fixed test key; the tunnel is opaque, so
+          // the handler echoes raw bytes instead of parsing WS frames.
+          socket.write(
+            "HTTP/1.1 101 Switching Protocols\r\n" +
+              "Upgrade: websocket\r\n" +
+              "Connection: Upgrade\r\n" +
+              "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+          );
+          socket.on("data", (chunk) => socket.write(chunk));
+        },
+      });
+      let duplicateThrew = false;
+      try {
+        scope.webServer.registerUpgrade({
+          name: "probe-ws-dup",
+          path: "/probe-ws",
+          handler: () => {},
+        });
+      } catch (error) {
+        duplicateThrew = /duplicate upgrade route/.test(String(error));
+      }
+      let invalidRejected = false;
+      try {
+        scope.webServer.registerUpgrade({ name: "bad", path: "/bad/", handler: () => {} });
+      } catch (error) {
+        invalidRejected = /invalid upgrade route path/.test(String(error));
+      }
+      scope.webServer.register({
+        name: "upgrade-rules",
+        kind: "exact",
+        path: "/upgrade-rules",
+        handler: async (_req, res) => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ duplicateThrew, invalidRejected }));
+        },
+      });
+    });
+  },
+};
+"#;
 
 const FALLBACK_PLUGIN: &str = r#"
 export default {

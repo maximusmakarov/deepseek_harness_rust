@@ -416,9 +416,10 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
   таблицы; дубликат `(kind, path)` бросает `webserver: duplicate ... route`;
   путь обязан быть абсолютным pathname без завершающего `/`, `?` и `#`;
   `webServer.getOrigin()`/`port`/`protocol` отдают origin dshr-сервера из
-  host-bridge; `registerFallback`/`registerUpgrade` в sidecar не поддержаны и
-  бросают явную ошибку (записано как долг, реальным плагинам из набора не
-  нужны);
+  host-bridge; `registerFallback` поддержан с C1.5, `registerUpgrade` (WebSocket) — с C4.2:
+  sidecar держит exact-path таблицу upgrade-маршрутов (дубликат пути бросает,
+  правила пути как у HTTP-маршрутов) и туннелирует upgraded-соединение в dshr;
+  `upgrades` видны в `GET /v1/plugins/status`;
 - **ctx.baseUrl**: как loader-context reference — `file://` URL корня
   пакета плагина (host-половины вроде `dsh-plugin-studio` читают его для
   резолва путей);
@@ -488,8 +489,9 @@ Host-сервисы выровнены по исходникам `deepseek-ai/de
 
 **Fallback-маршруты (C1.5).** `webServer.registerFallback(handler)` реализован
 как в reference (одно fallback-место; второй владелец — ошибка); dshr
-проксирует в fallback только не-зарезервированные пути, `registerUpgrade`
-по-прежнему явно не поддержан.
+проксирует в fallback только не-зарезервированные пути; `registerUpgrade`
+(WebSocket) поддержан с C4.2 (раунд 104): exact-path таблица upgrade-маршрутов
+и туннель upgraded-соединения.
 
 **ownerProps plumbing + chat/turn-модель (C4.1).** Shell передаёт render-site
 owner props в кадр (`?ownerProps={...}` → `window.__DSHR_FRAME__.ownerProps`),
@@ -501,9 +503,12 @@ share, как в reference `PropsRuntime`. Реальные сайты:
 pendingInteraction:null}`. Chat/turn-модель: user-сообщение открывает новый
 turn, ordinal едет в `data-turn` и owner share. Chain-слоты электятся:
 bridge вызывает `select(ownerProps)` регистрации, при `false` кадр ничего не
-рендерит и репортит `chain-unselected`. Не поддержано: owner props с
-функциями (`settings.section.close`) — нет callback-моста; не все
-conversation-слоты смонтированы (у шелла нет полного chat-view).
+рендерит и репортит `chain-unselected`. Owner props с функциями доставляются callback-мостом C4.2
+(`{"$callback":"<name>"}` → функция → `ctx.action("callback", ...)`):
+`settings.section.close` закрывает настройки, `openFile` открывает инспектор
+`/v1/workspace/file`, `inspectCall` — инспектор tool-call'а. Полный chat-view
+(C4.2) монтирует `conversation.chat.node` и остальные conversation-слоты на
+узел; два core-узла чата (`user`/`assistant-step`) рендерит сам шелл.
 
 `JsonBlock` портирован из reference (collapsible, cap 20 000 символов,
 `truncatedLabel`). `MarkdownText` — API-совместимый dependency-free рендерер:
@@ -548,10 +553,12 @@ slot-`inject`. Host-страница публикует его как `window.__
   возвращают `undefined`, `sessionId` — из host-state) → seat
   `inject` → **ownerProps** (из `window.__DSHR_FRAME__.ownerProps`) → `t`.
 
-Отличия от reference, зафиксированные как долг: `hoc` не вкладывает
-`children` между кадрами (каждый кадр рендерится плоско); owner props с
-функциями (например `settings.section.close`) не доставляются — нет
-callback-моста; при нескольких `select === true` в chain рендерятся все кадры
+Закрыто в C4.2 (раунд 104): `hoc` вкладывает `children` через якоря
+родительского кадра (`renderSlot`/`anchor`/`anchor-size`); owner props с
+функциями доставляются callback-мостом; chain обслуживает единый owner-renderer
+(`ChainHost`: один кадр-кандидат, `select` → `matched`), а chat-view монтирует
+conversation-слоты на узел. Оставшееся reference-расхождение: при нескольких
+`select === true` в chain рендерятся все кадры
 (per-frame фильтрация, не единый owner-renderer); `conversation.chat.node` и
 остальные conversation-слоты ждут полного chat-view. Chain-элекция по
 `select(ownerProps)` и реальные owner shares (`wide`, `message.action`,
@@ -803,5 +810,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 17 регионов, неизвестное имя → панель), capability-ассетами, host-действиями, `dsh.client.runtime` (свой UI-стек), общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера) и C-lite-совместимостью: React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим, один реальный DSH-плагин в conformance; полный design-system, React-контекст шелла и SlotMap-семантика (`ownerProps`/framework-hooks) остаются тиром C-full по [ADR-040](adr/040-react-client-half.md).
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 29 регионов, неизвестное имя → панель), capability-ассетами, host-действиями, `dsh.client.runtime` (свой UI-стек), общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера) и C-lite-совместимостью: React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим, один реальный DSH-плагин в conformance; полный design-system, React-контекст шелла и SlotMap-семантика (`ownerProps`/framework-hooks) остаются тиром C-full по [ADR-040](adr/040-react-client-half.md).
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.

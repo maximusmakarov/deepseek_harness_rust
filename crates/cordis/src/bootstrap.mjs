@@ -60,6 +60,10 @@ function addTool(definition) {
 // ---------------------------------------------------------------------------
 let httpServer = null;
 let httpPort = 0;
+// Reference `registerUpgrade` table: exact-path protocol owners. A WebSocket (or
+// any upgrade) route owns negotiation and the raw socket; dshr tunnels the
+// upgraded connection to the sidecar and never parses the protocol itself.
+const upgradeRoutes = new Map();
 // Reference webServer owns exactly one fallback seat (the shipped composition
 // puts the SPA dist server there). A second registration throws.
 let fallbackHandler = null;
@@ -147,6 +151,41 @@ function ensureHttpServer() {
     httpPort = httpServer.address().port;
   });
   httpServer.keepAliveTimeout = 5_000;
+  httpServer.on("upgrade", (req, socket, head) => {
+    const refuse = (status) => {
+      try {
+        socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`);
+      } catch (error) {
+        void error;
+      }
+      socket.destroy();
+    };
+    if (req.headers["x-dshr-sidecar-token"] !== httpToken) {
+      refuse("403 Forbidden");
+      return;
+    }
+    let route;
+    try {
+      route = upgradeRoutes.get(new URL(req.url || "/", "http://127.0.0.1").pathname);
+    } catch (error) {
+      void error;
+      refuse("400 Bad Request");
+      return;
+    }
+    if (!route) {
+      refuse("404 Not Found");
+      return;
+    }
+    try {
+      Promise.resolve(route.handler(req, socket, head)).catch((error) => {
+        console.error("[dshr-sidecar] upgrade handler failed:", error);
+        socket.destroy();
+      });
+    } catch (error) {
+      console.error("[dshr-sidecar] upgrade handler failed:", error);
+      socket.destroy();
+    }
+  });
   httpServer.requestTimeout = 30_000;
   httpServer.listen(0, "127.0.0.1");
 }
@@ -165,12 +204,6 @@ function readBridgeTarget() {
     bridgeTarget = null;
   }
   return bridgeTarget;
-}
-
-function unsupportedWebServerFeature(name) {
-  return function () {
-    throw new Error(`webServer.${name} is not supported by the dshr Cordis sidecar`);
-  };
 }
 
 const webServer = {
@@ -240,7 +273,24 @@ const webServer = {
       if (fallbackHandler === handler) fallbackHandler = null;
     };
   },
-  registerUpgrade: unsupportedWebServerFeature("registerUpgrade"),
+  // Reference `registerUpgrade`: an exact-path socket protocol owner (the route
+  // owns negotiation and the socket). Duplicate paths throw, like routes.
+  registerUpgrade: (route) => {
+    if (!route || typeof route !== "object" || typeof route.handler !== "function") {
+      throw new Error("webServer.registerUpgrade: handler is required");
+    }
+    if (!validRoutePath(route.path)) {
+      throw new Error(`webserver: invalid upgrade route path "${route.path}"`);
+    }
+    if (upgradeRoutes.has(route.path)) {
+      throw new Error(`webserver: duplicate upgrade route "${route.path}"`);
+    }
+    upgradeRoutes.set(route.path, { ...route, name: route.name || route.path });
+    ensureHttpServer();
+    return function unregister() {
+      upgradeRoutes.delete(route.path);
+    };
+  },
 };
 
 // DSH credential seam: environment only (the sidecar inherits the harness env).
@@ -555,6 +605,7 @@ addTool({
       port: httpPort,
       token: httpToken,
       fallback: fallbackHandler !== null,
+      upgrades: [...upgradeRoutes.keys()],
       routes: [
         ...[...webRoutes.exact.values()].map((route) => ({ path: route.path, kind: "exact" })),
         ...[...webRoutes.prefix.values()].map((route) => ({ path: route.path, kind: "prefix" })),

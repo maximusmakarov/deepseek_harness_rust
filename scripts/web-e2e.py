@@ -312,6 +312,23 @@ def run(args: argparse.Namespace) -> int:
             timeout=STEP_TIMEOUT,
             label="settings dialog",
         )
+        # The model row fills from `/v1/config/model`; a busy host can resolve the
+        # dialog before that request lands, so wait for the value.
+        smoke.wait_until(
+            lambda: bool(
+                evaluate(
+                    smoke,
+                    dt,
+                    """(() => {
+                        const rows = [...document.querySelectorAll('dialog .row')];
+                        const row = rows.find(r => /Model/.test(r.textContent));
+                        return row ? row.querySelector('input').value : '';
+                    })()""",
+                )
+            ),
+            timeout=STEP_TIMEOUT,
+            label="settings model value",
+        )
         settings_model = evaluate(
             smoke,
             dt,

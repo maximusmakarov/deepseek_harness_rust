@@ -47,6 +47,9 @@ pub struct PluginStatus {
     /// Host HTTP paths this plugin registered through `webServer` (C1).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub routes: Vec<String>,
+    /// Exact-path upgrade routes this plugin registered (`registerUpgrade`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub upgrades: Vec<String>,
     /// Unix seconds when the sidecar started.
     pub started_at: u64,
     /// Last start/reload error, cleared on the next successful start.
@@ -203,6 +206,10 @@ impl CordisManager {
                     routes: live
                         .and_then(|live| live.http.as_ref())
                         .map(|http| http.routes.iter().map(|route| route.path.clone()).collect())
+                        .unwrap_or_default(),
+                    upgrades: live
+                        .and_then(|live| live.http.as_ref())
+                        .map(|http| http.upgrades.clone())
                         .unwrap_or_default(),
                     started_at: live.map(|live| live.started_at).unwrap_or(0),
                     error: errors.get(&name).cloned(),
@@ -522,6 +529,28 @@ impl CordisManager {
             }
         }
         best.map(|(_, target)| target)
+    }
+
+    /// Loopback target of the plugin owning an upgrade route (`registerUpgrade`).
+    ///
+    /// Upgrades are exact-path only, like the reference table: one socket has one
+    /// protocol owner, so there is no prefix or fallback matching here.
+    #[must_use]
+    pub fn http_upgrade(&self, path: &str) -> Option<HttpTarget> {
+        let running = lock(&self.running);
+        for (name, state) in running.iter() {
+            let Some(http) = state.http.as_ref() else {
+                continue;
+            };
+            if http.upgrades.iter().any(|route| route == path) {
+                return Some(HttpTarget {
+                    plugin: name.clone(),
+                    port: http.port,
+                    token: http.token.clone(),
+                });
+            }
+        }
+        None
     }
 
     /// Loopback target for the reference fallback seat, if a running plugin
