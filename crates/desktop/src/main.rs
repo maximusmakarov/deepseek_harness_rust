@@ -174,24 +174,6 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     let server = load_server_settings(&home);
     let provider = load_provider_settings(&home);
     let server_url = escape_html(server.url.as_deref().unwrap_or(""));
-    let provider_route = provider
-        .as_ref()
-        .and_then(|settings| settings.provider.clone())
-        .unwrap_or_else(|| "deepseek-account".to_owned());
-    let model = escape_html(
-        provider
-            .as_ref()
-            .and_then(|settings| settings.model.clone())
-            .unwrap_or_else(|| "deepseek-flash".to_owned())
-            .as_str(),
-    );
-    let base_url = escape_html(
-        provider
-            .as_ref()
-            .and_then(|settings| settings.env.get("OPENAI_BASE_URL").cloned())
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_owned())
-            .as_str(),
-    );
     let account_auth = provider
         .as_ref()
         .is_some_and(|settings| settings.env.contains_key("DSH_DEEPSEEK_TOKEN"));
@@ -205,16 +187,6 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     } else {
         " checked"
     };
-    let deepseek_selected = if provider_route.starts_with("deepseek") {
-        " selected"
-    } else {
-        ""
-    };
-    let openai_selected = if provider_route.starts_with("deepseek") {
-        ""
-    } else {
-        " selected"
-    };
     let account_selected = if account_auth { " selected" } else { "" };
     let api_key_selected = if account_auth { "" } else { " selected" };
     let html = format!(
@@ -227,22 +199,15 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
          a{{color:#8ab4ff}}</style>\
          <h2>Settings</h2>\
          <h3>Account</h3>\
-         <label>Provider<select id=\"provider\" onchange=\"toggleBase()\">\
-         <option value=\"deepseek-account\"{deepseek_selected}>DeepSeek</option>\
-         <option value=\"openai-compatible\"{openai_selected}>OpenAI-compatible</option></select></label>\
-         <label>Model<input id=\"model\" value=\"{model}\"></label>\
-         <label>Authentication<select id=\"auth\">\
+         <button onclick=\"signIn()\">Sign in with DeepSeek</button>\
+         <label>Or paste a credential<select id=\"auth\">\
          <option value=\"account\"{account_selected}>DeepSeek account token</option>\
          <option value=\"api_key\"{api_key_selected}>API key</option></select></label>\
          <label>Token / API key<input id=\"secret\" type=\"password\" placeholder=\"leave empty to keep the saved value\"></label>\
-         <label id=\"base-row\">Base URL<input id=\"base_url\" value=\"{base_url}\"></label>\
-         <button onclick=\"signIn()\">Sign in with DeepSeek</button>\
-         <p>Account tokens and keys come from <a href=\"https://platform.deepseek.com/api_keys\">platform.deepseek.com</a>; they are stored in <code>~/.dshr/desktop.env</code> with mode 0600.</p>\
-         <h3>Web search</h3>\
-         <label>Brave Search API key<input id=\"brave_key\" type=\"password\" placeholder=\"leave empty to keep the saved key\"></label>\
-         <p>The <code>web_search</code> tool uses <code>BRAVE_SEARCH_API_KEY</code>; the embedded server reads it at start.</p>\
-         <h3>Plugins</h3>\
-         <div id=\"plugins\">loading…</div>\
+         <p>Stored in <code>~/.dshr/desktop.env</code> with mode 0600. Keys come from <a href=\"https://platform.deepseek.com/api_keys\">platform.deepseek.com</a>.</p>\
+         <h3>App settings</h3>\
+         <p>Models, Web search and Plugins live in the app's own Settings surface.</p>\
+         <button onclick=\"openAppSettings()\">Open app settings</button>\
          <h3>Server</h3>\
          <label><input type=\"radio\" name=\"server_mode\" value=\"local\"{local_checked}> Run the embedded server (default, self-contained)</label>\
          <label><input type=\"radio\" name=\"server_mode\" value=\"attach\"{attach_checked}> Attach to a running dshr serve</label>\
@@ -252,14 +217,14 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
          <button onclick=\"window.__TAURI__.window.getCurrentWindow().close()\">Cancel</button>\
          <p id=\"status\"></p>\
          <script>\
-         async function signIn() {{\n           const status = document.getElementById('status');\n           status.textContent = 'waiting for the browser…';\n           try {{\n             await window.__TAURI__.core.invoke('sign_in_deepseek');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         function toggleBase() {{\n           const openai = document.getElementById('provider').value !== 'deepseek-account';\n           document.getElementById('base-row').style.display = openai ? 'block' : 'none';\n         }}\n         toggleBase();\n         loadPlugins();\n         async function loadPlugins() {{\n           const box = document.getElementById('plugins');\n           try {{\n             const plugins = await window.__TAURI__.core.invoke('plugins_list');\n             if (!plugins.length) {{ box.textContent = 'no Cordis plugins installed'; return; }}\n             box.innerHTML = '';\n             for (const plugin of plugins) {{\n               const row = document.createElement('label');\n               const input = document.createElement('input');\n               input.type = 'checkbox';\n               input.checked = plugin.enabled;\n               input.onchange = async () => {{\n                 try {{ await window.__TAURI__.core.invoke('plugin_toggle', {{ name: plugin.name, enabled: input.checked }}); }}\n                 catch (error) {{ box.textContent = String(error); }}\n               }};\n               row.appendChild(input);\n               row.appendChild(document.createTextNode(' ' + plugin.name));\n               box.appendChild(row);\n             }}\n           }} catch (error) {{\n             box.textContent = String(error);\n           }}\n         }}\n         async function save() {{\n           const form = {{\n             provider: document.getElementById('provider').value,\n             model: document.getElementById('model').value,\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             baseUrl: document.getElementById('base_url').value,\n             braveKey: document.getElementById('brave_key').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
+         async function signIn() {{\n           const status = document.getElementById('status');\n           status.textContent = 'waiting for the browser…';\n           try {{\n             await window.__TAURI__.core.invoke('sign_in_deepseek');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         async function openAppSettings() {{\n           const status = document.getElementById('status');\n           try {{\n             await window.__TAURI__.core.invoke('open_app_settings');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         async function save() {{\n           const form = {{\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
     );
     let url = data_url(&html)
         .parse::<tauri::Url>()
         .map_err(tauri::Error::InvalidUrl)?;
     WebviewWindowBuilder::new(app, "settings", WebviewUrl::External(url))
         .title("dshr settings")
-        .inner_size(620.0, 760.0)
+        .inner_size(620.0, 640.0)
         .build()?;
     Ok(())
 }
@@ -269,93 +234,71 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SettingsForm {
-    provider: String,
-    model: String,
-    auth: String,
-    secret: String,
-    base_url: String,
+    /// `account` (DSH_DEEPSEEK_TOKEN) or `api_key` (DEEPSEEK_API_KEY).
     #[serde(default)]
-    brave_key: String,
+    auth: String,
+    #[serde(default)]
+    secret: String,
     server_mode: String,
     server_url: String,
     server_token: String,
 }
 
-/// Validates the account/model part and builds the provider settings.
-fn validated_provider_form(
-    provider: &str,
-    model: &str,
+/// Validates the account part of the form and merges it into the environment
+/// that the embedded server inherits. Provider and model live in config.yaml
+/// (web UI Models), so nothing here overrides them.
+fn validated_account_settings(
     auth: &str,
     secret: &str,
-    base_url: &str,
     existing: Option<&ProviderSettings>,
 ) -> Result<ProviderSettings, String> {
-    let route = match provider {
-        "deepseek" | "deepseek-account" | "deepseek-official" => "deepseek-account",
-        "openai" | "openai-compatible" | "routerai" => "openai-compatible",
-        other => {
-            return Err(format!(
-                "unknown provider '{other}'; expected DeepSeek or OpenAI-compatible"
-            ));
-        }
-    };
-    let model = model.trim();
-    let model = if model.is_empty() {
-        if route == "deepseek-account" {
-            "deepseek-flash"
-        } else {
-            "gpt-4o-mini"
-        }
-    } else {
-        model
-    };
-    let mut env = BTreeMap::new();
-    let kept = |keys: &[&str]| -> Option<String> {
-        existing.and_then(|settings| {
-            keys.iter()
-                .find_map(|key| settings.env.get(*key).cloned())
-                .filter(|value| !value.trim().is_empty())
-        })
-    };
+    let mut settings = existing.cloned().unwrap_or_default();
+    settings.provider = None;
+    settings.model = None;
+    settings.env.remove("DSHR_DESKTOP_PROVIDER");
+    settings.env.remove("DSHR_DESKTOP_MODEL");
     let secret = secret.trim();
-    if route == "deepseek-account" {
-        let key_kind = if auth == "api_key" {
-            "DEEPSEEK_API_KEY"
-        } else {
-            "DSH_DEEPSEEK_TOKEN"
-        };
-        let value = if secret.is_empty() {
-            kept(&[key_kind, "DEEPSEEK_API_KEY", "DSH_DEEPSEEK_TOKEN"])
-                .ok_or_else(|| "a DeepSeek account token or API key is required".to_owned())?
-        } else {
-            secret.to_owned()
-        };
-        env.insert(key_kind.to_owned(), value);
-    } else {
-        let value = if secret.is_empty() {
-            kept(&["OPENAI_API_KEY", "ROUTERAI_API_KEY"]).ok_or_else(|| {
-                "an API key is required for OpenAI-compatible providers".to_owned()
-            })?
-        } else {
-            secret.to_owned()
-        };
-        env.insert("OPENAI_API_KEY".to_owned(), value);
-        let base = base_url.trim();
-        let base = if base.is_empty() {
-            "https://api.openai.com/v1"
-        } else {
-            base
-        };
-        if !(base.starts_with("http://") || base.starts_with("https://")) {
-            return Err("the base URL must start with http:// or https://".to_owned());
-        }
-        env.insert("OPENAI_BASE_URL".to_owned(), base.to_owned());
+    if secret.is_empty() {
+        return Ok(settings);
     }
-    Ok(ProviderSettings {
-        provider: Some(route.to_owned()),
-        model: Some(model.to_owned()),
-        env,
-    })
+    let key = if auth == "api_key" {
+        "DEEPSEEK_API_KEY"
+    } else {
+        "DSH_DEEPSEEK_TOKEN"
+    };
+    settings.env.retain(|name, _| {
+        !matches!(
+            name.as_str(),
+            "DSH_DEEPSEEK_TOKEN" | "DEEPSEEK_API_KEY" | "OPENAI_API_KEY" | "ROUTERAI_API_KEY"
+        )
+    });
+    settings.env.insert(key.to_owned(), secret.to_owned());
+    Ok(settings)
+}
+
+/// Opens the web UI Settings surface (Models / Web search / Plugins) in the
+/// main window; the desktop settings window only covers account + server.
+#[tauri::command]
+fn open_app_settings(app: AppHandle) -> Result<(), String> {
+    let state = app
+        .try_state::<DesktopState>()
+        .ok_or_else(|| "the app is not running a server yet".to_owned())?;
+    let url = format!("{}#settings", window_url(&state.base_url, &state.token));
+    let parsed = url
+        .parse::<tauri::Url>()
+        .map_err(|error| format!("settings url: {error}"))?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "the main window is not open".to_owned())?;
+    window
+        .navigate(parsed)
+        .map_err(|error| format!("navigate: {error}"))?;
+    let _ = window.show();
+    let _ = window.set_focus();
+    if let Some(settings) = app.get_webview_window("settings") {
+        let _ = settings.close();
+    }
+    Ok(())
 }
 
 fn open_browser(url: &str, _redirect: &str, _state: &str) -> Result<(), String> {
@@ -469,15 +412,8 @@ fn plugin_toggle(app: AppHandle, name: String, enabled: bool) -> Result<(), Stri
 #[tauri::command]
 fn save_settings_form(app: AppHandle, form: SettingsForm) -> Result<(), String> {
     let home = home_dir();
-    let existing_provider = load_provider_settings(&home);
-    let provider = validated_provider_form(
-        &form.provider,
-        &form.model,
-        &form.auth,
-        &form.secret,
-        &form.base_url,
-        existing_provider.as_ref(),
-    )?;
+    let existing = load_provider_settings(&home);
+    let account = validated_account_settings(&form.auth, &form.secret, existing.as_ref())?;
     let server =
         validated_server_settings(&form.server_mode, &form.server_url, &form.server_token)?;
     if server.mode == "attach"
@@ -485,14 +421,7 @@ fn save_settings_form(app: AppHandle, form: SettingsForm) -> Result<(), String> 
     {
         attach_health(url)?;
     }
-    let mut provider = provider;
-    let brave = form.brave_key.trim();
-    if !brave.is_empty() {
-        provider
-            .env
-            .insert("BRAVE_SEARCH_API_KEY".to_owned(), brave.to_owned());
-    }
-    save_provider_settings(&home, &provider)?;
+    save_provider_settings(&home, &account)?;
     save_server_settings(&home, &server)?;
     app.restart();
 }
@@ -562,7 +491,8 @@ fn main() {
             save_settings_form,
             sign_in_deepseek,
             plugins_list,
-            plugin_toggle
+            plugin_toggle,
+            open_app_settings
         ])
         .setup(move |app| {
             let home = home_dir();
@@ -1204,16 +1134,8 @@ fn start_server(
     if safe_mode {
         arguments.push("--safe-mode".to_owned());
     }
-    if let Some(provider) = provider {
-        if let Some(route) = &provider.provider {
-            arguments.push("--provider".to_owned());
-            arguments.push(route.clone());
-        }
-        if let Some(model) = &provider.model {
-            arguments.push("--model".to_owned());
-            arguments.push(model.clone());
-        }
-    }
+    // Provider and model come from config.yaml (web UI Models); only the
+    // credentials are passed through the environment.
     if let Some(provider) = provider {
         command.envs(&provider.env);
     }
@@ -2259,66 +2181,30 @@ mod server_settings_tests {
     use super::*;
 
     #[test]
-    fn provider_form_handles_deepseek_and_openai() {
-        let deepseek = validated_provider_form("deepseek-account", "", "account", "tok", "", None)
-            .expect("deepseek");
-        assert_eq!(deepseek.provider.as_deref(), Some("deepseek-account"));
-        assert_eq!(deepseek.model.as_deref(), Some("deepseek-flash"));
-        assert_eq!(
-            deepseek.env.get("DSH_DEEPSEEK_TOKEN").map(String::as_str),
-            Some("tok")
-        );
-
-        let api_key = validated_provider_form(
-            "deepseek-account",
-            "deepseek-reasoner",
-            "api_key",
-            "k",
-            "",
-            None,
-        )
-        .expect("api key");
-        assert_eq!(api_key.model.as_deref(), Some("deepseek-reasoner"));
-        assert_eq!(
-            api_key.env.get("DEEPSEEK_API_KEY").map(String::as_str),
-            Some("k")
-        );
-
-        let openai = validated_provider_form(
-            "openai-compatible",
-            "gpt-4o-mini",
-            "api_key",
-            "sk",
-            "",
-            None,
-        )
-        .expect("openai");
-        assert_eq!(
-            openai.env.get("OPENAI_BASE_URL").map(String::as_str),
-            Some("https://api.openai.com/v1")
-        );
-        assert!(
-            validated_provider_form("openai-compatible", "m", "api_key", "sk", "ftp://x", None)
-                .is_err()
-        );
-        assert!(validated_provider_form("nope", "m", "api_key", "sk", "", None).is_err());
-    }
-
-    #[test]
-    fn provider_form_keeps_a_saved_secret_when_the_field_is_empty() {
+    fn account_form_keeps_only_the_chosen_credential() {
         let existing = ProviderSettings {
             provider: Some("deepseek-account".to_owned()),
             model: Some("deepseek-flash".to_owned()),
-            env: BTreeMap::from([("DSH_DEEPSEEK_TOKEN".to_owned(), "saved".to_owned())]),
+            env: BTreeMap::from([
+                ("DSH_DEEPSEEK_TOKEN".to_owned(), "saved".to_owned()),
+                ("OPENAI_API_KEY".to_owned(), "other".to_owned()),
+            ]),
         };
-        let settings =
-            validated_provider_form("deepseek-account", "", "account", "", "", Some(&existing))
-                .expect("kept");
+        let kept = validated_account_settings("account", "", Some(&existing)).expect("kept");
+        assert!(kept.provider.is_none());
+        assert!(kept.model.is_none());
         assert_eq!(
-            settings.env.get("DSH_DEEPSEEK_TOKEN").map(String::as_str),
+            kept.env.get("DSH_DEEPSEEK_TOKEN").map(String::as_str),
             Some("saved")
         );
-        assert!(validated_provider_form("deepseek-account", "", "account", "", "", None).is_err());
+
+        let api = validated_account_settings("api_key", "key-123", Some(&existing)).expect("api");
+        assert_eq!(
+            api.env.get("DEEPSEEK_API_KEY").map(String::as_str),
+            Some("key-123")
+        );
+        assert!(!api.env.contains_key("OPENAI_API_KEY"));
+        assert!(!api.env.contains_key("DSH_DEEPSEEK_TOKEN"));
     }
 
     #[test]

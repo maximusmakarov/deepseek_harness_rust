@@ -17,6 +17,9 @@ session:
   auto_title: true   # LLM-заголовок при первом prompt (run)
 tools:
   output_limit_chars: 30000
+search:
+  api_key: null      # Brave Search для web_search; env BRAVE_SEARCH_API_KEY важнее
+  base_url: null     # переопределение endpoint'а
 ui:
   language: ru   # ru | en
 plugins:

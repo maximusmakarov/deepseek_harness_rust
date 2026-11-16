@@ -16,6 +16,11 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Settings: the web UI owns Models, Web search and Plugins (a `#settings` deep
+  link opens them); a new `search` config section and `/v1/config/search`
+  endpoint store the Brave key and re-register `web_search` live. The desktop
+  window keeps Account + Server and links to the app settings; provider/model
+  now come from `config.yaml` instead of `--provider/--model` flags.
 - Desktop: "Sign in with DeepSeek" uses the public platform OAuth the official
   client uses (PKCE S256 against `/auth-api/v0/dsh/auth_init` +
   `/auth_exchange`, five `x-client-*` headers, loopback callback); the grant is

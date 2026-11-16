@@ -116,6 +116,15 @@ impl AppState {
     ) -> Self {
         let rate_limit_per_min = config.rate_limit_per_min;
         let agents = Arc::new(dshr_core::AgentRegistry::new());
+        // The stored Brave key applies to the running server without a restart.
+        let (search_key, search_base) = search_settings(&config.home);
+        if search_key.is_some() {
+            tools.register(dshr_tools::WebSearchTool::new(
+                search_key,
+                search_base
+                    .unwrap_or_else(|| "https://api.search.brave.com/res/v1/web/search".to_owned()),
+            ));
+        }
         Self {
             agents,
             config: Arc::new(config),
@@ -389,6 +398,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/config/model",
             get(get_model_config).post(set_model_config),
+        )
+        .route(
+            "/v1/config/search",
+            get(get_search_config).post(set_search_config),
         )
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/info", get(plugin_info))
@@ -990,6 +1003,105 @@ async fn set_model_config(
         "provider": config["model"]["provider"],
         "model": config["model"]["name"],
     })))
+}
+
+/// Brave Search settings for the `web_search` tool. The environment wins over
+/// the stored key, exactly like the provider from_env paths.
+#[derive(Debug, Deserialize)]
+struct SearchConfigRequest {
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+}
+
+fn search_settings(home: &std::path::Path) -> (Option<String>, Option<String>) {
+    let env_key = std::env::var("BRAVE_SEARCH_API_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let config = read_user_config(home);
+    let stored_key = config["search"]["api_key"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned);
+    let stored_base = config["search"]["base_url"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned);
+    (env_key.or(stored_key), stored_base)
+}
+
+fn mask_secret(value: &str) -> String {
+    if value.is_empty() {
+        String::new()
+    } else if value.len() <= 8 {
+        "•".repeat(value.len())
+    } else {
+        format!("{}…{}", &value[..4], &value[value.len() - 4..])
+    }
+}
+
+async fn get_search_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let env_configured = std::env::var("BRAVE_SEARCH_API_KEY")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty());
+    let config = read_user_config(&state.config.home);
+    let stored = config["search"]["api_key"].as_str().unwrap_or_default();
+    Ok(Json(json!({
+        "configured": env_configured || !stored.trim().is_empty(),
+        "source": if env_configured { "env" } else if !stored.trim().is_empty() { "config" } else { "" },
+        "api_key_masked": mask_secret(stored),
+        "base_url": config["search"]["base_url"].as_str().unwrap_or_default(),
+        "env_override": env_configured,
+    })))
+}
+
+async fn set_search_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SearchConfigRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let key = body.api_key.unwrap_or_default().trim().to_owned();
+    if key.len() > 512 || key.chars().any(char::is_whitespace) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let base = body.base_url.unwrap_or_default().trim().to_owned();
+    if !base.is_empty() && !valid_base_url(&base) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut config = read_user_config(&state.config.home);
+    if !config.is_object() {
+        config = json!({});
+    }
+    let search = config
+        .as_object_mut()
+        .expect("object")
+        .entry("search")
+        .or_insert_with(|| json!({}));
+    let search = search.as_object_mut().ok_or(StatusCode::BAD_REQUEST)?;
+    if key.is_empty() {
+        search.remove("api_key");
+    } else {
+        search.insert("api_key".into(), json!(key));
+    }
+    if base.is_empty() {
+        search.remove("base_url");
+    } else {
+        search.insert("base_url".into(), json!(base));
+    }
+    write_user_config(&state.config.home, &config)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let (key, base) = search_settings(&state.config.home);
+    state.tools().register(dshr_tools::WebSearchTool::new(
+        key,
+        base.unwrap_or_else(|| "https://api.search.brave.com/res/v1/web/search".to_owned()),
+    ));
+    Ok(Json(json!({"ok": true})))
 }
 
 #[derive(Debug, Deserialize)]

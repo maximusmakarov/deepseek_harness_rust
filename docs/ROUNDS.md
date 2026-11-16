@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–130)
+# Журнал раундов паритета (1–131)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -2007,6 +2007,26 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Тесты: 45 unit (включая конверт платформы, разбор callback с `state`,
   S256-челлендж) + 3 integration. Полный browser round-trip не прогонялся:
   нужен живой вход в аккаунт.
+
+## Раунд 131 — Settings: Models/Web search/Plugins в веб-UI (16.11.2026)
+
+- Веб-UI получил единый экран **Settings** с секциями официального приложения:
+  Account (подсказка), **Models** (route/model/base URL — `/v1/config/model`),
+  **Web search** (Brave-ключ — новый `/v1/config/search`, GET показывает
+  `configured`/маску/источник, POST пишет ключ и **перерегистрирует
+  `web_search` в живом сервере**), **Plugins** (переход в раздел плагинов).
+  Открывается по deep-link `#settings`, поэтому десктоп может на него ссылаться.
+- В схеме конфига появилась секция `search: {api_key, base_url}` (env
+  `BRAVE_SEARCH_API_KEY` важнее), `AppState::new` регистрирует `web_search` с
+  ключом из конфига, а POST-эндпоинт обновляет инструмент без рестарта.
+- Десктопное окно Settings сокращено до **Account + Server** и кнопки
+  **Open app settings** (Tauri-команда `open_app_settings` открывает
+  веб-UI на `#settings`). Провайдер/модель больше не передаются флагами
+  `--provider/--model`: источник — `config.yaml` (веб-UI Models), окружение
+  поставляет только креденшелы.
+- Тесты: серверные `search_config` (запись/маска/валидация), 45+3 десктопных,
+  workspace-тесты и `check.sh quick` зелёные; `trunk build --release` для
+  веб-UI проходит.
 
 ## Формализация и каталог тестов (14.11.2026)
 

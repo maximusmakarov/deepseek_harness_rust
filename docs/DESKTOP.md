@@ -10,17 +10,18 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 Настройки — в окне **Settings** (трей → **Settings…**, а на первом запуске оно
 открывается само, если нет ни токена, ни сохранённого провайдера):
 
-| Секция | Поля | Куда сохраняется |
+| Где | Секции | Куда сохраняется |
 |---|---|---|
-| Account | **Sign in with DeepSeek** (браузерный OAuth), тип аутентификации (account token / API key), токен/ключ | `<home>/desktop.env` (0600): `DSH_DEEPSEEK_TOKEN` / `DEEPSEEK_API_KEY` |
-| Models | провайдер (DeepSeek / OpenAI-compatible), модель, Base URL | `<home>/desktop.env`: `DSHR_DESKTOP_PROVIDER`, `DSHR_DESKTOP_MODEL`, `OPENAI_BASE_URL` |
-| Web search | Brave Search API key | `<home>/desktop.env`: `BRAVE_SEARCH_API_KEY` (встроенный сервер читает его при старте) |
-| Plugins | список Cordis-плагинов с переключателями (те же `/v1/plugins/installed` и `/v1/plugins/toggle`, что у веб-UI) | конфиг профиля (через сервер) |
-| Server | «Run the embedded server» (по умолчанию) или «Attach to a running dshr serve» + URL/токен | `<home>/desktop-server.json` (0600) |
+| Окно десктопа (трей → Settings…) | **Account** (Sign in with DeepSeek, account token / API key), **Server** (встроенный или attach) | `<home>/desktop.env` (0600) и `<home>/desktop-server.json` (0600) |
+| Веб-UI приложения (кнопка **Open app settings** в окне десктопа, трей → Settings → Open app settings) | **Account** (подсказка), **Models** (route/model/base URL), **Web search** (Brave key), **Plugins** (список Cordis-плагинов с переключателями) | `config.yaml`/профиль — через серверные эндпоинты `/v1/config/model`, `/v1/config/search`, `/v1/plugins/*` |
 
-Кнопка **Save and restart** валидирует поля (схема URL, `http(s)`, непустой
-ключ), для attach проверяет `/v1/health`, пишет файлы и перезапускает оболочку.
-Пустое поле токена при сохранении оставляет ранее записанный секрет.
+Кнопка **Save and restart** валидирует поля (схема URL, `http(s)`), для attach
+проверяет `/v1/health`, пишет файлы и перезапускает оболочку. Пустое поле токена
+оставляет ранее записанный секрет.
+
+Провайдер и модель больше не передаются флагами `--provider/--model`: их читает
+`config.yaml` (секция `model`), которую редактирует веб-UI **Models**. Окружение
+(`desktop.env`) поставляет только креденшелы.
 
 ### Sign in with DeepSeek
 

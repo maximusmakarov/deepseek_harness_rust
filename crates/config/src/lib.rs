@@ -33,6 +33,8 @@ pub struct Config {
     pub session: SessionConfig,
     pub logging: LoggingConfig,
     pub tools: ToolsConfig,
+    /// Web search provider settings (Brave Search).
+    pub search: SearchConfig,
     pub mcp: McpConfig,
     pub lsp: LspConfig,
     pub ui: UiConfig,
@@ -60,6 +62,7 @@ impl Default for Config {
             session: SessionConfig::default(),
             logging: LoggingConfig::default(),
             tools: ToolsConfig::default(),
+            search: SearchConfig::default(),
             mcp: McpConfig::default(),
             lsp: LspConfig::default(),
             ui: UiConfig::default(),
@@ -217,6 +220,16 @@ impl Default for ToolsConfig {
             denied: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct SearchConfig {
+    /// Brave Search API key for the `web_search` tool. Empty falls back to
+    /// `BRAVE_SEARCH_API_KEY`.
+    pub api_key: Option<String>,
+    /// Optional endpoint override; empty uses the Brave default.
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]

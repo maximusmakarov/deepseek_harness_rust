@@ -61,6 +61,20 @@ struct PackageHit {
     category: String,
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+struct SearchConfigResponse {
+    #[serde(default)]
+    configured: bool,
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    api_key_masked: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    env_override: bool,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 struct ModelConfigResponse {
     #[serde(default)]
@@ -2550,6 +2564,69 @@ fn App() -> impl IntoView {
             }
         });
     };
+    let settings_brave = RwSignal::new(String::new());
+    let settings_search = RwSignal::new(String::new());
+    let load_search = move || {
+        let value = token.get_untracked();
+        spawn_local(async move {
+            match get_json::<SearchConfigResponse>("/v1/config/search", &value).await {
+                Ok(config) => {
+                    let source = if config.env_override {
+                        "env".to_owned()
+                    } else if config.source.is_empty() {
+                        "не задан".to_owned()
+                    } else {
+                        config.source.clone()
+                    };
+                    settings_search.set(if config.configured {
+                        let base = if config.base_url.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" · {}", config.base_url)
+                        };
+                        format!("configured ({source}) {}{base}", config.api_key_masked)
+                    } else {
+                        "Brave Search key не задан: web_search вернёт ошибку".to_owned()
+                    });
+                }
+                Err(error) => settings_search.set(format!("error: {error}")),
+            }
+        });
+    };
+    let save_search = move || {
+        let value = token.get_untracked();
+        let body = serde_json::json!({
+            "api_key": settings_brave.get_untracked(),
+        });
+        spawn_local(async move {
+            match post_json::<Value>("/v1/config/search", &value, &body).await {
+                Ok(_) => {
+                    settings_search.set("saved".into());
+                    settings_brave.set(String::new());
+                }
+                Err(error) => settings_search.set(format!("error: {error}")),
+            }
+        });
+    };
+    // Deep link used by the desktop shell: `#settings` opens this surface.
+    {
+        let open_settings = settings_open;
+        let load = load_settings;
+        let load_s = load_search;
+        Effect::new(move |_| {
+            let hash = web_sys::window()
+                .and_then(|window| window.location().hash().ok())
+                .unwrap_or_default();
+            let search = web_sys::window()
+                .and_then(|window| window.location().search().ok())
+                .unwrap_or_default();
+            if hash == "#settings" || search.contains("settings=1") {
+                open_settings.set(true);
+                load();
+                load_s();
+            }
+        });
+    }
     let theme = RwSignal::new(initial_theme);
     let apply_theme = move |value: String| {
         if let Some(root) = web_sys::window()
@@ -3385,6 +3462,7 @@ fn App() -> impl IntoView {
             <button on:click=move |_| {
                 settings_open.set(true);
                 load_settings();
+                load_search();
             }>"Settings"</button>
             <button on:click=move |_| {
                 let next = if theme.get_untracked() == "dark" { "light" } else { "dark" };
@@ -3495,7 +3573,10 @@ fn App() -> impl IntoView {
         {move || settings_open.get().then(|| view! {
             <dialog open>
                 <SlotRegion region="settings.icon" />
-                <h3>"Provider settings"</h3>
+                <h3>"Settings"</h3>
+                <h4>"Account"</h4>
+                <p class="tool">"Ключи и вход в аккаунт DeepSeek — в Settings десктопа (там есть Sign in with DeepSeek и desktop.env). В браузере сервер читает ключи из окружения."</p>
+                <h4>"Models"</h4>
                 <div class="row">
                     <label>"Route"</label>
                     <select
@@ -3527,6 +3608,25 @@ fn App() -> impl IntoView {
                     region="settings.section"
                     owner_props="{\"close\":{\"$callback\":\"settings.section.close\"}}".to_string()
                 />
+                <h4>"Web search"</h4>
+                <div class="row">
+                    <label>"Brave Search API key"</label>
+                    <input
+                        placeholder="leave empty to keep the saved key"
+                        prop:value=move || settings_brave.get()
+                        on:input=move |event| settings_brave.set(event_target_value(&event))
+                    />
+                </div>
+                <p class="tool">{move || settings_search.get()}</p>
+                <div class="row">
+                    <button on:click=move |_| save_search()>"Save key"</button>
+                    <button on:click=move |_| load_search()>"Refresh"</button>
+                </div>
+                <h4>"Plugins"</h4>
+                <p class="tool">"Установка, включение и оценки Cordis-плагинов — в разделе Plugins."</p>
+                <div class="row">
+                    <button on:click=move |_| { settings_open.set(false); plugins_open.set(true); }>"Open Plugins"</button>
+                </div>
                 <p class="tool">{move || settings_status.get()}</p>
                 <div class="row">
                     <button on:click=move |_| save_settings()>"Save"</button>
