@@ -20,6 +20,10 @@ use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+mod cli;
+mod instance;
+mod login_env;
+
 struct DesktopState {
     server: Mutex<Option<Child>>,
     port: u16,
@@ -59,12 +63,40 @@ fn main() {
         return;
     }
 
+    let home = home_dir();
+    // The home must exist before the lock; first-run detection stays here so a
+    // lock file cannot make an empty home look initialized.
+    let first_run = ensure_home(&home);
+    let _instance = match instance::InstanceLock::acquire_within(&home, Duration::from_secs(3)) {
+        Ok(Some(lock)) => Some(lock),
+        Ok(None) => {
+            match instance::forward_launch(&home, folder.as_deref()) {
+                Ok(true) => println!(
+                    "dshr desktop is already running for {}; opening {} there",
+                    home.display(),
+                    folder
+                        .as_deref()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default()
+                ),
+                _ => println!("dshr desktop is already running for {}", home.display()),
+            }
+            return;
+        }
+        Err(error) => {
+            eprintln!("dshr-desktop: single-instance lock unavailable: {error}");
+            None
+        }
+    };
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![recovery_action])
         .setup(move |app| {
             let home = home_dir();
-            let first_run = ensure_home(&home);
             let profile = current_profile(&home);
+            if let Err(error) = cli::write_shim(&home, &profile) {
+                log_line(&home, &format!("cli launcher: {error}"));
+            }
             let folder = folder.clone().or_else(|| load_desktop_folder(&home));
             let provider = match ensure_provider(&home, true) {
                 Ok(provider) => provider,
@@ -149,6 +181,20 @@ fn main() {
 
             build_tray(app, &home, &profile)?;
             let _ = window;
+            let pending_home = home.clone();
+            let pending_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(Duration::from_millis(1500));
+                    let Some(folder) = instance::take_pending_folder(&pending_home) else {
+                        continue;
+                    };
+                    if save_desktop_folder(&pending_home, Some(&folder)).is_ok() {
+                        stop_server(&pending_handle);
+                        pending_handle.restart();
+                    }
+                }
+            });
             let channel_home = home.clone();
             std::thread::spawn(move || {
                 if let Ok(Some(release)) = check_for_updates(load_update_channel(&channel_home)) {
@@ -184,6 +230,13 @@ fn build_tray(
     let hide = MenuItem::with_id(app, "hide", "Hide window", true, None::<&str>)?;
     let browser = MenuItem::with_id(app, "browser", "Open in browser", true, None::<&str>)?;
     let terminal = MenuItem::with_id(app, "terminal", "Open terminal", true, None::<&str>)?;
+    let install_cli = MenuItem::with_id(
+        app,
+        "install-cli",
+        "Install CLI command…",
+        true,
+        None::<&str>,
+    )?;
     let new_profile = MenuItem::with_id(app, "new-profile", "New profile…", true, None::<&str>)?;
     let provider = MenuItem::with_id(app, "provider", "Provider setup…", true, None::<&str>)?;
     let config_folder = MenuItem::with_id(
@@ -362,6 +415,7 @@ fn build_tray(
             &new_profile,
             &browser,
             &terminal,
+            &install_cli,
             &provider,
             &config_folder,
             &updates,
@@ -405,6 +459,13 @@ fn build_tray(
             "terminal" => {
                 let home = home_dir();
                 open_terminal(&home, &current_profile(&home));
+            }
+            "install-cli" => {
+                let home = home_dir();
+                match cli::install(&home, &current_profile(&home)) {
+                    Ok(path) => notify("dshr CLI", &format!("Installed {}", path.display())),
+                    Err(error) => notify("dshr CLI", &format!("Install failed: {error}")),
+                }
             }
             "config-folder" => open_reveal(&home_dir()),
             "safe-restart" => {
@@ -620,6 +681,16 @@ fn start_server(
     if let Some(folder) = folder {
         command.current_dir(folder);
     }
+    if let Some(environment) = login_env::apply(&mut command) {
+        log_line(
+            home,
+            &format!(
+                "login shell environment: {} variables from {}",
+                environment.len(),
+                environment.shell
+            ),
+        );
+    }
     let safe_mode = plugins_disabled(home);
     let mut arguments = vec![
         "--home".to_owned(),
@@ -682,7 +753,9 @@ fn desktop_port(network: &NetworkSettings) -> Result<u16, Box<dyn std::error::Er
 }
 
 fn home_dir() -> PathBuf {
-    if let Some(home) = std::env::var_os("DSH_HOME") {
+    // An empty DSH_HOME (common in `env VAR= cmd` wrappers) would turn every
+    // path into a relative one and scatter state across the working directory.
+    if let Some(home) = std::env::var_os("DSH_HOME").filter(|value| !value.is_empty()) {
         return PathBuf::from(home);
     }
     std::env::var_os("HOME")
@@ -1191,22 +1264,7 @@ fn open_terminal(home: &Path, profile: &str) {
 
 fn write_terminal_script(home: &Path, profile: &str, folder: &Path) -> Result<PathBuf, String> {
     let bin = home.join("bin");
-    std::fs::create_dir_all(&bin).map_err(|error| error.to_string())?;
-    if let Ok(binary) = find_binary() {
-        let shim = format!(
-            "#!/bin/sh\nexec \"{}\" --home \"{}\" --profile \"{}\" \"$@\"\n",
-            binary.display(),
-            home.display(),
-            profile
-        );
-        std::fs::write(bin.join("dshr"), shim).map_err(|error| error.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(bin.join("dshr"), std::fs::Permissions::from_mode(0o755))
-                .map_err(|error| error.to_string())?;
-        }
-    }
+    let _ = cli::write_shim(home, profile);
     let script = home.join("terminal.sh");
     let contents = format!(
         "#!/bin/sh\ncd \"{}\"\nexport DSHR_HOME=\"{}\"\nexport PATH=\"{}:$PATH\"\nexec \"${{SHELL:-/bin/sh}}\" -l\n",

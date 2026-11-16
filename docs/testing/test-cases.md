@@ -299,6 +299,9 @@ S1 — блокер, S2 — функциональный пробел, S3 — к
 | DESK-03 | Provider wizard → `desktop.env` 0600, перезапуск | I | ✅ |
 | DESK-04 | Обновления: канал, скачивание, SHA256, установка | I | ✅ |
 | DESK-05 | Режимы окна и материалы | E | ⚠️ ручная проверка |
+| DESK-06 | Single-instance: `<home>/desktop.lock` эксклюзивен, второй запуск форвардит папку и выходит, рестарт передаёт lock за ≤ 3 с | U/E | ✅ desktop `instance::tests` + `tests/single_instance.rs` |
+| DESK-07 | Login-shell env: парсер delimited `env -0`, фильтр probe/owned, таймаут `DSHR_DESKTOP_LOGIN_SHELL_TIMEOUT_MS`, живой capture | U/E | ✅ desktop `login_env::tests`, `--check` → `54 variables from /bin/zsh` |
+| DESK-08 | CLI-launcher: `<home>/bin/dshr` с `--home`/`--profile`, права 0755, ссылка `~/.local/bin` без перезаписи чужой команды | U | ✅ desktop `cli::tests` |
 | REL-01 | Детерминированные архивы и воспроизводимый бинарь | I | ✅ `scripts/check-reproducible.sh` |
 | REL-02 | 5 таргетов, SHA256SUMS, Ed25519, provenance | I | ✅ CI |
 | REL-03 | Бутлы/формула/ghcr-публикация (mock-регистр) | I | ✅ CI |

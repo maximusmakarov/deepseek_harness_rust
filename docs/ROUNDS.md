@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–102)
+# Журнал раундов паритета (1–105)
 
-Цель: довести `dshr` до паритета с DSH 0.2.2-rc.2 / DSH Desktop.
-Каждый раунд — код/документация + проверка. Итоговая сверка: 366 root-тестов
-(+3 ignored) и 21 desktop-тест = **387**, `clippy`/`fmt`/`deny` чисто,
-release-бинарь воспроизводим.
+Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
+(и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
+проверка. Итоговая сверка: 366 root-тестов (+3 ignored) и 38 desktop-тестов =
+**404**, `clippy`/`fmt`/`deny` чисто, release-бинарь воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
 |---|---|---|
@@ -980,6 +980,62 @@ streaming-прокси.
     `conversation.chat.node` и остальные conversation-слоты ждут полного
     chat-view; upstream markdown-стек, `registerUpgrade` (WebSocket) и
     детальная renderer-механика остаются как записано выше.
+
+- 103: **C2.7** — upstream markdown-стек. Вместо dependency-free GFM-подмножества
+  модульная таблица получает отдельный `markdown.js` на 814 222 байта (сборка
+  `scripts/build-markdown-runtime.mjs`), который переопределяет `MarkdownText`:
+  micromark/mdast, shiki, KaTeX, footnotes и инкрементальный streaming; C2-probe
+  проверяет KaTeX, shiki, footnotes и streaming. Общий рантайм-артефакт вырос с
+  430 139 до **1 244 361 байта**. Остаётся renderer-семантика ядра (какие слоты
+  рендерит шелл и как компоненты делят состояние) — это часть C-full
+  ([ADR-041](adr/041-c-full-decision.md)), а не порт библиотек.
+- 104: **C4.2** — callback bridge, chain owner-renderer, hoc nesting, полный
+  chat-view и `registerUpgrade`. Owner props с функциями едут маркерами
+  `{"$callback":"<name>"}` и материализуются мостом в функции, которые шлют
+  `ctx.action("callback", …)` в шелл (`settings.section.close`, `openFile` →
+  `/v1/workspace/file`, `inspectCall`, `forkAt`, `loadImage`); большие owner
+  shares идут сообщением `owner-props` после `ready`. Транскрипт проецируется в
+  turn/node-модель, conversation-слоты (`conversation.chat.node`,
+  assistant-actions, images, reasoning, text-interaction, turnTail, user.before,
+  flow, markdown.fence, composer-chain) монтируются на узел, два core-узла чата
+  рендерит шелл; `hoc` вкладывает `children` через якоря родительского кадра,
+  chain-слот обслуживает единый owner-renderer. `webServer.registerUpgrade`
+  поддержан: sidecar держит exact-path таблицу upgrade-маршрутов (дубликат
+  бросает, путь валидируется, `x-dshr-sidecar-token`), публикует её в
+  `__dshr_routes.upgrades` и per-plugin `upgrades`, dshr-сервер туннелирует
+  upgraded-соединение (`plugin_upgrade_proxy`: replay request-head, handshake
+  апстрима, `hyper::upgrade` + `copy_bidirectional`). Проверки: bridge harness
+  **119** (+12), smoke **84/84** (+owner callback закрывает Settings), web-e2e
+  **18/18**, `plugins_live` **18** (+`proxies_plugin_websocket_upgrade`).
+- 105: **S1+S2 (desktop hardening по официальному `apps/desktop`)** — раунд
+  начат со сверки с upstream `39163dd` (0.2.2-rc.3) и закрыл три поведения
+  официальной оболочки, которые у `dshr` отсутствовали:
+  - `crates/desktop/src/instance.rs`: эксклюзивный `<home>/desktop.lock` на всё
+    время работы; второй запуск форвардит папку из argv через
+    `<home>/desktop-pending-folder` и выходит, а работающий shell перезапускает
+    сервер с этой папкой; при рестарте из трея lock ждётся до 3 с (передача
+    между поколениями);
+  - `crates/desktop/src/login_env.rs`: один прогон логин-шелла `<shell> -ilc
+    'env -0'` между delimiters, таймаут `DSHR_DESKTOP_LOGIN_SHELL_TIMEOUT_MS`
+    (1–2 147 483 647 мс, по умолчанию 10 000), фильтр `PWD`/`OLDPWD`/`SHLVL`/
+    `_`, probe-переменных и owned-имён (`DSHR_*`/`TAURI_*`/`DSH_HOME`);
+    окружение передаётся `dshr serve` до `desktop.env`, поэтому ключ
+    провайдера из `~/.zshrc` наконец виден GUI-запуску;
+  - `crates/desktop/src/cli.rs`: `<home>/bin/dshr` (+`.cmd`) — launcher к
+    бинарю из бандла с `--home`/`--profile`, работает при закрытом приложении,
+    перезаписывается на старте (переезд бандла подхватывается); трей
+    **Install CLI command…** линкует его в `~/.local/bin/dshr`, не перезаписывая
+    чужую команду.
+  - Документация: пин upstream в [REFERENCE.md](../reference/REFERENCE.md)
+    (`66491b05`/rc.1 → `39163dd`/rc.3, +клоны `apps/desktop`), раздел
+    «Официальный `apps/desktop`» в [PARITY.md](PARITY.md), [DESKTOP.md](DESKTOP.md).
+  - Проверки: desktop-тесты **38** — 35 unit + 3 интеграционных (было 21;
+    +17 на lock/forward, парсер env, shim, ссылку и второй запуск бинаря), `--check` живьём: `desktop check ok`, в `desktop.log`
+    `login shell environment: 54 variables from /bin/zsh`; `fmt`/`clippy -D
+    warnings` чисто.
+  - Отложено владельцем 16.11.2026: NSIS-инсталлятор, Windows-подпись,
+    mandatory-policy и дифференциальные обновления официальной оболочки.
+    Остаётся решением владельца C-full ([ADR-041](adr/041-c-full-decision.md)).
 
 ## Что осталось
 

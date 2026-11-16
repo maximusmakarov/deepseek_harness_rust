@@ -22,6 +22,27 @@ Linux-CI; на macOS его тесты запускаются отдельным
 а первый позиционный аргумент — папка workspace (cwd сервера). Drag-and-drop не поддержан.
 Закрытие окна скрывает его в трей, а Quit завершает сервер.
 
+Один экземпляр: `<home>/desktop.lock` берётся эксклюзивно на всё время работы.
+Второй запуск печатает, что приложение уже работает, передаёт папку из argv
+через `<home>/desktop-pending-folder` и выходит; запущенный shell подхватывает
+её и перезапускает сервер. При рестарте из трея новый процесс ждёт lock до 3 с,
+поэтому передача между поколениями не теряется.
+
+Окружение логин-шелла: GUI-запуск на macOS/Linux не читает `~/.zshrc`, и ключи
+провайдера оттуда не видны. Первый старт сервера один раз выполняет
+`<login shell> -ilc 'env -0'` (между delimiters, stderr в null, таймаут
+`DSHR_DESKTOP_LOGIN_SHELL_TIMEOUT_MS`, по умолчанию 10 000 мс, 1–2 147 483 647)
+и передаёт окружение дочернему `dshr serve`. `PWD`/`OLDPWD`/`SHLVL`/`_`,
+probe-переменные и имена, которыми владеет оболочка (`DSHR_*`, `TAURI_*`,
+`DSH_HOME`), не переопределяются; Windows шаг пропускает — окружение там уже
+приходит из реестра.
+
+CLI: `<home>/bin/dshr` (и `dshr.cmd` на Windows) — launcher, запускающий `dshr`
+из бандла с `--home` и активным профилем; он работает и при закрытом
+приложении, а при старте перезаписывается, поэтому переезд бандла
+подхватывается. Трей **Install CLI command…** дополнительно линкует его в
+`~/.local/bin/dshr`, не перезаписывая чужую команду.
+
 Трей: Show/Hide, Open in browser, Open terminal, Open config folder, Restart in
 safe mode / Restart normally,
 New profile…, Export diagnostics…, Check for updates…, Profile (список
@@ -76,9 +97,10 @@ scripts/package-desktop.sh 0.1.0
 скачивает macOS zip, сверяет SHA256SUMS, распаковывает в `<home>/updates/<version>` и
 показывает в Finder. Трей **Install downloaded update…** (macOS) запускает helper:
 он ждёт выхода приложения, заменяет текущий `.app` и открывает новый. Замена
-пользовательская (кнопка в трее), notarization нет. Recovery-окна и режимы окна
-(compatibility/extended/enhanced) пока не реализованы — это следующий
-срез desktop; матрица — [PARITY.md](PARITY.md).
+пользовательская (кнопка в трее), notarization нет. Recovery-окно
+(Retry/Safe mode/Diagnostics/Config/плагины/профили/Quit) и режимы окна
+(compatibility/extended/enhanced + Material) реализованы; матрица — [PARITY.md](PARITY.md),
+официальный `apps/desktop` 0.2.2-rc.3 — там же.
 
 ## DMG
 

@@ -1,8 +1,9 @@
-# Паритет с DSH Desktop 0.2.2-rc.2
+# Паритет с DSH Desktop (0.2.2-rc.3, `apps/desktop`)
 
-Матрица пользовательских сценариев оригинала и `dshr`. Источники: reference-клон
-`dsh-desktop@233b76c` (`docs/user-guide.md`, `docs/architecture.md`), установленный
-DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠️ частично, ❌ нет,
+Матрица пользовательских сценариев оригинала и `dshr`. Источники: официальный
+upstream `deepseek-harness@39163dd` (0.2.2-rc.3, `apps/desktop`, `packages/client`),
+reference-клон community-плагина `dsh-desktop@233b76c`, установленный DSH
+0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠️ частично, ❌ нет,
 ⏸ сознательно отложено.
 
 ## Desktop
@@ -27,6 +28,27 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 | `--export-diagnostics`: zip с логами, crash dumps, system-info | `--check`, `--export-diagnostics` (zip: логи, конфиг, system-info) | ✅ |
 | Платформы: macOS/Windows installer, Linux deb/AppImage/tar.gz | macOS `.app` + DMG, Linux `.deb`/tar.gz и Windows zip в release CI; Windows-installer'а нет | ⚠️ |
 | Автообновление/подпись/notarization | ad-hoc по умолчанию; Developer ID + notarization при наличии секретов (не прогонялось) | ⚠️ |
+
+## Официальный `apps/desktop` (`0.2.2-rc.3`, `39163dd`)
+
+Сверка поведения официальной Electron-оболочки с `dshr-desktop`. Рантайм
+(bundled Node/pnpm, `app.asar`, runtime descriptor) не переносится — только
+поведение; дистрибуция и обновления официальной оболочки отложены владельцем
+16.11.2026.
+
+| Поведение `apps/desktop` | `dshr-desktop` | Статус |
+|---|---|---|
+| Single-instance lock до чтения профиля, единоличное владение home | `desktop.lock` (exclusive; ожидание до 3 с для передачи при рестарте), второй запуск форвардит папку и выходит | ✅ |
+| Login-shell environment (`-ilc env -0`, delimiters, таймаут) | `login_env.rs`: один прогон на процесс, `DSHR_DESKTOP_LOGIN_SHELL_TIMEOUT_MS` (1–2 147 483 647 мс, по умолчанию 10 000), фильтр probe/owned-переменных | ✅ |
+| Bundled CLI launcher, работает при закрытом приложении | `<home>/bin/dshr` (+`.cmd`), трей «Install CLI command…» → `~/.local/bin/dshr`, чужая команда не перезаписывается | ✅ |
+| Welcome: browser sign-in (PKCE) и API-key page | нативный provider setup и `desktop.env` 0600 | ⚠️ иначе |
+| NSIS-инсталлятор: локали, uninstall-data, restart-banner | macOS `.app`+DMG, Linux deb/tar.gz, Windows zip | ⏸ отложено |
+| Обновления: каналы, mandatory-policy, журнал, переиспользование блоков | Stable/Beta, скачивание с SHA256SUMS, установка macOS | ⏸ отложено |
+| Подпись: Windows EV, notarization, publisher | ad-hoc по умолчанию; тулинг Developer ID/notarytool | ⏸ отложено |
+| Recovery: журнал операций, backup patch, диагностический отчёт | recovery-окно (профили, плагины, safe mode), `--export-diagnostics` | ⚠️ |
+| Browser guests и file-drag bridge | CUA через Chrome; drag-and-drop папки на окно | ⚠️ иначе |
+| i18n оболочки (8 языков) и локализованные нативные меню | ru/en в CLI, тексты оболочки en | ⚠️ |
+| DevTools, About, нативные меню | нет (только трей) | ❌ |
 
 ## Host и инструменты
 
@@ -62,8 +84,10 @@ DSH 0.2.2-rc.2 и собственные ADR. Статусы: ✅ есть, ⚠�
 
 P0 закрыто: трей/close-to-tray, профили, фиксированный порт/LAN, drag-and-drop папки,
 диагностика, `apply_patch`, `ask_user` (включая ACP), каналы и установка обновлений,
-recovery-окно с профилями/плагинами, first-run home. Осталось: прогон notarization
-с секретами Apple.
+recovery-окно с профилями/плагинами, first-run home. 16.11.2026 закрыт P0
+официальной оболочки: single-instance lock, login-shell environment и CLI-launcher.
+Осталось: прогон notarization с секретами Apple; NSIS/подпись/обновления
+официальной оболочки — отложены решением владельца.
 P1: plugin market — каталог с категориями/поиском и карточкой пакета сделан; GUI-менеджер
 плагинов есть; внешней (общей) базы отзывов нет — отзывы живут в home.
 P2: прогон brew/desktop CI на теге, React-совместимость клиентских плагинов
@@ -118,12 +142,19 @@ chain, полный chat-view; chain-элекция по `select(ownerProps)` и
 незакрытая C-lite-работа), приватные terminal
 shim'ы.
 
-## Проверка (15.11.2026)
+## Проверка (16.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 366 passed + 3 ignored; desktop 21 passed (итого 387).
+- `cargo test --workspace`: 366 passed + 3 ignored (root-крейты не менялись);
+  desktop 38 passed (35 unit + 3 integration, итого 404): к прежним 21 добавлены
+  тесты single-instance lock, форварда папки и передачи между поколениями,
+  парсера login-shell env, таймаута, CLI-шима и ссылки в `~/.local/bin`, а также
+  `tests/single_instance.rs` — второй запуск бинаря под чужим lock (с папкой и
+  без) и отказ до старта Tauri.
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
+- `dshr-desktop --check` живьём: `desktop check ok`, в `desktop.log` —
+  `login shell environment: 54 variables from /bin/zsh`.
 - `package-desktop.sh` + `package-dmg.sh`: `.app` проходит `codesign --verify`,
   DMG собран (UDZO); установочный/архивный dry-run проверен ранее.
 - Headless Chrome: light-тема, версия, Plugins; `/v1/tools`, `/v1/plugins/catalog`,
