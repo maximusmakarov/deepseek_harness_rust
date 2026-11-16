@@ -19,6 +19,25 @@ use ring::digest;
 
 /// Platform deployment used for the account API and the browser pages.
 pub const PLATFORM_ORIGIN: &str = "https://platform.deepseek.com";
+
+/// Resolves the platform origin; `DSHR_DESKTOP_PLATFORM_ORIGIN` overrides it for
+/// tests, but only with HTTPS or a loopback HTTP origin (the official client's
+/// `allowLoopbackHttp` rule), so a stray value cannot downgrade the connection.
+pub fn platform_origin() -> Result<String, String> {
+    let value = std::env::var("DSHR_DESKTOP_PLATFORM_ORIGIN")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| PLATFORM_ORIGIN.to_owned());
+    let value = value.trim().trim_end_matches('/').to_owned();
+    let loopback = value.starts_with("http://127.0.0.1") || value.starts_with("http://localhost");
+    if value.starts_with("https://") || loopback {
+        Ok(value)
+    } else {
+        Err(format!(
+            "platform origin must be https or loopback http, got {value}"
+        ))
+    }
+}
 /// How long the browser approval may take.
 pub const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -82,14 +101,13 @@ fn client_headers() -> Vec<(&'static str, String)> {
 
 /// Current UTC offset in seconds, as the platform expects it.
 fn timezone_offset_seconds() -> i64 {
-    // UTC is a valid value and keeps the call free of chrono; the platform uses
-    // the offset only for locale-ish presentation.
-    0
+    use chrono::Offset;
+    chrono::Local::now().offset().fix().local_minus_utc() as i64
 }
 
 fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
     let mut command = std::process::Command::new("curl");
-    command.args(["-fsS", "--max-time", "30", "-X", "POST", url]);
+    command.args(["-sS", "--max-time", "30", "-X", "POST", url]);
     command.args(["-H", "content-type: application/json"]);
     for (name, value) in client_headers() {
         command.arg("-H").arg(format!("{name}: {value}"));
@@ -97,14 +115,35 @@ fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Value, S
     command
         .arg("--data-binary")
         .arg(body.to_string())
+        .arg("-w")
+        .arg("\n%{http_code}")
         .stdin(std::process::Stdio::null());
     let output = command.output().map_err(|error| format!("curl: {error}"))?;
-    if !output.status.success() {
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let (body_text, status) = match stdout.rsplit_once('\n') {
+        Some((body, status)) => (body.to_owned(), status.trim().parse::<u16>().unwrap_or(0)),
+        None => (stdout, 0),
+    };
+    if !output.status.success() && status == 0 {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("platform request failed: {}", stderr.trim()));
     }
-    let text = String::from_utf8_lossy(&output.stdout).to_string();
-    serde_json::from_str(&text).map_err(|error| format!("platform response: {error}"))
+    let parsed: serde_json::Value = serde_json::from_str(&body_text)
+        .map_err(|error| format!("platform response (HTTP {status}) is not JSON: {error}"))?;
+    if !(200..300).contains(&status) {
+        let message = parsed
+            .get("msg")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| {
+                parsed
+                    .get("data")
+                    .and_then(|data| data.get("biz_msg"))
+                    .and_then(serde_json::Value::as_str)
+            })
+            .unwrap_or("no message");
+        return Err(format!("platform HTTP {status}: {message}"));
+    }
+    Ok(parsed)
 }
 
 /// Unwraps `{code, msg, data:{biz_code, biz_msg, biz_data}}` and returns `biz_data`.
@@ -133,8 +172,13 @@ fn business_data(envelope: &serde_json::Value) -> Result<serde_json::Value, Stri
         .ok_or_else(|| "platform response has no biz_data".to_owned())
 }
 
-/// Runs the whole browser sign-in. `open` receives the authorize URL.
-pub fn sign_in(open: impl Fn(&str) -> Result<(), String>) -> Result<SignedIn, String> {
+/// Runs the whole browser sign-in. `open` receives the authorize URL, the
+/// callback URL and the expected state (tests drive the callback from there).
+pub fn sign_in(
+    origin: &str,
+    open: impl Fn(&str, &str, &str) -> Result<(), String>,
+) -> Result<SignedIn, String> {
+    let origin = origin.trim_end_matches('/').to_owned();
     let listener =
         TcpListener::bind("127.0.0.1:0").map_err(|error| format!("callback bind: {error}"))?;
     listener
@@ -149,7 +193,7 @@ pub fn sign_in(open: impl Fn(&str) -> Result<(), String>) -> Result<SignedIn, St
     let state = state_value();
 
     let init = post_json(
-        &format!("{PLATFORM_ORIGIN}/auth-api/v0/dsh/auth_init"),
+        &format!("{origin}/auth-api/v0/dsh/auth_init"),
         &serde_json::json!({
             "code_challenge": pkce.challenge,
             "code_challenge_method": "S256",
@@ -164,11 +208,11 @@ pub fn sign_in(open: impl Fn(&str) -> Result<(), String>) -> Result<SignedIn, St
         .get("authorize_url")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "auth_init returned no authorize_url".to_owned())?;
-    open(authorize_url)?;
+    open(authorize_url, &redirect_uri, &state)?;
 
     let code = wait_for_callback(&listener, &state, LOGIN_TIMEOUT)?;
     let exchange = post_json(
-        &format!("{PLATFORM_ORIGIN}/auth-api/v0/dsh/auth_exchange"),
+        &format!("{origin}/auth-api/v0/dsh/auth_exchange"),
         &serde_json::json!({
             "code": code,
             "code_verifier": pkce.verifier,
@@ -360,6 +404,119 @@ mod tests {
         assert!(parse_callback("/oauth/callback?code=a&code=b&state=s1", "s1").is_err());
         assert!(parse_callback("/oauth/callback?state=s1", "s1").is_err());
         assert!(parse_callback("/other?code=a&state=s1", "s1").is_err());
+    }
+
+    /// Raw HTTP GET for the simulated browser hop.
+    fn http_get(url: &str) {
+        use std::io::Write as _;
+        let (host, rest) = url
+            .trim_start_matches("http://")
+            .split_once('/')
+            .expect("url");
+        let mut stream = std::net::TcpStream::connect(host).expect("connect");
+        let request = format!("GET /{rest} HTTP/1.1\r\nhost: {host}\r\nconnection: close\r\n\r\n");
+        stream.write_all(request.as_bytes()).expect("write");
+        let mut response = String::new();
+        let _ = stream.read_to_string(&mut response);
+        assert!(response.starts_with("HTTP/1.1 200"), "callback: {response}");
+    }
+
+    #[test]
+    fn full_sign_in_round_trip_against_a_stub_platform() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("stub bind");
+        listener.set_nonblocking(false).expect("blocking");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("addr").port()
+        );
+        let bodies = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let recorded = bodies.clone();
+        std::thread::spawn(move || {
+            for _ in 0..2 {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut buffer = Vec::new();
+                let mut chunk = [0u8; 2048];
+                loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(read) => {
+                            buffer.extend_from_slice(&chunk[..read]);
+                            let text = String::from_utf8_lossy(&buffer).to_string();
+                            let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+                            let length = head
+                                .lines()
+                                .find_map(|line| {
+                                    line.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|value| value.trim().parse::<usize>().unwrap_or(0))
+                                })
+                                .unwrap_or(0);
+                            if body.len() >= length {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                let text = String::from_utf8_lossy(&buffer).to_string();
+                let path = text
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/")
+                    .to_owned();
+                let body = text
+                    .split_once("\r\n\r\n")
+                    .map(|(_, body)| body.to_owned())
+                    .unwrap_or_default();
+                recorded.lock().expect("bodies").push(body);
+                let payload = if path.contains("auth_init") {
+                    serde_json::json!({"code": 0, "msg": "", "data": {"biz_code": 0, "biz_msg": "", "biz_data": {
+                        "authorize_url": "https://platform.deepseek.com/dsh/authorize?authorize_id=stub",
+                        "authorize_id": "stub", "expires_in": 600}}})
+                } else {
+                    serde_json::json!({"code": 0, "msg": "", "data": {"biz_code": 0, "biz_msg": "", "biz_data": {
+                        "token": "stub-token", "authorized_url": "https://platform.deepseek.com/dsh/authorized",
+                        "user": {"name": "Stub User"}}}})
+                };
+                let body = payload.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        let signed = sign_in(&origin, |authorize_url, redirect_uri, state| {
+            assert!(authorize_url.contains("/dsh/authorize"));
+            let url = format!("{redirect_uri}?code=stub-code&state={state}");
+            std::thread::spawn(move || http_get(&url));
+            Ok(())
+        })
+        .expect("sign in");
+        assert_eq!(signed.token, "stub-token");
+        assert_eq!(signed.user.as_deref(), Some("Stub User"));
+
+        let bodies = bodies.lock().expect("bodies");
+        let init: serde_json::Value = serde_json::from_str(&bodies[0]).expect("init body");
+        assert_eq!(init["code_challenge_method"], "S256");
+        assert_eq!(init["login_source"], "desktop");
+        assert_eq!(init["locale"], "en_US");
+        assert!(
+            init["redirect_uri"]
+                .as_str()
+                .expect("redirect")
+                .starts_with("http://127.0.0.1:")
+        );
+        let exchange: serde_json::Value = serde_json::from_str(&bodies[1]).expect("exchange body");
+        assert_eq!(exchange["code"], "stub-code");
+        let verifier = exchange["code_verifier"].as_str().expect("verifier");
+        let expected = base64url(digest::digest(&digest::SHA256, verifier.as_bytes()).as_ref());
+        assert_eq!(init["code_challenge"].as_str(), Some(expected.as_str()));
     }
 
     #[test]

@@ -358,7 +358,7 @@ fn validated_provider_form(
     })
 }
 
-fn open_browser(url: &str) -> Result<(), String> {
+fn open_browser(url: &str, _redirect: &str, _state: &str) -> Result<(), String> {
     open_url(url);
     Ok(())
 }
@@ -367,31 +367,37 @@ fn open_browser(url: &str) -> Result<(), String> {
 /// grant is stored as `DSH_DEEPSEEK_TOKEN` in `desktop.env`.
 #[tauri::command]
 fn sign_in_deepseek(app: AppHandle) -> Result<String, String> {
-    std::thread::spawn(move || match signin::sign_in(open_browser) {
-        Ok(signed) => {
-            let home = home_dir();
-            let mut settings = load_provider_settings(&home).unwrap_or_default();
-            settings.provider = Some("deepseek-account".to_owned());
-            if settings.model.is_none() {
-                settings.model = Some("deepseek-flash".to_owned());
-            }
-            settings.env.retain(|key, _| !key.starts_with("OPENAI_"));
-            settings
-                .env
-                .insert("DSH_DEEPSEEK_TOKEN".to_owned(), signed.token.clone());
-            match save_provider_settings(&home, &settings) {
-                Ok(()) => log_line(
-                    &home,
-                    &format!(
-                        "signed in as {}",
-                        signed.user.as_deref().unwrap_or("(unknown)")
+    std::thread::spawn(move || match signin::platform_origin() {
+        Ok(origin) => match signin::sign_in(&origin, open_browser) {
+            Ok(signed) => {
+                let home = home_dir();
+                let mut settings = load_provider_settings(&home).unwrap_or_default();
+                settings.provider = Some("deepseek-account".to_owned());
+                if settings.model.is_none() {
+                    settings.model = Some("deepseek-flash".to_owned());
+                }
+                settings.env.retain(|key, _| !key.starts_with("OPENAI_"));
+                settings
+                    .env
+                    .insert("DSH_DEEPSEEK_TOKEN".to_owned(), signed.token.clone());
+                match save_provider_settings(&home, &settings) {
+                    Ok(()) => log_line(
+                        &home,
+                        &format!(
+                            "signed in as {}",
+                            signed.user.as_deref().unwrap_or("(unknown)")
+                        ),
                     ),
-                ),
-                Err(error) => log_line(&home, &format!("sign-in save failed: {error}")),
+                    Err(error) => log_line(&home, &format!("sign-in save failed: {error}")),
+                }
+                app.restart();
             }
-            app.restart();
+            Err(error) => log_line(&home_dir(), &format!("sign-in failed: {error}")),
+        },
+        Err(error) => {
+            log_line(&home_dir(), &format!("sign-in: {error}"));
+            notify("dshr sign-in", &format!("failed: {error}"));
         }
-        Err(error) => log_line(&home_dir(), &format!("sign-in failed: {error}")),
     });
     Ok("waiting for the browser".to_owned())
 }
