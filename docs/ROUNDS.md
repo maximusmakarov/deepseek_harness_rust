@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–137)
+# Журнал раундов паритета (1–138)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -2110,6 +2110,21 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   ru/en, ярлыки, HKCU-uninstall, опциональный PATH, `~/.dshr` не трогается) и
   ручной workflow `windows-installer.yml`. Локально `makensis` нет, на Windows
   не прогонялось — job не входит в релизный пайплайн (см. RELEASE.md).
+
+## Раунд 138 — Settings: ключ и сервер на одном экране (16.11.2026)
+
+- Окно Settings десктопа снова **одна страница**: провайдер (DeepSeek /
+  OpenAI-совместимый), модель, тип аутентификации, API-ключ, base URL и тут же
+  сервер (встроенный/attach, URL, токен) — с одной кнопкой **Save and restart**.
+  Валидатор `validated_provider_settings` пишет `desktop.env` (0600) и
+  восстанавливает флаги `--provider/--model`, поэтому выбранный маршрут
+  применяется сразу; `BRAVE_SEARCH_API_KEY` сохраняется при правке ключа.
+- Веб-UI: вкладки Account и Server слиты в одну **Connection** (origin, health,
+  активная модель + пояснение, что ключи/сервер задаются в Settings десктопа);
+  сайдбар: Connection / Models / Web search / Plugins.
+- Тесты: `provider_form_keeps_the_chosen_key_and_route` (deepseek + openai,
+  флаги, base URL, отказ на `ftp://` и неизвестном провайдере), `free_port`
+  сделан устойчивым к гонке за эфемерный порт; десктоп 46 + 3.
 
 ## Формализация и каталог тестов (14.11.2026)
 

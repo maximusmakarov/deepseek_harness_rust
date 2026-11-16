@@ -12,8 +12,8 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 
 | Где | Секции | Куда сохраняется |
 |---|---|---|
-| Окно десктопа (трей → Settings…) | **Account** (Sign in with DeepSeek, account token / API key), **Server** (встроенный или attach) | `<home>/desktop.env` (0600) и `<home>/desktop-server.json` (0600) |
-| Веб-UI приложения — экран Settings с **сайдбаром секций** (Account / Models / Web search / Plugins / Server), как в официальном приложении; открывается кнопкой **Open app settings** в окне десктопа, трей → Settings → Open app settings) | **Account** (подсказка), **Models** (route/model/base URL), **Web search** (Brave key), **Plugins** (список Cordis-плагинов с переключателями) | `config.yaml`/профиль — через серверные эндпоинты `/v1/config/model`, `/v1/config/search`, `/v1/plugins/*` |
+| Окно десктопа (трей → Settings…) — **одна страница**: провайдер/модель/API-ключ/base URL + сервер (встроенный или attach) с одной кнопкой Save | `<home>/desktop.env` (0600) и `<home>/desktop-server.json` (0600) |
+| Веб-UI приложения — экран Settings с **сайдбаром секций** (Connection / Models / Web search / Plugins); открывается кнопкой **Open app settings** в окне десктопа, трей → Settings → Open app settings) | **Account** (подсказка), **Models** (route/model/base URL), **Web search** (Brave key), **Plugins** (список Cordis-плагинов с переключателями) | `config.yaml`/профиль — через серверные эндпоинты `/v1/config/model`, `/v1/config/search`, `/v1/plugins/*` |
 
 Кнопка **Save and restart** валидирует поля (схема URL, `http(s)`), для attach
 проверяет `/v1/health`, пишет файлы и перезапускает оболочку. Пустое поле токена

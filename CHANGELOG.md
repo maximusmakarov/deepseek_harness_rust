@@ -16,6 +16,10 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Desktop Settings is a single page again: provider, model, API key, base URL
+  and the server choice (embedded/attach + URL/token) share one Save, and the
+  route is passed to the embedded server immediately. The web UI sidebar merges
+  Account and Server into one Connection section.
 - Plugin routes stream server-sent events (and chunked bodies) instead of
   buffering them, with no total timeout for SSE; buffered responses keep the
   8 MiB guard.

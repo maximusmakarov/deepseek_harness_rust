@@ -2511,7 +2511,7 @@ fn App() -> impl IntoView {
         })
         .unwrap_or_else(|| "dark".to_owned());
     let settings_open = RwSignal::new(false);
-    let settings_tab = RwSignal::new("account".to_owned());
+    let settings_tab = RwSignal::new("connection".to_owned());
     let settings_provider = RwSignal::new(String::new());
     let settings_model = RwSignal::new(String::new());
     let settings_base_url = RwSignal::new(String::new());
@@ -3488,7 +3488,7 @@ fn App() -> impl IntoView {
             <button on:click=move |_| plugins_open.set(true)>"Plugins"</button>
             <button on:click=move |_| {
                 settings_open.set(true);
-                settings_tab.set("account".into());
+                settings_tab.set("connection".into());
                 load_settings();
                 load_search();
             }>"Settings"</button>
@@ -3605,9 +3605,9 @@ fn App() -> impl IntoView {
                 <div class="settings">
                     <nav class="settings-nav">
                         <button
-                            class:active=move || settings_tab.get() == "account"
-                            on:click=move |_| settings_tab.set("account".into())
-                        >"Account"</button>
+                            class:active=move || settings_tab.get() == "connection"
+                            on:click=move |_| { settings_tab.set("connection".into()); load_server(); }
+                        >"Connection"</button>
                         <button
                             class:active=move || settings_tab.get() == "models"
                             on:click=move |_| { settings_tab.set("models".into()); load_settings(); }
@@ -3620,15 +3620,16 @@ fn App() -> impl IntoView {
                             class:active=move || settings_tab.get() == "plugins"
                             on:click=move |_| settings_tab.set("plugins".into())
                         >"Plugins"</button>
-                        <button
-                            class:active=move || settings_tab.get() == "server"
-                            on:click=move |_| { settings_tab.set("server".into()); load_server(); }
-                        >"Server"</button>
+
                     </nav>
                     <div class="settings-body">
-                        {move || (settings_tab.get() == "account").then(|| view! {
+                        {move || (settings_tab.get() == "connection").then(|| view! {
                             <div>
-                                <p class="tool">"Ключи и вход в аккаунт DeepSeek — в Settings десктопа (Sign in with DeepSeek, desktop.env). В браузере сервер читает ключи из окружения."</p>
+                                <p class="tool" style="white-space: pre-wrap">{move || settings_server.get()}</p>
+                                <p class="tool">"API key, провайдер и сервер задаются на одном экране Settings десктопа (Sign in with DeepSeek, desktop.env / desktop-server.json). Веб-UI показывает состояние подключения."</p>
+                                <div class="row">
+                                    <button on:click=move |_| load_server()>"Refresh"</button>
+                                </div>
                             </div>
                         })}
                         {move || (settings_tab.get() == "models").then(|| view! {
@@ -3682,14 +3683,7 @@ fn App() -> impl IntoView {
                                 </div>
                             </div>
                         })}
-                        {move || (settings_tab.get() == "server").then(|| view! {
-                            <div>
-                                <p class="tool" style="white-space: pre-wrap">{move || settings_server.get()}</p>
-                                <div class="row">
-                                    <button on:click=move |_| load_server()>"Refresh"</button>
-                                </div>
-                            </div>
-                        })}
+
                         {move || (settings_tab.get() == "plugins").then(|| view! {
                             <div>
                                 <p class="tool">"Установка, включение и оценки Cordis-плагинов — в разделе Plugins."</p>
