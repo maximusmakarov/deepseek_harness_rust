@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -89,6 +90,9 @@ def start_serve(binary: Path, home: Path, workspace: Path, port: int, cassette: 
             str(cassette),
             "--model",
             "deepseek-flash",
+            # Nested sandboxes (a CI container or an agent sandbox) cannot run
+            # macOS seatbelt; local verification may opt into danger-full-access.
+            *(["--danger"] if os.environ.get("DSHR_E2E_DANGER") == "1" else []),
         ],
         cwd=workspace,
         stdout=subprocess.PIPE,

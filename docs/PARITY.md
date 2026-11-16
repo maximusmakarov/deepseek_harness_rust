@@ -146,11 +146,12 @@ shim'ы.
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
 - `cargo test --workspace`: 366 passed + 3 ignored (root-крейты не менялись);
-  desktop 38 passed (35 unit + 3 integration, итого 404): к прежним 21 добавлены
-  тесты single-instance lock, форварда папки и передачи между поколениями,
-  парсера login-shell env, таймаута, CLI-шима и ссылки в `~/.local/bin`, а также
-  `tests/single_instance.rs` — второй запуск бинаря под чужим lock (с папкой и
-  без) и отказ до старта Tauri.
+  desktop 38 passed (35 unit + 3 integration); web-крейт 6 unit — итого 410.
+  К прежним 21 desktop-тестам добавлены single-instance lock, форвард папки и
+  передача между поколениями, парсер login-shell env, таймаут, CLI-шим и ссылка
+  в `~/.local/bin`, а также `tests/single_instance.rs` — второй запуск бинаря под
+  чужим lock (с папкой и без) и отказ до старта Tauri. Web-тесты покрывают
+  затенение встроенного рендера ядра (C5.1).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `dshr-desktop --check` живьём: `desktop check ok`, в `desktop.log` —
@@ -161,9 +162,13 @@ shim'ы.
   `/v1/plugins/ratings` отвечают.
 - Браузерный e2e (`scripts/web-e2e.py`, stdlib CDP): «New session» → промпт →
   модалка approval для `bash` → Allow → выполнение → стрим ответа → карточка
-  инструмента → файл реально записан → сессия в журнале; 16/16 проверок
-  (добавлены второй ход с `edit`/diff и загрузка/сохранение настроек провайдера),
-  джоба `web-e2e` в CI.
+  инструмента → файл реально записан → сессия в журнале; 18 проверок (второй ход
+  с `edit`/diff, настройки провайдера, turn ordinal и смонтированные регионы),
+  джоба `web-e2e` в CI. Локально в песочнице агента 17/18: `bash`-инструмент не
+  может вложить seatbelt (`sandbox-exec: Operation not permitted`); в CI
+  вложенной песочницы нет. Для таких окружений добавлен opt-in
+  `DSHR_E2E_DANGER=1` (danger-full-access), но он меняет approval-сценарий и
+  поэтому не используется как замена гейту.
 - Linux/Windows desktop: [run 43591784883](https://github.com/maximusmakarov/deepseek_harness_rust/actions/runs/43591784883)
   — обе сборки и упаковка успешны; `.deb` проверен `dpkg-deb --info`.
 - Cordis hot reload проверен на живом `serve`: правка entry перезагружает плагин

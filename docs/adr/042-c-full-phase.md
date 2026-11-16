@@ -1,0 +1,102 @@
+# 042. C-full отдельной фазой: renderer-семантика ядра, mounted-model сессий, host-сервисы
+
+- **Статус:** Accepted (решение владельца 16.11.2026) — фаза открыта
+- **Дата:** 2026-11-16
+- **Уточняет:** [041](041-c-full-decision.md) (там C-full был отложен), [040](040-react-client-half.md), [013](013-cordis-compat.md) §5
+- **Влияет на:** PLUGINS.md, PARITY.md, TECH-DEBT.md, ROADMAP.md, ROUNDS.md
+
+## Контекст
+
+[ADR-041](041-c-full-decision.md) закрыл C-lite/C1/C2 и отложил C-full как
+отдельную фазу: оставались renderer-семантика ядра (плагин не может заменить
+встроенный рендер core-узлов), mounted-model сессий (мост отдаёт снимок с
+задержкой ≤ 5 с и упрощёнными проекциями) и host-сервисы
+`pluginManager`/`settings` (их нет, поэтому часть settings-UI плагинов живёт на
+`configForms`-заглушке).
+
+Владелец выбрал **отдельную фазу** (16.11.2026): три названных направления
+делаются как C5.1–C5.7, а не точечными инкрементами.
+
+Референс — `deepseek-harness@39163dd` (0.2.2-rc.3): `packages/client/ui-*`,
+`packages/client/store`, `packages/client/modules`, `packages/host/webserver`,
+`packages/boot/plugin-manager`, `apps/desktop`. Реальный плагин
+`dsh-genui@0.3.3` подтверждает контракт: встроенный рендер — это **запись в
+SlotMap**, плагин регистрирует ту же ячейку с меньшим `priority` (`-1`),
+затеняет её и может «захватить» встроенный компонент через
+`slots.entries("conversation.chat.node")`.
+
+## Решение
+
+### Границы, принятые для dshr
+
+1. **Встроенный рендер — запись реестра с приоритетом `CORE_RENDERER_PRIORITY =
+   0`.** Плагин затеняет встроенный рендер только явным `priority < 0`; при
+   `priority >= 0` встроенный рендер выигрывает. Это faithful shadowing из
+   reference и одновременно предохранитель: плагин, который просто
+   зарегистрировал ячейку, не отнимает у пользователя встроенный вид.
+2. **Builtin-capture не поддерживается.** Встроенный рендер — Leptos-компонент
+   в шелле, его нельзя отдать в sandboxed iframe как React-компонент.
+   `slots.entries()` по-прежнему не содержит встроенных записей. Плагин,
+   который полагается на захват builtin (как `dsh-genui` для reasoning и
+   fileMentions), деградирует до собственного рендера; это записанное
+   расхождение, а не баг.
+3. **Замена возможна только для `keyed`-ячеек** (`conversation.chat.node` по
+   ключу узла). `single`-ячейки шелла (composer, sidebar) остаются
+   shell-owned: их нельзя заменить, можно только дополнить через
+   `list`/`chain`/`hoc`.
+4. **Отказ рендерера возвращает встроенный вид.** Если кадр-победитель упал
+   (`__DSHR_LAST_ERROR__`/`error`-репорт) или пуст, шелл показывает builtin;
+   это делает затенение безопасным.
+5. **Mounted-model — событийная, без polling.** Сессии обновляются потоком
+   событий сервера; снимок остаётся только как начальная гидратация.
+
+### Срезы фазы
+
+| Срез | Что | DoD |
+|---|---|---|
+| **C5.1** | Renderer registry: builtin как запись с приоритетом 0, затенение core-узлов негативным priority, отказ от hard-coded `user`/`assistant-step` | shell строит вид через `renderer_winner()`; bridge harness проверяет порядок; e2e-probe: плагин с `priority:-1` заменяет `assistant-step`, с `priority:0` — нет |
+| **C5.2** | Fallback на ошибку/пустой кадр: шелл слушает `error`/`chain-unselected`/`empty` от кадра-победителя, возвращает builtin и помечает кадр в диагностике | e2e: падающий рендерер не оставляет пустой узел; ошибка видна в `__DSHR_RENDERER_STATE__` |
+| **C5.3** | Живой поток сессий: `GET /v1/internal/session-events` (SSE, токен как у snapshot), события `session/created`, `session/title`, `turn/start`, `assistant/message` (usage), `tool/call`; sidecar подписывается и держит кэш | `crates/server` integration-тест: 3 события за сессию, reconnect, 401/404; sidecar-тест: кэш обновляется без 5-с опроса |
+| **C5.4** | Mounted-model в шелле: `sessions`/`sessionProjections` из событий, `useSession` живой, история тредов (`sessionStats.llmMs`, thread history) вместо упрощённых проекций | bridge harness: проекции после события; e2e: заголовок/usage меняются без перезагрузки; задержка ≤ 1 с |
+| **C5.5** | Host-сервис `pluginManager`: реестр установленных, install/remove/enable/disable через существующий CLI/HTTP, прогресс и ошибки по RPC | conformance: `dsh-plugin-studio`/`dsh-plugin-debugging` работают без error-состояний; server-тест маршрутов |
+| **C5.6** | Host-сервис `settings`: конфигурационный движок (схема, слои, миграции, revision-fence) вместо in-memory `configForms`; файловая персистентность для browser-половин | `configForms`-тест персистентности через reload; conformance settings-UI сохраняет значение |
+| **C5.7** | Закрытие: conformance n≥11 без деградаций, матрица PARITY/TECH-DEBT, TLA+ `ClientAssets` при необходимости, отчёт | все гейты CI, документы обновлены |
+
+### Инварианты
+
+- **I1.** Встроенный рендер нельзя *удалить*: при отсутствии/отказе плагина
+  ячейка всегда рендерится шеллом.
+- **I2.** Приоритеты детерминированы: `(priority, order, plugin, id)`;
+  дубликат `(name, key, priority)` в бридже бросает (как в SlotCore).
+- **I3.** Кадр-победитель монтируется один: `SlotRegion` для keyed-ячейки
+  фильтрует по winner, а не по всем записям.
+- **I4.** Событийная модель не теряет события: реконнект SSE с `Last-Event-ID`,
+  пропуск → полная перегидратация снимком.
+- **I5.** `pluginManager`/`settings` не дают ambient authority: только
+  операции, которые уже разрешены CLI/HTTP, с теми же проверками.
+
+### Метрики фазы
+
+- Задержка обновления сессии в UI: было ≤ 5 с, цель ≤ 1 с (p95).
+- Плагины, у которых settings-UI работает без error-состояний: ≥ 2
+  (`dsh-plugin-studio`, `dsh-plugin-debugging`).
+- Регрессии conformance: 0 (n=11 удерживается на каждом срезе).
+- Покрытие: новые серверные пути — integration-тесты; мост — harness; шелл —
+  e2e-probe на каждый срез.
+
+## Альтернативы
+
+- **Точечные инкременты (ADR-041 вариант 3)** — дешевле, но не закрывает
+  renderer-семантику и mounted-model как контракт; отклонено владельцем.
+- **Закрыть как «не планируем»** — отклонено.
+- **Полный React-шелл (вариант D ADR-040)** — против ADR-003 и не требуется
+  для трёх названных направлений.
+
+## Последствия
+
+- PLUGINS.md получает контракт затенения (negative priority) и запись про
+  отсутствие builtin-capture.
+- TECH-DEBT: строки «renderer-семантика», «мост sessions — снимок», «host
+  services pluginManager/settings» переезжают в фазу с явными срезами.
+- PARITY: полная React-совместимость перестаёт быть «отложенной» и становится
+  фазой с планом; C-full больше не держит решение владельца.

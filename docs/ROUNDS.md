@@ -1,9 +1,10 @@
-# Журнал раундов паритета (1–105)
+# Журнал раундов паритета (1–106)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 366 root-тестов (+3 ignored) и 38 desktop-тестов =
-**404**, `clippy`/`fmt`/`deny` чисто, release-бинарь воспроизводим.
+проверка. Итоговая сверка: 366 root-тестов (+3 ignored), 38 desktop-тестов и
+6 unit-тестов web-крейта = **410**, `clippy`/`fmt`/`deny` чисто, release-бинарь
+воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
 |---|---|---|
@@ -1036,6 +1037,31 @@ streaming-прокси.
   - Отложено владельцем 16.11.2026: NSIS-инсталлятор, Windows-подпись,
     mandatory-policy и дифференциальные обновления официальной оболочки.
     Остаётся решением владельца C-full ([ADR-041](adr/041-c-full-decision.md)).
+
+- 106: **C5.1 — затенение встроенного рендера ядра** (первый срез фазы C-full,
+  [ADR-042](adr/042-c-full-phase.md)). Встроенный вид `conversation.chat.node`
+  больше не захардкожен за `user`/`assistant-step`: шелл решает ячейку по
+  приоритету (`CORE_RENDERER_PRIORITY = 0`), как reference SlotMap.
+  - `crates/web/src/main.rs`: `chat_node_replaced_by_plugin` /
+    `core_renderer_shadowed` / `keyed_registration`; плагин затеняет встроенный
+    рендер только `priority < 0` (так делает реальный `dsh-genui` для
+    `assistant-step`), регистрация с приоритетом по умолчанию оставляет
+    встроенный вид; затеняются только `keyed`-ячейки, `single` остаются
+    shell-owned.
+  - Границы записаны в [PLUGINS.md](PLUGINS.md) §«Затенение встроенного рендера
+    ядра»: builtin-capture невозможен (Leptos-вид нельзя отдать в iframe как
+    React-компонент), поэтому `dsh-genui` деградирует до собственного рендера;
+    отказ кадра-победителя → встроенный вид — следующий срез C5.2.
+  - Проверки: 6 unit-тестов web-крейта (host-target, `cargo test --bins`),
+    `trunk build --release`, пересборка `dshr` (dist встроен в сервер);
+    client-half smoke **88/88**, browser e2e — 17/18 локально: единственный
+    провал `the tool really wrote the file` — вложенный seatbelt
+    (`sandbox-exec: Operation not permitted`) в текущей песочнице агента, в CI
+    e2e идёт без вложенной песочницы; web-e2e получил opt-in
+    `DSHR_E2E_DANGER=1` для таких окружений.
+  - Открыто: C5.2 (fallback на ошибку/пустой кадр + `__DSHR_RENDERER_STATE__`),
+    C5.3 (живой поток сессий), C5.4 (mounted-model в шелле), C5.5
+    (`pluginManager`), C5.6 (`settings`), C5.7 (закрытие фазы).
 
 ## Что осталось
 

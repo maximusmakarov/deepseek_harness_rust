@@ -564,6 +564,24 @@ conversation-слоты на узел. Оставшееся reference-расхо
 `select(ownerProps)` и реальные owner shares (`wide`, `message.action`,
 `ComposerChainProps`) реализованы в C4.1; store-seats — в C3.1.
 
+### Затенение встроенного рендера ядра (C5.1)
+
+Встроенный рендер `conversation.chat.node` — такая же запись keyed-ячейки, как
+регистрация плагина, с приоритетом `CORE_RENDERER_PRIORITY = 0`:
+
+- плагин затеняет встроенный рендер **только `priority < 0`** (reference
+  `dsh-genui` регистрирует `assistant-step` с `priority: -1`); регистрация с
+  приоритетом по умолчанию оставляет встроенный вид и документирует намерение;
+- затеняются только `keyed`-ячейки (`conversation.chat.node` по ключу узла);
+  `single`-ячейки шелла остаются shell-owned;
+- **builtin-capture не поддерживается**: встроенный вид — Leptos-компонент, его
+  нельзя отдать в sandboxed iframe как React-компонент, поэтому
+  `slots.entries()` не содержит встроенных записей. Плагин, который полагается
+  на захват builtin (как `dsh-genui` для reasoning/fileMentions), деградирует
+  до собственного рендера — записанное расхождение ([ADR-042](adr/042-c-full-phase.md));
+- при отсутствии плагина ячейка всегда рендерится шеллом (инвариант I1
+  ADR-042); отказ кадра-победителя возвращает встроенный вид в C5.2.
+
 ### Slot-level `inject`, generators и `configForms` (C1.2)
 
 Реальные settings-плагины используют контракты слотов, которых не было в

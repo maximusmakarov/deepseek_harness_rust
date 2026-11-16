@@ -1968,11 +1968,55 @@ fn ChatImages(
     }
 }
 
+/// Priority of the shell's built-in chat-node renderer in the keyed cell.
+///
+/// The reference chat package is an ordinary SlotMap entry, so `dsh-genui`
+/// shadows `assistant-step` with `priority: -1` and captures the built-in
+/// component. The shell keeps the shadowing contract; the capture half is
+/// impossible for a Leptos view inside a sandboxed frame (documented in
+/// ADR-042) and a plugin with the default priority keeps the built-in view.
+const CORE_RENDERER_PRIORITY: i64 = 0;
+
+/// Node kinds the shell's core chat view owns.
+fn is_core_chat_kind(kind: &str) -> bool {
+    matches!(kind, "user" | "assistant-step")
+}
+
+/// Whether a plugin shadows the built-in renderer of a keyed cell.
+///
+/// Only a strictly lower priority shadows: registering the same key at the
+/// default priority documents intent without taking the built-in view away.
+fn core_renderer_shadowed(slots: &[ClientSlot], name: &str, key: &str) -> bool {
+    slots.iter().any(|slot| {
+        slot.name == name
+            && slot.kind == "keyed"
+            && slot.key == key
+            && slot.priority < CORE_RENDERER_PRIORITY
+    })
+}
+
+/// Whether any registration targets the keyed cell (plugin-specific kinds).
+fn keyed_registration(slots: &[ClientSlot], name: &str, key: &str) -> bool {
+    slots
+        .iter()
+        .any(|slot| slot.name == name && slot.kind == "keyed" && slot.key == key)
+}
+
+/// Resolves one chat-node cell: `true` when a plugin renders it.
+fn chat_node_replaced_by_plugin(slots: &[ClientSlot], kind: &str) -> bool {
+    if is_core_chat_kind(kind) {
+        core_renderer_shadowed(slots, "conversation.chat.node", kind)
+    } else {
+        keyed_registration(slots, "conversation.chat.node", kind)
+    }
+}
+
 /// One conversation row: the reference chat view's node seat.
 ///
 /// The keyed `conversation.chat.node` renderer replaces the built-in view when a
-/// plugin registered that node kind; the per-node surfaces (reasoning, images,
-/// text interaction, user.before chain) mount around it.
+/// plugin shadows that cell (core kinds: a negative priority); the per-node
+/// surfaces (reasoning, images, text interaction, user.before chain) mount
+/// around it.
 #[component]
 fn ChatNodeRow(index: usize) -> impl IntoView {
     let ui = expect_context::<UiState>();
@@ -2006,25 +2050,14 @@ fn ChatNodeRow(index: usize) -> impl IntoView {
     let role = if is_user { "user" } else { "assistant" };
     let action_context = serde_json::json!({"index": index, "role": role}).to_string();
     let action_occurrence = index.to_string();
-    // Whether a plugin replaced the built-in renderer for this node kind. Only
-    // `slots` is tracked, so streamed text never remounts the slot frame.
-    // The shell's own node renderers are the dshr equivalent of the bundled
-    // reference chat package: the two core kinds stay built-in (a plugin frame
-    // cannot host the shell's rendering, and the reference plugins fall back to
-    // a builtin component dshr does not publish), while plugin-specific kinds
-    // are replaced by their keyed registration.
+    // Whether a plugin renders this node kind instead of the built-in view.
+    // Only `slots` is tracked, so streamed text never remounts the slot frame.
+    // The core kinds are ordinary entries of the same keyed cell at
+    // `CORE_RENDERER_PRIORITY`, so a plugin that opts in with a lower priority
+    // (the reference `dsh-genui` uses `priority: -1`) shadows them; a
+    // registration at the default priority keeps the built-in view.
     let kind_renderer = kind.clone();
-    let replaced = move || {
-        let kind = kind_renderer.as_str();
-        if kind == "user" || kind == "assistant-step" {
-            return false;
-        }
-        ui.slots.get().iter().any(|slot| {
-            slot.name == "conversation.chat.node"
-                && slot.kind == "keyed"
-                && slot.key == kind
-        })
-    };
+    let replaced = move || chat_node_replaced_by_plugin(&ui.slots.get(), &kind_renderer);
     let entry_key = kind.clone();
     let owner_slot = owner.clone();
     let context_slot = context.clone();
@@ -3501,5 +3534,67 @@ fn App() -> impl IntoView {
                 </div>
             </dialog>
         }})}
+    }
+}
+
+#[cfg(test)]
+mod renderer_tests {
+    use super::*;
+
+    fn node_entry(kind: &str, key: &str, priority: i64) -> ClientSlot {
+        ClientSlot {
+            plugin: "fixture".to_owned(),
+            name: "conversation.chat.node".to_owned(),
+            id: format!("{kind}:{key}:{priority}"),
+            title: String::new(),
+            order: 0,
+            region: "chat.node".to_owned(),
+            kind: kind.to_owned(),
+            priority,
+            key: key.to_owned(),
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn core_kinds_keep_the_builtin_renderer_without_a_registration() {
+        let slots: Vec<ClientSlot> = Vec::new();
+        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        assert!(!chat_node_replaced_by_plugin(&slots, "user"));
+    }
+
+    #[test]
+    fn a_default_priority_registration_does_not_take_the_builtin() {
+        let slots = vec![node_entry("keyed", "assistant-step", 0)];
+        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+    }
+
+    #[test]
+    fn a_negative_priority_shadows_a_core_kind() {
+        let slots = vec![node_entry("keyed", "assistant-step", -1)];
+        assert!(chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        let user = vec![node_entry("keyed", "user", -2)];
+        assert!(chat_node_replaced_by_plugin(&user, "user"));
+    }
+
+    #[test]
+    fn a_shadowed_other_key_does_not_replace_this_node() {
+        let slots = vec![node_entry("keyed", "reasoning", -1)];
+        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+    }
+
+    #[test]
+    fn plugin_specific_kinds_render_their_keyed_registration() {
+        let slots = vec![node_entry("keyed", "custom-card", 0)];
+        assert!(chat_node_replaced_by_plugin(&slots, "custom-card"));
+        assert!(!chat_node_replaced_by_plugin(&slots, "another-card"));
+    }
+
+    #[test]
+    fn non_keyed_registrations_never_replace_a_node() {
+        let slots = vec![node_entry("single", "assistant-step", -1)];
+        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        let list = vec![node_entry("list", "custom-card", -1)];
+        assert!(!chat_node_replaced_by_plugin(&list, "custom-card"));
     }
 }
