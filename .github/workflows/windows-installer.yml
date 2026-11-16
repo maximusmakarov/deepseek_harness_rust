@@ -1,0 +1,44 @@
+# Draft: builds the NSIS per-user installer for Windows.
+#
+# Manual only (workflow_dispatch): the script is unverified until a Windows run
+# proves it, so it must not gate a release. Once a run is green, move this job
+# into release.yml next to `desktop-windows` and attach the artifact there.
+name: windows installer (draft)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: nsis installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: install nsis
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+      - name: build binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p dshr-cli
+          CARGO_TARGET_DIR=target cargo build --release --manifest-path crates/desktop/Cargo.toml
+      - name: build installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content Cargo.toml | Select-String '^version = "([^"]+)"').Matches.Groups[1].Value
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$version /DSOURCE=target\release /DOUT=dist packaging\windows\dshr.nsi
+          Get-FileHash "dist\dshr-$version-setup.exe" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  dshr-$version-setup.exe" } |
+            Set-Content "dist\dshr-$version-setup.exe.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*setup.exe*
+          if-no-files-found: error

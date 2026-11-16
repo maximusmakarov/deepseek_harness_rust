@@ -1213,6 +1213,31 @@ export default {
 };
 "#;
 
+const SSE_PLUGIN: &str = r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "probe",
+      description: "probe",
+      inputSchema: { type: "object" },
+      handler: () => "ok",
+    });
+    ctx.inject(["webServer"], (scope) => {
+      scope.webServer.register({
+        name: "probe-sse",
+        kind: "exact",
+        path: "/probe-sse",
+        handler: async (req, res) => {
+          res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+          res.write("data: one\n\n");
+          setTimeout(() => res.end("data: two\n\n"), 300);
+        },
+      });
+    });
+  },
+};
+"#;
+
 const FALLBACK_PLUGIN: &str = r#"
 export default {
   apply(ctx) {
@@ -1522,4 +1547,46 @@ async fn hostile_host_header_cannot_inject_the_asset_csp() {
         .to_owned();
     assert!(csp.contains("http://127.0.0.1"), "{csp}");
     assert!(!csp.contains("script-src *"), "{csp}");
+}
+
+#[tokio::test]
+async fn streams_server_sent_events_from_plugin_routes() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping server plugin test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("plugin.mjs"), SSE_PLUGIN).expect("plugin");
+    let (state, _registry, _manager) = state(dir.path()).await;
+    let app = router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-sse")
+        .header("accept", "text/event-stream")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/event-stream"
+    );
+    // The body is streamed, not buffered: the first event arrives while the
+    // plugin still holds the connection open.
+    let mut stream = response.into_body().into_data_stream();
+    let first = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        futures_util::StreamExt::next(&mut stream),
+    )
+    .await
+    .expect("first chunk timeout")
+    .expect("chunk")
+    .expect("datagram");
+    assert_eq!(first.as_ref(), b"data: one\n\n");
+    let mut rest = Vec::new();
+    while let Some(chunk) = futures_util::StreamExt::next(&mut stream).await {
+        rest.extend_from_slice(&chunk.expect("chunk"));
+    }
+    assert_eq!(String::from_utf8_lossy(&rest), "data: two\n\n");
 }

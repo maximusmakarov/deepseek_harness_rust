@@ -2187,11 +2187,16 @@ async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> R
             );
         }
     };
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .no_proxy()
-        .build()
-    {
+    // Server-sent events must not be cut by the buffered-response timeout.
+    let wants_stream = accept
+        .as_ref()
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("text/event-stream"));
+    let mut builder = reqwest::Client::builder().no_proxy();
+    if !wants_stream {
+        builder = builder.timeout(Duration::from_secs(15));
+    }
+    let client = match builder.build() {
         Ok(client) => client,
         Err(_) => return plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin proxy unavailable"),
     };
@@ -2231,6 +2236,36 @@ async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> R
         .get(reqwest::header::CACHE_CONTROL)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
+    // SSE (or any chunked body) is forwarded incrementally, so a plugin can push
+    // events; ordinary responses keep the buffered path and its 8 MiB guard.
+    let streamable = wants_stream
+        || response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream"))
+        || response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .is_none();
+    if streamable {
+        let stream =
+            futures_util::TryStreamExt::map_err(response.bytes_stream(), std::io::Error::other);
+        let mut builder = Response::builder()
+            .status(status)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+            .header(header::CACHE_CONTROL, "no-store");
+        if let Some(cache_control) = cache_control {
+            builder = builder.header(header::CACHE_CONTROL, cache_control);
+        }
+        return builder
+            .body(Body::from_stream(stream))
+            .map(with_plugin_cors)
+            .unwrap_or_else(|_| {
+                plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin route failed")
+            });
+    }
     let bytes = match response.bytes().await {
         Ok(bytes) => bytes,
         Err(_) => return plugin_proxy_error(StatusCode::BAD_GATEWAY, "plugin route failed"),

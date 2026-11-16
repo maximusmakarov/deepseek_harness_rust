@@ -43,7 +43,7 @@ reference-клон community-плагина `dsh-desktop@233b76c`, устано�
 | Login-shell environment (`-ilc env -0`, delimiters, таймаут) | `login_env.rs`: один прогон на процесс, `DSHR_DESKTOP_LOGIN_SHELL_TIMEOUT_MS` (1–2 147 483 647 мс, по умолчанию 10 000), фильтр probe/owned-переменных | ✅ |
 | Bundled CLI launcher, работает при закрытом приложении | `<home>/bin/dshr` (+`.cmd`), трей «Install CLI command…» → `~/.local/bin/dshr`, чужая команда не перезаписывается | ✅ |
 | Welcome: browser sign-in (PKCE) и API-key page | окно Settings с **Sign in with DeepSeek** (публичный OAuth `platform.deepseek.com`, PKCE S256) и ручным токеном/API-key; `desktop.env` 0600 | ✅ |
-| NSIS-инсталлятор: локали, uninstall-data, restart-banner | macOS `.app`+DMG, Linux deb/tar.gz, Windows zip | ⏸ отложено |
+| NSIS-инсталлятор: локали, uninstall-data, restart-banner | macOS `.app`+DMG, Linux deb/tar.gz, Windows zip; черновик per-user NSIS (`packaging/windows/dshr.nsi`, ru/en, user-PATH, uninstall) + ручной workflow, **не проверен на Windows** | ⏸ отложено (черновик) |
 | Обновления: каналы, mandatory-policy, журнал, переиспользование блоков | Stable/Beta, скачивание с SHA256SUMS, установка macOS | ⏸ отложено |
 | Подпись: Windows EV, notarization, publisher | ad-hoc по умолчанию; тулинг Developer ID/notarytool | ⏸ отложено |
 | Recovery: журнал операций, backup patch, диагностический отчёт | recovery-окно (профили, плагины, safe mode), `--export-diagnostics` | ⚠️ |

@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–136)
+# Журнал раундов паритета (1–137)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -2096,6 +2096,20 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Тест `proxies_plugin_host_routes` проверяет 403 для `https://evil.example` и
   200 для `null`/`http://127.0.0.1:4317`; весь набор `plugins_live` — 18/18.
 - Границы записаны в [TECH-DEBT](TECH-DEBT.md) и [PLUGINS](PLUGINS.md).
+
+## Раунд 137 — SSE для plugin-маршрутов и черновик NSIS (16.11.2026)
+
+- Plugin-маршруты теперь **стримят** ответы: если клиент просит
+  `text/event-stream`, ответ плагина приходит SSE-типом или без
+  `content-length`, прокси отдаёт `Body::from_stream` без буферизации и без
+  15-секундного таймаута; обычные ответы остаются буферизованными с лимитом
+  8 MiB. Тест `streams_server_sent_events_from_plugin_routes` проверяет, что
+  первый `data: one` приходит, пока плагин держит соединение (второй — через
+  300 мс), всего `plugins_live` — 19/19.
+- Черновик Windows-инсталлятора: `packaging/windows/dshr.nsi` (per-user,
+  ru/en, ярлыки, HKCU-uninstall, опциональный PATH, `~/.dshr` не трогается) и
+  ручной workflow `windows-installer.yml`. Локально `makensis` нет, на Windows
+  не прогонялось — job не входит в релизный пайплайн (см. RELEASE.md).
 
 ## Формализация и каталог тестов (14.11.2026)
 

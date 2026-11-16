@@ -16,6 +16,11 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Plugin routes stream server-sent events (and chunked bodies) instead of
+  buffering them, with no total timeout for SSE; buffered responses keep the
+  8 MiB guard.
+- Windows: draft per-user NSIS installer (`packaging/windows/dshr.nsi`) and a
+  manual workflow; unverified on Windows and kept out of the release pipeline.
 - Plugin routes reject cross-site browser requests: `Origin: null` (sandboxed
   plugin frames), loopback origins and native clients pass, any other origin
   gets 403; the loopback-only policy stays.

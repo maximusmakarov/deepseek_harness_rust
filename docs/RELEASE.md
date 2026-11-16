@@ -176,3 +176,18 @@ CI использует эти переменные; `cross`-сборка Linux 
 - Релизный прогон на теге ещё не выполнялся: desktop-джобы и `publish`
   проверяются только через `workflow_dispatch`-dry-run и локальные dry-run'ы.
 - Ключ подписи один; ротации и отзыва ключей нет.
+
+## Windows installer (черновик)
+
+`packaging/windows/dshr.nsi` — per-user NSIS-инсталлятор (без прав
+администратора): `dshr.exe` + `dshr-desktop.exe` в `%LOCALAPPDATA%\dshr`,
+ярлыки, запись в «Программы и компоненты» (HKCU), опциональное добавление в
+пользовательский PATH; uninstaller удаляет файлы и PATH-запись, но **не трогает**
+`%USERPROFILE%\.dshr`. Сборка: `makensis /DVERSION=<v> /DSOURCE=target\release
+/DOUT=dist packaging/windows/dshr.nsi`.
+
+Скрипт и workflow `.github/workflows/windows-installer.yml` **не проверены на
+Windows** (локально `makensis` нет): workflow запускается только вручную
+(`workflow_dispatch`) и не входит в релизный пайплайн, чтобы непроверенный
+инсталлятор не блокировал тег. После зелёного прогона job переносится в
+`release.yml` рядом с `desktop-windows`.
