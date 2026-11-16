@@ -16,7 +16,11 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
-- Tests: the desktop crate gets its missing `tempfile` dev-dependency and unique
+- Desktop: server settings moved in-app (the official app's Settings pattern): a
+  "dshr server" window edits the attach URL/token or switches to the supervised
+  local server, validates the URL, probes `/v1/health`, saves
+  `desktop-server.json` and restarts. A first run without a configured URL opens
+  that window instead of a blocking native dialog.- Tests: the desktop crate gets its missing `tempfile` dev-dependency and unique
   temp-home names; the npm registry stub now switches accepted sockets to
   blocking mode (macOS inherits non-blocking) and installs routes before
   accepting, removing intermittent 404s.- Cordis compat: the sidecar answers the service probes real plugins make —

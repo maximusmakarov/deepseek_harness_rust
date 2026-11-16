@@ -135,21 +135,105 @@ fn attach_health(base_url: &str) -> Result<(), String> {
     }
 }
 
-/// Asks for an attach target (URL + token) with a native dialog.
-fn prompt_server_setup() -> Result<ServerSettings, String> {
-    let url = prompt_text("dshr server", "Server URL", "http://127.0.0.1:4317")
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "a server URL is required in attach mode".to_owned())?;
-    let token = prompt_secret(
-        "dshr server",
-        "Bearer token (leave empty if the server has none)",
-    )?
-    .filter(|value| !value.trim().is_empty());
-    Ok(ServerSettings {
-        mode: "attach".to_owned(),
-        url: Some(server_base(&url)),
-        token,
-    })
+/// Validates the settings form the in-app Server settings page submits.
+fn validated_server_settings(mode: &str, url: &str, token: &str) -> Result<ServerSettings, String> {
+    let mode = if mode == "local" { "local" } else { "attach" };
+    let mut settings = ServerSettings {
+        mode: mode.to_owned(),
+        url: None,
+        token: None,
+    };
+    if mode == "attach" {
+        let url = url.trim();
+        if url.is_empty() {
+            return Err("A server URL is required in attach mode".to_owned());
+        }
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err("The server URL must start with http:// or https://".to_owned());
+        }
+        settings.url = Some(server_base(url));
+        let token = token.trim();
+        if !token.is_empty() {
+            settings.token = Some(token.to_owned());
+        }
+    }
+    Ok(settings)
+}
+
+/// In-app Server settings page (the desktop equivalent of the official app's
+/// Settings entry): attach URL + token, or the supervised local server.
+fn show_server_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("server-settings") {
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let home = home_dir();
+    let current = load_server_settings(&home);
+    let url = current.url.clone().unwrap_or_default();
+    let local_checked = if current.mode == "local" {
+        " checked"
+    } else {
+        ""
+    };
+    let attach_checked = if current.mode == "local" {
+        ""
+    } else {
+        " checked"
+    };
+    let html = format!(
+        "<!doctype html><meta charset=\"utf-8\">\
+         <style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}\
+         label{{display:block;margin:12px 0 4px}}input{{width:100%;padding:8px;border-radius:6px;\
+         border:1px solid #555;background:#222;color:#eee}}button{{margin:16px 8px 0 0;padding:8px 14px;\
+         border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}p{{color:#aaa}}</style>\
+         <h2>dshr server</h2>\
+         <p>Attach to a running <code>dshr serve</code> (default), or let this app run its own local server.</p>\
+         <label><input type=\"radio\" name=\"mode\" value=\"attach\"{attach_checked}> Attach to a server</label>\
+         <label>Server URL<input id=\"url\" value=\"{url}\" placeholder=\"http://127.0.0.1:4317\"></label>\
+         <label>Bearer token (optional)<input id=\"token\" type=\"password\" placeholder=\"token printed by dshr serve\"></label>\
+         <label><input type=\"radio\" name=\"mode\" value=\"local\"{local_checked}> Run a local server (dev/CI)</label>\
+         <button onclick=\"save()\">Save and restart</button>\
+         <button onclick=\"window.__TAURI__.window.getCurrentWindow().close()\">Cancel</button>\
+         <p id=\"status\"></p>\
+         <script>\
+         async function save() {{
+           const mode = document.querySelector('input[name=mode]:checked').value;
+           const url = document.getElementById('url').value;
+           const token = document.getElementById('token').value;
+           const status = document.getElementById('status');
+           status.textContent = 'saving…';
+           try {{
+             await window.__TAURI__.core.invoke('save_server_form', {{ mode, url, token }});
+           }} catch (error) {{
+             status.textContent = String(error);
+           }}
+         }}\n         </script>"
+    );
+    let url = data_url(&html)
+        .parse::<tauri::Url>()
+        .map_err(tauri::Error::InvalidUrl)?;
+    WebviewWindowBuilder::new(app, "server-settings", WebviewUrl::External(url))
+        .title("dshr server")
+        .inner_size(560.0, 460.0)
+        .build()?;
+    Ok(())
+}
+
+#[tauri::command]
+fn save_server_form(
+    app: AppHandle,
+    mode: String,
+    url: String,
+    token: String,
+) -> Result<(), String> {
+    let settings = validated_server_settings(&mode, &url, &token)?;
+    if settings.mode == "attach"
+        && let Some(url) = settings.url.as_deref()
+    {
+        attach_health(url)?;
+    }
+    save_server_settings(&home_dir(), &settings)?;
+    app.restart();
 }
 
 fn main() {
@@ -212,7 +296,7 @@ fn main() {
     };
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![recovery_action])
+        .invoke_handler(tauri::generate_handler![recovery_action, save_server_form])
         .setup(move |app| {
             let home = home_dir();
             let profile = current_profile(&home);
@@ -251,19 +335,12 @@ fn main() {
                 {
                     settings
                 } else {
-                    match prompt_server_setup() {
-                        Ok(settings) => {
-                            if let Err(error) = save_server_settings(&home, &settings) {
-                                show_error("dshr server", &error);
-                                return Err(error.into());
-                            }
-                            settings
-                        }
-                        Err(error) => {
-                            show_error("dshr server", &error);
-                            return Err(error.into());
-                        }
-                    }
+                    log_line(
+                        &home,
+                        "attach mode without a server URL: opening server settings",
+                    );
+                    show_server_settings(app.handle())?;
+                    return Ok(());
                 };
                 let url = settings.url.clone().unwrap_or_default();
                 if let Err(error) = attach_health(&url) {
@@ -626,20 +703,8 @@ fn build_tray(
                 open_terminal(&home, &current_profile(&home));
             }
             "server-setup" => {
-                let home = home_dir();
-                match prompt_server_setup() {
-                    Ok(settings) => match save_server_settings(&home, &settings) {
-                        Ok(()) => {
-                            if let Err(error) =
-                                attach_health(settings.url.as_deref().unwrap_or_default())
-                            {
-                                show_error("dshr server", &error);
-                            }
-                            app.restart();
-                        }
-                        Err(error) => show_error("dshr server", &error),
-                    },
-                    Err(error) => show_error("dshr server", &error),
+                if let Err(error) = show_server_settings(app) {
+                    show_error("dshr server", &error.to_string());
                 }
             }
             "install-cli" => {
@@ -2050,6 +2115,26 @@ fn folder_argument(args: &[String]) -> Result<Option<PathBuf>, String> {
 #[cfg(test)]
 mod server_settings_tests {
     use super::*;
+
+    #[test]
+    fn attach_requires_an_http_url() {
+        assert!(validated_server_settings("attach", "", "").is_err());
+        assert!(validated_server_settings("attach", "127.0.0.1:4317", "").is_err());
+        let settings =
+            validated_server_settings("attach", "http://127.0.0.1:4317/ ", " tok ").expect("valid");
+        assert_eq!(settings.mode, "attach");
+        assert_eq!(settings.url.as_deref(), Some("http://127.0.0.1:4317"));
+        assert_eq!(settings.token.as_deref(), Some("tok"));
+    }
+
+    #[test]
+    fn local_mode_ignores_url_and_token() {
+        let settings =
+            validated_server_settings("local", "http://ignored", "secret").expect("local");
+        assert_eq!(settings.mode, "local");
+        assert!(settings.url.is_none());
+        assert!(settings.token.is_none());
+    }
 
     #[test]
     fn attach_is_the_default_mode() {
