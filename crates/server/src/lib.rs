@@ -411,6 +411,10 @@ pub fn router(state: AppState) -> Router {
             post(models_api::discover_provider),
         )
         .route(
+            "/v1/config/providers/welcome",
+            post(models_api::acknowledge_welcome),
+        )
+        .route(
             "/v1/config/providers/{id}",
             put(models_api::put_provider).delete(models_api::delete_provider),
         )

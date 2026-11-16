@@ -386,6 +386,31 @@ def run(args: argparse.Namespace) -> int:
             timeout=STEP_TIMEOUT,
             label="catalog provider row",
         )
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!!document.querySelector('.models-welcome')"),
+            timeout=STEP_TIMEOUT,
+            label="welcome notice",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                [...document.querySelectorAll('.models-welcome button')]
+                    .find(b => b.textContent.trim() === 'Continue').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!document.querySelector('.models-welcome')"),
+            timeout=STEP_TIMEOUT,
+            label="welcome acknowledged",
+        )
+        check(
+            "the first-run notice is acknowledged durably",
+            "welcome_version: 1" in (home / "models.yaml").read_text()
+            if (home / "models.yaml").exists()
+            else False,
+        )
         check(
             "models lists the active provider with its catalog models",
             evaluate(
@@ -528,7 +553,7 @@ def run(args: argparse.Namespace) -> int:
             lambda: evaluate(
                 smoke,
                 dt,
-                "!!document.querySelector('.models-row[data-provider=\"openai\"] .models-confirm')",
+                "!!document.querySelector('.models-modal')",
             ),
             timeout=STEP_TIMEOUT,
             label="delete confirmation",
@@ -537,8 +562,8 @@ def run(args: argparse.Namespace) -> int:
             smoke,
             dt,
             """(() => {
-                const confirm = document.querySelector('.models-row[data-provider="openai"] .models-confirm');
-                [...confirm.querySelectorAll('button')]
+                const modal = document.querySelector('.models-modal');
+                [...modal.querySelectorAll('button')]
                     .find(b => b.textContent.trim() === 'Delete').click();
                 return true;
             })()""",
@@ -627,6 +652,40 @@ def run(args: argparse.Namespace) -> int:
             ),
             timeout=STEP_TIMEOUT,
             label="custom model rows from discovery",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const rows = document.querySelectorAll('.models-editor-card[data-provider="acme-gateway"] .models-model-block');
+                rows[1].querySelector('button[title="remove this row"]').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!!document.querySelector('.models-modal')"),
+            timeout=STEP_TIMEOUT,
+            label="model deletion confirmation",
+        )
+        modal_text = evaluate(smoke, dt, "document.querySelector('.models-modal')?.textContent || ''")
+        check("model deletion names the model", "acme-two" in modal_text, modal_text)
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                [...document.querySelectorAll('.models-modal button')]
+                    .find(b => b.textContent.trim() === 'Cancel').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "document.querySelectorAll('.models-editor-card[data-provider=\"acme-gateway\"] .models-model-row').length === 2",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="model deletion cancelled",
         )
         evaluate(
             smoke,

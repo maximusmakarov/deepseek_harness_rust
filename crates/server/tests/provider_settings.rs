@@ -483,3 +483,32 @@ async fn discovers_models_from_an_openai_compatible_endpoint() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn acknowledges_the_welcome_notice_durably() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    assert_eq!(get(&app).await["welcome_version"], Value::Null);
+
+    let (status, answer) = call(
+        &app,
+        "POST",
+        "/v1/config/providers/welcome",
+        Some(json!({"version": 1})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["welcome_version"], 1);
+    assert_eq!(get(&app).await["welcome_version"], 1);
+    let written = std::fs::read_to_string(dir.path().join("models.yaml")).expect("models.yaml");
+    assert!(written.contains("welcome_version: 1"), "{written}");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/config/providers/welcome",
+        Some(json!({"version": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

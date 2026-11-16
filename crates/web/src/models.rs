@@ -116,6 +116,8 @@ struct ModelsSnapshot {
     providers: Vec<ProviderRow>,
     #[serde(default)]
     note: String,
+    #[serde(default)]
+    welcome_version: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -130,6 +132,20 @@ struct DiscoveredModel {
 struct DiscoverResponse {
     #[serde(default)]
     models: Vec<DiscoveredModel>,
+}
+
+/// A destructive action waiting for the modal confirmation.
+#[derive(Clone, Debug, PartialEq)]
+enum ConfirmAction {
+    Provider {
+        route: String,
+        name: String,
+    },
+    Model {
+        name: String,
+        index: usize,
+        model_id: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -268,6 +284,9 @@ fn reasoning_default() -> Value {
         ("high".into(), "high".into()),
     ])
 }
+
+/// First-run notice version this UI asks the server to acknowledge.
+const WELCOME_VERSION: u32 = 1;
 
 /// Failure-code choices, in DSH's order and with its labels.
 const RETRY_CODE_CHOICES: [(&str, &str); 8] = [
@@ -643,13 +662,15 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
     let status = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let editing = RwSignal::new(None::<ProviderDraft>);
-    let deleting = RwSignal::new(None::<String>);
+    let confirm = RwSignal::new(None::<ConfirmAction>);
     let add_choice = RwSignal::new(String::new());
     let add_mode = RwSignal::new("catalog".to_owned());
     let candidates = RwSignal::new(None::<Vec<DiscoveredModel>>);
     let candidate_checked = RwSignal::new(std::collections::BTreeSet::<String>::new());
     let candidate_filter = RwSignal::new(String::new());
     let discovering = RwSignal::new(false);
+    let welcome_dismissed = RwSignal::new(false);
+    let acknowledging = RwSignal::new(false);
 
     let load = move || {
         let value = token.get_untracked();
@@ -733,6 +754,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                     editing.set(None);
                     candidates.set(None);
                     candidate_checked.set(std::collections::BTreeSet::new());
+                    confirm.set(None);
                     error.set(String::new());
                     load();
                 }
@@ -754,7 +776,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             match send("DELETE", &path, &value, None).await {
                 Ok(_) => {
                     status.set(format!("removed {route} · catalog defaults apply again"));
-                    deleting.set(None);
+                    confirm.set(None);
                     error.set(String::new());
                     load();
                 }
@@ -876,6 +898,29 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         candidate_filter.set(String::new());
     };
 
+    let acknowledge_welcome = move || {
+        let value = token.get_untracked();
+        acknowledging.set(true);
+        spawn_local(async move {
+            match send(
+                "POST",
+                "/v1/config/providers/welcome",
+                &value,
+                Some(&json!({"version": WELCOME_VERSION})),
+            )
+            .await
+            {
+                Ok(_) => {
+                    welcome_dismissed.set(true);
+                    error.set(String::new());
+                    load();
+                }
+                Err(message) => error.set(message),
+            }
+            acknowledging.set(false);
+        });
+    };
+
     let add_catalog = move || {
         let choice = add_choice.get_untracked();
         let Some(entry) = snapshot
@@ -982,7 +1027,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             })}
                                             {row.removable.then(|| view! {
                                                 <button
-                                                    on:click=move |_| { deleting.set(Some(delete_id.clone())); }
+                                                    on:click=move |_| {
+                                                        confirm.set(Some(ConfirmAction::Provider {
+                                                            route: delete_id.clone(),
+                                                            name: name.clone(),
+                                                        }));
+                                                    }
                                                     disabled=move || busy.get()
                                                 >"Delete"</button>
                                             })}
@@ -996,20 +1046,6 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         {row.effective_base_url.as_ref().map(|url| format!(" · {url}"))}
                                         {format!(" · {models_count} model(s)")}
                                     </p>
-                                    {move || {
-                                        let route = route.clone();
-                                        let name = name.clone();
-                                        (deleting.get().as_deref() == Some(route.as_str())).then(|| view! {
-                                            <div class="models-confirm">
-                                                <span>{format!("Delete the stored profile for {name} and its model list? Catalog defaults return.")}</span>
-                                                <button
-                                                    on:click=move |_| delete(route.clone())
-                                                    disabled=move || busy.get()
-                                                >"Delete"</button>
-                                                <button on:click=move |_| deleting.set(None)>"Cancel"</button>
-                                            </div>
-                                        })
-                                    }}
                                 </li>
                             }
                         })
@@ -1056,6 +1092,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 editing.set(None);
                                 candidates.set(None);
                                 candidate_checked.set(std::collections::BTreeSet::new());
+                                confirm.set(None);
                                 load();
                             }>"Cancel"</button>
                             </span>
@@ -1356,6 +1393,11 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     return view! { <span></span> }.into_any();
                                 };
                                 let custom = draft.custom;
+                                let provider_name = if draft.display_name.trim().is_empty() {
+                                    draft.id.clone()
+                                } else {
+                                    draft.display_name.clone()
+                                };
                                 draft.models.iter().enumerate().map(|(index, model)| {
                                     let id_value = model.id.clone();
                                     let name_value = model.name.clone();
@@ -1365,6 +1407,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     let image = model.image;
                                     let model_id_for_use = model.id.clone();
                                     let provider_for_use = draft.id.clone();
+                                    let provider_name = provider_name.clone();
+                                    let model_for_remove = model_id_for_use.clone();
                                     let can_use = !custom && !model_id_for_use.trim().is_empty();
                                     let reasoning_on = reasoning_enabled(&model.reasoning_efforts);
                                     let level_rows = reasoning_entries(&model.reasoning_efforts);
@@ -1474,11 +1518,11 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             <button
                                                 title="remove this row"
                                                 on:click=move |_| {
-                                                    editing.update(|draft| {
-                                                        if let Some(draft) = draft {
-                                                            let _ = draft.models.remove(index);
-                                                        }
-                                                    });
+                                                    confirm.set(Some(ConfirmAction::Model {
+                                                        name: provider_name.clone(),
+                                                        index,
+                                                        model_id: model_for_remove.clone(),
+                                                    }));
                                                 }
                                             >"×"</button>
                                         </div>
@@ -1621,6 +1665,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 editing.set(None);
                                 candidates.set(None);
                                 candidate_checked.set(std::collections::BTreeSet::new());
+                                confirm.set(None);
                                 load();
                             }>"Cancel"</button>
                         </div>
@@ -1667,6 +1712,83 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 })}
                 <span class="tool">{move || if busy.get() { "working…" } else { "" }}</span>
             </div>
+            {move || {
+                let show = !welcome_dismissed.get()
+                    && snapshot.get().is_some_and(|value| {
+                        value.welcome_version.unwrap_or(0) < WELCOME_VERSION
+                    });
+                if !show {
+                    return view! { <span></span> }.into_any();
+                }
+                let usable = snapshot.get().is_some_and(|value| {
+                    value
+                        .providers
+                        .iter()
+                        .any(|row| row.credential_configured == Some(true))
+                });
+                view! {
+                    <div class="models-modal models-welcome" role="presentation">
+                        <div class="models-modal-card" role="dialog" aria-modal="true" aria-label="Welcome to Models">
+                            <h4>"Welcome to Models"</h4>
+                            <p>"Configure providers and their model lists here. Profiles live in models.yaml; API keys stay in the environment and never reach this page."</p>
+                            {(!usable).then(|| view! {
+                                <p>"No provider has a key yet. Set DEEPSEEK_API_KEY or DSH_DEEPSEEK_TOKEN in the environment (or use the desktop Settings window) before sending a prompt."</p>
+                            })}
+                            <div class="row">
+                                <button
+                                    class="primary"
+                                    on:click=move |_| acknowledge_welcome()
+                                    disabled=move || acknowledging.get()
+                                >"Continue"</button>
+                            </div>
+                        </div>
+                    </div>
+                }.into_any()
+            }}
+            {move || confirm.get().map(|action| {
+                let (title, body) = match &action {
+                    ConfirmAction::Provider { name, .. } => (
+                        "Delete provider".to_owned(),
+                        format!("Delete the stored profile for {name} and its model list? The catalog defaults return."),
+                    ),
+                    ConfirmAction::Model { name, model_id, .. } => (
+                        "Delete model".to_owned(),
+                        format!("Remove '{model_id}' from {name}? Save the provider to apply the list."),
+                    ),
+                };
+                let action_for_delete = action.clone();
+                let aria_label = title.clone();
+                view! {
+                    <div class="models-modal" role="presentation">
+                        <div class="models-modal-card" role="dialog" aria-modal="true" aria-label=aria_label>
+                            <h4>{title}</h4>
+                            <p>{body}</p>
+                            <div class="row">
+                                <button
+                                    class="danger"
+                                    disabled=move || busy.get()
+                                    on:click=move |_| {
+                                        match &action_for_delete {
+                                            ConfirmAction::Provider { route, .. } => delete(route.clone()),
+                                            ConfirmAction::Model { index, .. } => {
+                                                editing.update(|draft| {
+                                                    if let Some(draft) = draft
+                                                        && *index < draft.models.len()
+                                                    {
+                                                        let _ = draft.models.remove(*index);
+                                                    }
+                                                });
+                                            }
+                                        }
+                                        confirm.set(None);
+                                    }
+                                >"Delete"</button>
+                                <button on:click=move |_| confirm.set(None)>"Cancel"</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            })}
             <p class="tool models-status">{move || status.get()}</p>
         </div>
     }

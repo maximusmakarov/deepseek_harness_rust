@@ -219,6 +219,8 @@ pub struct ModelsDocument {
     pub revision: u64,
     /// Provider profiles keyed by route id.
     pub providers: BTreeMap<String, ProviderProfile>,
+    /// Highest first-run notice version the user acknowledged.
+    pub welcome_version: Option<u32>,
 }
 
 impl Default for ModelsDocument {
@@ -227,6 +229,7 @@ impl Default for ModelsDocument {
             version: MODELS_VERSION,
             revision: 0,
             providers: BTreeMap::new(),
+            welcome_version: None,
         }
     }
 }

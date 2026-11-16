@@ -194,6 +194,7 @@ pub async fn get_providers(
         "active": { "provider": active, "model": model },
         "catalog": catalog_json(),
         "providers": rows,
+        "welcome_version": document.welcome_version,
         "note": "A saved profile or model list applies to `dshr serve` after a restart.",
     })))
 }
@@ -482,6 +483,35 @@ pub async fn discover_provider(
             last_status.map_or_else(|| "unknown".to_owned(), |status| status.to_string())
         ),
     ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WelcomeRequest {
+    pub version: u32,
+}
+
+/// `POST /v1/config/providers/welcome`: acknowledge the first-run notice. The
+/// acknowledgement is durable but not revision-fenced: it must not conflict
+/// with a provider edit happening in another tab.
+pub async fn acknowledge_welcome(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<WelcomeRequest>,
+) -> Result<Json<Value>, ApiError> {
+    authorized(&state, &headers)?;
+    if body.version == 0 || body.version > 1_000 {
+        return Err(error(StatusCode::BAD_REQUEST, "invalid welcome version"));
+    }
+    let saved = ModelsDocument::update(&state.config.home, None, |document| {
+        document.welcome_version = Some(body.version);
+    })
+    .map_err(|failure| models_error(&failure))?;
+    Ok(Json(json!({
+        "ok": true,
+        "revision": saved.revision,
+        "welcome_version": saved.welcome_version,
+    })))
 }
 
 #[derive(Debug, Deserialize)]

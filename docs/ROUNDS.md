@@ -2245,6 +2245,27 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Осталось: модальные диалоги удаления, онбординг/welcome, слоты секции,
   i18n, хранение ключей, отправка reasoning effort.
 
+## Раунд 144 — Models: модальные удаления и first-run notice (17.11.2026)
+
+- Удаление провайдера и строки модели идёт через **модальное подтверждение**
+  (`ConfirmAction` → `.models-modal`): диалог называет провайдера/модель,
+  Delete выполняет действие только после подтверждения, Cancel закрывает;
+  кнопка Delete заблокирована на время записи. Inline-подтверждение удалено.
+- **First-run notice**: `ModelsDocument.welcome_version` в `models.yaml`
+  (durable, без revision-fence), `POST /v1/config/providers/welcome`
+  (`version` 1..1000), поле в `GET /v1/config/providers`. Веб-UI показывает
+  модальный «Welcome to Models», пока версия меньше текущей; Continue пишет
+  версию, notice больше не появляется. Если ни у одного провайдера нет
+  ключа, notice добавляет подсказку про `DEEPSEEK_API_KEY`/
+  `DSH_DEEPSEEK_TOKEN`/desktop Settings. Полноценный DeepSeek-онбординг с
+  вводом ключа невозможен без хранилища секретов — граница записана.
+- Проверки: server provider_settings 7 (+durable welcome round-trip, отказ на
+  version 0); web 18; web-e2e **21/22** (+«first-run notice acknowledged
+  durably», +«model deletion names the model» с отменой; провайдерское
+  удаление теперь через модалку). Единственный FAIL — прежний bash timeout
+  среды.
+- Осталось: слоты секции, i18n, хранение ключей, отправка reasoning effort.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

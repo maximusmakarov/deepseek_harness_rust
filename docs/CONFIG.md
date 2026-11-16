@@ -48,6 +48,7 @@ logging:
 ```yaml
 version: 1
 revision: 3
+welcome_version: 1      # подтверждённая версия first-run notice
 providers:
   deepseek-official:
     protocol: anthropic-messages   # anthropic-messages | openai-chat
@@ -94,6 +95,10 @@ providers:
   потолком. Пустые поля берут дефолты (5 / 500 / 10000 / 0.1), `null` —
   дефолт адаптера. Политика исполняется `dshr serve` в DeepSeek и
   OpenAI-совместимом адаптерах.
+- `welcome_version` — последняя подтверждённая версия first-run notice
+  (веб-UI показывает notice, пока значение меньше текущей версии); пишется
+  отдельным `POST /v1/config/providers/welcome` и не участвует в revision-fence
+  профилей.
 - `revision` — монотонная ревизия; каждая запись через API присылает
   прочитанную ревизию, устаревшая получает `409`.
 - Изменения профиля/списка применяются `dshr serve` при следующем запуске

@@ -2,6 +2,9 @@
 
 ## 0.1.0 — current
 
+- Models deletions are confirmed in a modal that names the provider or model,
+  and a versioned first-run notice (durably acknowledged in `models.yaml`)
+  explains where profiles and environment keys live.
 - Models can ask an OpenAI-compatible or Anthropic-shaped endpoint for its
   model list (`POST /v1/config/providers/discover`) and adopt the result through
   a filterable picker; the key comes from the named environment variable and
