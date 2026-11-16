@@ -1921,6 +1921,24 @@ fn reserved_plugin_path(path: &str) -> bool {
             .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")))
 }
 
+/// Rejects cross-site browser requests to plugin routes. Sandboxed frames send
+/// `Origin: null`; same-origin pages send a loopback origin; non-browser clients
+/// send no `Origin` at all. Anything else is a foreign page.
+fn plugin_route_origin_allowed(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return true;
+    };
+    if origin == "null" {
+        return true;
+    }
+    ["http://127.0.0.1", "http://localhost", "http://[::1]"]
+        .iter()
+        .any(|prefix| origin == *prefix || origin.starts_with(&format!("{prefix}:")))
+}
+
 fn plugin_proxy_error(status: StatusCode, message: &str) -> Response {
     let body = Json(json!({ "ok": false, "error": message })).into_response();
     let mut response = body;
@@ -2104,8 +2122,15 @@ async fn plugin_http_proxy(State(state): State<AppState>, request: Request) -> R
     if reserved_plugin_path(&path) {
         return plugin_proxy_error(StatusCode::NOT_FOUND, "not found");
     }
-    // Plugin routes are unauthenticated by design (the browser frame has no
-    // token), so a non-loopback bind must opt in explicitly.
+    // Plugin frames are sandboxed without `allow-same-origin`, so they cannot
+    // carry the bearer token or a cookie; the boundary is the browser origin:
+    // only an opaque origin (`Origin: null`, a sandboxed frame) or a loopback
+    // page may drive plugin routes. Another website's page is rejected.
+    if !plugin_route_origin_allowed(request.headers()) {
+        return plugin_proxy_error(StatusCode::FORBIDDEN, "cross-origin plugin request");
+    }
+    // A non-loopback bind still needs the explicit opt-in: the cookie is sent by
+    // the frame, but the route reaches the plugin's HTTP surface.
     if !state.config.bind.ip().is_loopback() && !state.config.allow_plugin_routes_lan {
         return plugin_proxy_error(
             StatusCode::FORBIDDEN,

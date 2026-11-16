@@ -894,6 +894,27 @@ async fn proxies_plugin_host_routes() {
     let (state, _registry, manager) = state(dir.path()).await;
     let app = router(state);
 
+    // A foreign website's page cannot drive plugin routes; a sandboxed frame
+    // (Origin: null) and a loopback page can.
+    let request = Request::builder()
+        .method("GET")
+        .uri("/probe-route")
+        .header("origin", "https://evil.example")
+        .body(Body::empty())
+        .expect("request");
+    let response = app.clone().oneshot(request).await.expect("response");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    for origin in ["null", "http://127.0.0.1:4317"] {
+        let request = Request::builder()
+            .method("GET")
+            .uri("/probe-route")
+            .header("origin", origin)
+            .body(Body::empty())
+            .expect("request");
+        let response = app.clone().oneshot(request).await.expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "{origin}");
+    }
+
     // Exact route, query string and status are proxied from the sidecar.
     let request = Request::builder()
         .method("GET")

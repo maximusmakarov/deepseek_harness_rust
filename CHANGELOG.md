@@ -16,6 +16,9 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Plugin routes reject cross-site browser requests: `Origin: null` (sandboxed
+  plugin frames), loopback origins and native clients pass, any other origin
+  gets 403; the loopback-only policy stays.
 - Desktop shell is bilingual (ru/en via `DSHR_DESKTOP_LANG` or the system
   locale) for tray items and dialogs, and the tray gains "About dshr" and
   "Developer tools".

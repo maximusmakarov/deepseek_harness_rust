@@ -249,6 +249,16 @@ rw_connect…»). Граница на 119: `dsh-mnemon@0.5.46` ставится 
 падает на отсутствующем сервисе `subagents` и на своём обращении к
 `configForms.get(...).writable` — это следующие инкременты шима, а не резолвера.
 
+## Границы plugin-маршрутов
+
+Кадры плагинов живут в песочнице без `allow-same-origin`, поэтому не могут
+прислать ни bearer-токен, ни cookie. Граница — браузерный origin: маршруты
+плагинов принимают `Origin: null` (sandboxed-кадр), loopback-origin и запросы
+без `Origin` (нативные клиенты); чужой сайт получает **403
+`cross-origin plugin request`**. Плюс действует loopback-only политика
+(`--allow-lan-plugin-routes` — opt-in). Локальный процесс на той же машине это
+не различает — осознанная граница, записанная в TECH-DEBT.
+
 ## Node-runtime pack
 
 Cordis-sidecar больше не требует системного `node`: если `DSHR_NODE` не задан и

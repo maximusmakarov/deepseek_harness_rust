@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–135)
+# Журнал раундов паритета (1–136)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -2084,6 +2084,18 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - В трее появились **About dshr** (версия, home, профиль, платформа) и
   **Developer tools** (`open_devtools`, включён feature `devtools` у Tauri).
 - Десктоп-тесты: 47 + 3.
+
+## Раунд 136 — origin-граница plugin-маршрутов (16.11.2026)
+
+- Попытка ввести cookie-аутентификацию для plugin-маршрутов провалилась на
+  реальности: кадры плагинов живут в `sandbox="allow-scripts"` без
+  `allow-same-origin`, поэтому браузер не отправляет ни cookie, ни токен.
+  Cookie-подход откатан; граница — **origin**: `Origin: null` (песочный кадр),
+  loopback-origin и запросы без `Origin` разрешены, чужой сайт получает 403
+  `cross-origin plugin request`; loopback-only политика сохранена.
+- Тест `proxies_plugin_host_routes` проверяет 403 для `https://evil.example` и
+  200 для `null`/`http://127.0.0.1:4317`; весь набор `plugins_live` — 18/18.
+- Границы записаны в [TECH-DEBT](TECH-DEBT.md) и [PLUGINS](PLUGINS.md).
 
 ## Формализация и каталог тестов (14.11.2026)
 
