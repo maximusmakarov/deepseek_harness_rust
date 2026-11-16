@@ -200,6 +200,7 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
          <h2>Settings</h2>\
          <h3>Account</h3>\
          <button onclick=\"signIn()\">Sign in with DeepSeek</button>\
+         <button onclick=\"cancelSignIn()\">Cancel sign-in</button>\
          <label>Or paste a credential<select id=\"auth\">\
          <option value=\"account\"{account_selected}>DeepSeek account token</option>\
          <option value=\"api_key\"{api_key_selected}>API key</option></select></label>\
@@ -217,7 +218,7 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
          <button onclick=\"window.__TAURI__.window.getCurrentWindow().close()\">Cancel</button>\
          <p id=\"status\"></p>\
          <script>\
-         async function signIn() {{\n           const status = document.getElementById('status');\n           status.textContent = 'waiting for the browser…';\n           try {{\n             await window.__TAURI__.core.invoke('sign_in_deepseek');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         async function openAppSettings() {{\n           const status = document.getElementById('status');\n           try {{\n             await window.__TAURI__.core.invoke('open_app_settings');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         async function save() {{\n           const form = {{\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
+         async function signIn() {{\n           const status = document.getElementById('status');\n           status.textContent = 'waiting for the browser…';\n           try {{\n             await window.__TAURI__.core.invoke('sign_in_deepseek');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         async function cancelSignIn() {{\n           try {{ await window.__TAURI__.core.invoke('cancel_sign_in'); }} catch (error) {{}}\n         }}\n         async function openAppSettings() {{\n           const status = document.getElementById('status');\n           try {{\n             await window.__TAURI__.core.invoke('open_app_settings');\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         async function save() {{\n           const form = {{\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
     );
     let url = data_url(&html)
         .parse::<tauri::Url>()
@@ -301,8 +302,21 @@ fn open_app_settings(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+static SIGN_IN_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn sign_in_cancelled() -> bool {
+    SIGN_IN_CANCEL.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn open_browser(url: &str, _redirect: &str, _state: &str) -> Result<(), String> {
     open_url(url);
+    Ok(())
+}
+
+/// Stops a pending browser sign-in; the waiting loop polls the flag.
+#[tauri::command]
+fn cancel_sign_in() -> Result<(), String> {
+    SIGN_IN_CANCEL.store(true, std::sync::atomic::Ordering::Relaxed);
     Ok(())
 }
 
@@ -310,8 +324,14 @@ fn open_browser(url: &str, _redirect: &str, _state: &str) -> Result<(), String> 
 /// grant is stored as `DSH_DEEPSEEK_TOKEN` in `desktop.env`.
 #[tauri::command]
 fn sign_in_deepseek(app: AppHandle) -> Result<String, String> {
+    SIGN_IN_CANCEL.store(false, std::sync::atomic::Ordering::Relaxed);
     std::thread::spawn(move || match signin::platform_origin() {
-        Ok(origin) => match signin::sign_in(&origin, open_browser) {
+        Ok(origin) => match signin::sign_in_with(
+            &origin,
+            signin::login_timeout(),
+            &sign_in_cancelled,
+            open_browser,
+        ) {
             Ok(signed) => {
                 let home = home_dir();
                 let mut settings = load_provider_settings(&home).unwrap_or_default();
@@ -492,7 +512,8 @@ fn main() {
             sign_in_deepseek,
             plugins_list,
             plugin_toggle,
-            open_app_settings
+            open_app_settings,
+            cancel_sign_in
         ])
         .setup(move |app| {
             let home = home_dir();

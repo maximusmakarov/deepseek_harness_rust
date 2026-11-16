@@ -2594,6 +2594,30 @@ fn App() -> impl IntoView {
             }
         });
     };
+    let settings_server = RwSignal::new(String::new());
+    let load_server = move || {
+        let value = token.get_untracked();
+        spawn_local(async move {
+            let origin = web_sys::window()
+                .and_then(|window| window.location().origin().ok())
+                .unwrap_or_default();
+            let health = match get_json::<Value>("/v1/health", &value).await {
+                Ok(answer) => answer
+                    .get("status")
+                    .and_then(|status| status.as_str())
+                    .unwrap_or("ok")
+                    .to_owned(),
+                Err(error) => format!("error: {error}"),
+            };
+            let model = match get_json::<ModelConfigResponse>("/v1/config/model", &value).await {
+                Ok(config) => format!("{} · {}", config.active_provider, config.model),
+                Err(_) => "unknown".to_owned(),
+            };
+            settings_server.set(format!(
+                "{origin} · health: {health} · active: {model}\nРежим (встроенный сервер / attach) и URL задаются в Settings десктопа."
+            ));
+        });
+    };
     let save_search = move || {
         let value = token.get_untracked();
         let body = serde_json::json!({
@@ -2614,6 +2638,7 @@ fn App() -> impl IntoView {
         let open_settings = settings_open;
         let load = load_settings;
         let load_s = load_search;
+        let load_srv = load_server;
         Effect::new(move |_| {
             let hash = web_sys::window()
                 .and_then(|window| window.location().hash().ok())
@@ -2625,6 +2650,7 @@ fn App() -> impl IntoView {
                 open_settings.set(true);
                 load();
                 load_s();
+                load_srv();
             }
         });
     }
@@ -3594,6 +3620,10 @@ fn App() -> impl IntoView {
                             class:active=move || settings_tab.get() == "plugins"
                             on:click=move |_| settings_tab.set("plugins".into())
                         >"Plugins"</button>
+                        <button
+                            class:active=move || settings_tab.get() == "server"
+                            on:click=move |_| { settings_tab.set("server".into()); load_server(); }
+                        >"Server"</button>
                     </nav>
                     <div class="settings-body">
                         {move || (settings_tab.get() == "account").then(|| view! {
@@ -3649,6 +3679,14 @@ fn App() -> impl IntoView {
                                 <div class="row">
                                     <button on:click=move |_| save_search()>"Save key"</button>
                                     <button on:click=move |_| load_search()>"Refresh"</button>
+                                </div>
+                            </div>
+                        })}
+                        {move || (settings_tab.get() == "server").then(|| view! {
+                            <div>
+                                <p class="tool" style="white-space: pre-wrap">{move || settings_server.get()}</p>
+                                <div class="row">
+                                    <button on:click=move |_| load_server()>"Refresh"</button>
                                 </div>
                             </div>
                         })}

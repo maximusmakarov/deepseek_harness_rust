@@ -13,7 +13,7 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 | Где | Секции | Куда сохраняется |
 |---|---|---|
 | Окно десктопа (трей → Settings…) | **Account** (Sign in with DeepSeek, account token / API key), **Server** (встроенный или attach) | `<home>/desktop.env` (0600) и `<home>/desktop-server.json` (0600) |
-| Веб-UI приложения — экран Settings с **сайдбаром секций** (Account / Models / Web search / Plugins), как в официальном приложении; открывается кнопкой **Open app settings** в окне десктопа, трей → Settings → Open app settings) | **Account** (подсказка), **Models** (route/model/base URL), **Web search** (Brave key), **Plugins** (список Cordis-плагинов с переключателями) | `config.yaml`/профиль — через серверные эндпоинты `/v1/config/model`, `/v1/config/search`, `/v1/plugins/*` |
+| Веб-UI приложения — экран Settings с **сайдбаром секций** (Account / Models / Web search / Plugins / Server), как в официальном приложении; открывается кнопкой **Open app settings** в окне десктопа, трей → Settings → Open app settings) | **Account** (подсказка), **Models** (route/model/base URL), **Web search** (Brave key), **Plugins** (список Cordis-плагинов с переключателями) | `config.yaml`/профиль — через серверные эндпоинты `/v1/config/model`, `/v1/config/search`, `/v1/plugins/*` |
 
 Кнопка **Save and restart** валидирует поля (схема URL, `http(s)`), для attach
 проверяет `/v1/health`, пишет файлы и перезапускает оболочку. Пустое поле токена
@@ -22,6 +22,13 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 Провайдер и модель больше не передаются флагами `--provider/--model`: их читает
 `config.yaml` (секция `model`), которую редактирует веб-UI **Models**. Окружение
 (`desktop.env`) поставляет только креденшелы.
+
+### Отмена и таймаут входа
+
+Ожидание подтверждения в браузере ограничено `DSHR_DESKTOP_LOGIN_TIMEOUT_SECS`
+(5–3600, по умолчанию 600); кнопка **Cancel sign-in** в Settings выставляет
+флаг, и цикл ожидания завершается с сообщением `sign-in cancelled`. Оба пути
+покрыты тестами вместе с полным round-trip против стаба платформы.
 
 ### Sign in with DeepSeek
 

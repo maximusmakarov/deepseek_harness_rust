@@ -38,8 +38,17 @@ pub fn platform_origin() -> Result<String, String> {
         ))
     }
 }
-/// How long the browser approval may take.
+/// How long the browser approval may take by default.
 pub const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Login timeout, overridable for tests and slow logins (5 s … 1 h).
+pub fn login_timeout() -> Duration {
+    std::env::var("DSHR_DESKTOP_LOGIN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|seconds| Duration::from_secs(seconds.clamp(5, 3600)))
+        .unwrap_or(LOGIN_TIMEOUT)
+}
 
 /// Successful sign-in: the account grant plus an optional display name.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,8 +183,13 @@ fn business_data(envelope: &serde_json::Value) -> Result<serde_json::Value, Stri
 
 /// Runs the whole browser sign-in. `open` receives the authorize URL, the
 /// callback URL and the expected state (tests drive the callback from there).
-pub fn sign_in(
+
+/// Browser sign-in with an explicit timeout and a cancellation predicate (the
+/// Settings window's "Cancel" button flips it).
+pub fn sign_in_with(
     origin: &str,
+    timeout: Duration,
+    cancelled: &dyn Fn() -> bool,
     open: impl Fn(&str, &str, &str) -> Result<(), String>,
 ) -> Result<SignedIn, String> {
     let origin = origin.trim_end_matches('/').to_owned();
@@ -210,7 +224,10 @@ pub fn sign_in(
         .ok_or_else(|| "auth_init returned no authorize_url".to_owned())?;
     open(authorize_url, &redirect_uri, &state)?;
 
-    let code = wait_for_callback(&listener, &state, LOGIN_TIMEOUT)?;
+    let code = wait_for_callback(&listener, &state, timeout, cancelled)?;
+    if cancelled() {
+        return Err("sign-in cancelled".to_owned());
+    }
     let exchange = post_json(
         &format!("{origin}/auth-api/v0/dsh/auth_exchange"),
         &serde_json::json!({
@@ -241,9 +258,13 @@ fn wait_for_callback(
     listener: &TcpListener,
     expected_state: &str,
     timeout: Duration,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<String, String> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
+        if cancelled() {
+            return Err("sign-in cancelled".to_owned());
+        }
         match listener.accept() {
             Ok((mut stream, _)) => {
                 let _ = stream.set_nonblocking(false);
@@ -491,12 +512,17 @@ mod tests {
             }
         });
 
-        let signed = sign_in(&origin, |authorize_url, redirect_uri, state| {
-            assert!(authorize_url.contains("/dsh/authorize"));
-            let url = format!("{redirect_uri}?code=stub-code&state={state}");
-            std::thread::spawn(move || http_get(&url));
-            Ok(())
-        })
+        let signed = sign_in_with(
+            &origin,
+            Duration::from_secs(10),
+            &|| false,
+            |authorize_url, redirect_uri, state| {
+                assert!(authorize_url.contains("/dsh/authorize"));
+                let url = format!("{redirect_uri}?code=stub-code&state={state}");
+                std::thread::spawn(move || http_get(&url));
+                Ok(())
+            },
+        )
         .expect("sign in");
         assert_eq!(signed.token, "stub-token");
         assert_eq!(signed.user.as_deref(), Some("Stub User"));
@@ -517,6 +543,34 @@ mod tests {
         let verifier = exchange["code_verifier"].as_str().expect("verifier");
         let expected = base64url(digest::digest(&digest::SHA256, verifier.as_bytes()).as_ref());
         assert_eq!(init["code_challenge"].as_str(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn cancellation_ends_the_flow() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("stub bind");
+        listener.set_nonblocking(false).expect("blocking");
+        let origin = format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().expect("addr").port()
+        );
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buffer = [0u8; 4096];
+                let _ = stream.read(&mut buffer);
+                let body = serde_json::json!({"code": 0, "data": {"biz_code": 0, "biz_data": {
+                    "authorize_url": "https://platform.deepseek.com/dsh/authorize?authorize_id=stub",
+                    "authorize_id": "stub", "expires_in": 600}}})
+                .to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        let error = sign_in_with(&origin, Duration::from_secs(30), &|| true, |_, _, _| Ok(()))
+            .expect_err("cancelled");
+        assert!(error.contains("cancelled"), "{error}");
     }
 
     #[test]

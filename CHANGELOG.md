@@ -16,6 +16,9 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Sign-in can be cancelled (Cancel sign-in / `cancel_sign_in`) and honours
+  `DSHR_DESKTOP_LOGIN_TIMEOUT_SECS` (5–3600 s). The settings sidebar gains a
+  Server tab showing the origin, `/v1/health` status and the active model.
 - Settings: the web UI settings screen is now a sidebar (Account / Models /
   Web search / Plugins) instead of one long page, matching the official app;
   `#settings` opens it directly.
