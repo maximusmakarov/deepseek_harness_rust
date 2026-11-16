@@ -26,7 +26,7 @@
 | Песочница | Seatbelt, Landlock+seccomp | ✅ |
 | Windows sandbox | Отложено; fail-closed по умолчанию, AppContainer — opt-in (`DSHR_WINDOWS_SANDBOX`), CI-шаг `continue-on-error` | ⏸ deferred |
 | Desktop | Tauri v2-оболочка (loopback `dshr serve`) + PWA | ✅ |
-| Дистрибутивы | архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула, bottles в GHCR, reproducible-бинарь; notarization нет | ⚠️ частично |
+| Дистрибутивы | архивы на 5 таргетов, SHA256SUMS, Ed25519-подпись, provenance, бинарная формула, bottles в GHCR + tap `homebrew-dshr` (`v0.1.0`), reproducible-бинарь; notarization нет | ⚠️ частично |
 | i18n | TUI/CLI ru/en: справка (`plugin npm`, `sessions import`), рантайм-сообщения `sessions`/`plugin`/`doctor`, префикс ошибок; `--json` не зависит от языка | ✅ |
 | MCP OAuth | client-credentials + refresh токена | ✅ |
 

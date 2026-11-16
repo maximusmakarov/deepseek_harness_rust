@@ -93,21 +93,37 @@ OCI-индексом** `ghcr.io/<owner>/<repo>/dshr:<version>`. Индекс а�
   (ARM macOS → Intel macOS → ARM Linux → Intel Linux) и выравнивается по
   самому длинному тегу, как требует тот же аудит.
 
-Что не проверено: релизный прогон на теге (тегов и релизов в репозитории ещё не
-было), multi-platform индекс на реальном GHCR и `brew install` из GHCR.
+Релизный прогон на теге проверен на `v0.1.0` (16.11.2026):
+
+- `Release` (run `43832256936`) прошёл целиком: релиз содержит 17 ассетов,
+  включая `dshr_0.1.0_amd64.deb` (его терял `desktop-linux` до фикса раунда 115),
+  `dshr.rb`, `dshr-ghcr.rb` и `SHA256SUMS`;
+- индекс `ghcr.io/maximusmakarov/deepseek_harness_rust/dshr:0.1.0` содержит все
+  четыре платформы (`arm64_sequoia`, `sonoma`, `aarch64_linux`, `x86_64_linux`) —
+  агрегирующий push подтверждён на реальном релизе;
+- `brew fetch maximusmakarov/dshr/dshr` скачал манифест индекса и бутылку
+  `arm64_sequoia` из GHCR анонимно; sha256 совпал с формулой и с ассетом релиза
+  (`1f086b6a…`). Полная установка (`brew install`) — системная операция, её
+  выполняет пользователь.
 
 ### Tap
 
-Tap-репозитория нет — это единственный внешний блокер GHCR-трека. Порядок:
+Tap существует: публичный `maximusmakarov/homebrew-dshr`, формула `0.1.0`
+добавлена через
+`scripts/sync-homebrew-tap.sh ../homebrew-dshr --formula dist/dshr-ghcr.rb --push`
+(скрипт проверяет `root_url`, bottle-`sha256` и `ruby -c`, коммитит
+`dshr <version>`).
 
-1. Создать публичный репозиторий `maximusmakarov/homebrew-dshr` (имя
-   `homebrew-<tap>` даёт `brew install maximusmakarov/dshr/dshr`).
-2. После релиза: `scripts/sync-homebrew-tap.sh ../homebrew-dshr --formula dist/dshr-ghcr.rb --push`.
-   Скрипт проверяет `root_url`, наличие bottle-`sha256` и `ruby -c`, кладёт
-   формулу в `Formula/dshr.rb`, коммитит `dshr <version>` и (с `--push`)
-   отправляет в tap; `--dry-run` печатает план без записи.
-3. Проверка установки: `brew install maximusmakarov/dshr/dshr && brew test dshr`.
+Homebrew 7 отказывается загружать формулу из стороннего tap без явного доверия,
+поэтому установка начинается с `brew trust`:
 
+```sh
+brew trust maximusmakarov/dshr
+brew install maximusmakarov/dshr/dshr
+brew test dshr
+```
+
+Без `brew trust` brew отвечает `Refusing to load formula … from untrusted tap`.
 Пакет GHCR должен оставаться публичным: анонимный pull — единственный способ,
 которым brew забирает блоб.
 

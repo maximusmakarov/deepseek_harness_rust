@@ -18,12 +18,14 @@ packaging/homebrew-tap/
 
 ## Одноразовая настройка (владелец)
 
+Сделано: репозиторий `maximusmakarov/homebrew-dshr` создан, формула `0.1.0`
+опубликована. Ниже — что нужно повторить при пересоздании tap.
+
 1. Создать публичный репозиторий `maximusmakarov/homebrew-dshr`.
-2. Склонировать его рядом с основным репозиторием и завести каталог `Formula/`:
+2. Склонировать его рядом с основным репозиторием:
 
    ```sh
    git clone git@github.com:maximusmakarov/homebrew-dshr.git ../homebrew-dshr
-   mkdir -p ../homebrew-dshr/Formula
    ```
 
 3. Убедиться, что пакет `ghcr.io/maximusmakarov/deepseek_harness_rust/dshr`
@@ -51,6 +53,7 @@ scripts/sync-homebrew-tap.sh ../homebrew-dshr --formula dist/dshr-ghcr.rb --push
 
 ```sh
 brew tap maximusmakarov/dshr
+brew trust maximusmakarov/dshr          # Homebrew 7: иначе «untrusted tap»
 brew install maximusmakarov/dshr/dshr
 brew test dshr
 dshr --version
@@ -59,6 +62,13 @@ dshr --version
 `brew install` должен именно **набирать** бутылку (`pouring`), а не собирать из
 исходников: иначе `bottle do` не совпал с платформой или индекс не содержит
 нужный манифест (`brew install -v` показывает выбор манифеста).
+
+## Проверено на 0.1.0 (16.11.2026)
+
+`brew tap maximusmakarov/dshr` видит формулу, `brew audit --strict` — 0
+замечаний, `brew fetch maximusmakarov/dshr/dshr` скачал манифест индекса и
+бутылку `arm64_sequoia` из GHCR анонимно, sha256 совпал с формулой и с ассетом
+релиза `v0.1.0` (`1f086b6a…`). Индекс содержал все четыре платформы.
 
 ## Ограничения
 

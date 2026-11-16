@@ -10,6 +10,12 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Distribution: first tagged release `v0.1.0` (run 43832256936) shipped all 17
+  artifacts, including the Linux `.deb` and a multi-platform GHCR bottle index;
+  `maximusmakarov/homebrew-dshr` carries the GHCR formula, and
+  `brew fetch maximusmakarov/dshr/dshr` pulls the `arm64_sequoia` bottle from
+  GHCR anonymously with a matching sha256. Homebrew 7 needs
+  `brew trust maximusmakarov/dshr` before installing from the tap.
 - Release path: the GHCR bottle publisher now writes one OCI index per version
   containing every platform; per-bottle pushes replaced the index and left only
   the last platform installable. `bottles-ghcr` pushes all bottles in one call.

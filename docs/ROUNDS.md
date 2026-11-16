@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–115)
+# Журнал раундов паритета (1–116)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -1555,9 +1555,6 @@ callback-моста), per-frame фильтрация цепочек (неско�
 - **Windows sandbox/сеть** — нужен реальный Windows-хост; CI-шаг есть, локально
   только компиляция.
 - **Notarization** — нужны Apple Developer ID, сертификат и app-specific password.
-- **GHCR-tap/brew** — нужен tap-репозиторий `homebrew-dshr` (создаёт владелец)
-  и релизный прогон на теге; публикация, анонимный pull и multi-platform
-  индекс готовы, tooling и dry-run — раунд 115.
 
 Подробная матрица и блокеры: [PARITY.md](PARITY.md), реестр долгов — [TECH-DEBT.md](TECH-DEBT.md).
 
@@ -1616,6 +1613,33 @@ callback-моста), per-frame фильтрация цепочек (неско�
 Тесты: `scripts/test-publish-bottle-ghcr.py` проверяет две платформы в одном
 индексе (CI), `scripts/test-sync-homebrew-tap.sh` — tap-синхронизацию и
 `release-version.sh` (CI и `scripts/check.sh`).
+
+## Раунд 116 — внешние треки закрыты: релиз v0.1.0 и GHCR-tap (16.11.2026)
+
+Оба трека, которые числились «заблокированными внешним условием», проверены на
+реальных артефактах.
+
+- Запушены `main` (`b17091e..458220d`, 12 коммитов) и тег `v0.1.0`; workflow
+  `Release` (run `43832256936`, 19m59s) прошёл целиком — 5 архивов, macOS
+  `.app`+DMG, Linux tar+deb, Windows zip, 4 бутылки, GHCR-push и `publish`.
+- Релиз `v0.1.0` содержит 17 ассетов, в том числе `dshr_0.1.0_amd64.deb`
+  (терялся до фикса раунда 115), `dshr-ghcr.rb`, `dshr.rb`, `SHA256SUMS`.
+- Индекс `ghcr.io/maximusmakarov/deepseek_harness_rust/dshr:0.1.0` содержит все
+  четыре платформы (`arm64_sequoia`, `sonoma`, `aarch64_linux`, `x86_64_linux`) —
+  агрегирующий push проверен на реальном релизе, а не только на mock-регистре.
+- Tap `maximusmakarov/homebrew-dshr` создан; формула установлена
+  `scripts/sync-homebrew-tap.sh --push` (коммит `dshr 0.1.0`), `brew tap
+  maximusmakarov/dshr` видит формулу, `brew audit --strict` — 0 замечаний.
+- `brew fetch maximusmakarov/dshr/dshr` скачал манифест индекса и бутылку
+  `arm64_sequoia` из GHCR анонимно, sha256 совпал с формулой и ассетом релиза:
+  pour-путь подтверждён без установки на машину.
+- Найдено ограничение Homebrew 7: сторонний tap требует явного доверия —
+  `brew trust maximusmakarov/dshr`, иначе `Refusing to load formula … from
+  untrusted tap`. Записано в [RELEASE](RELEASE.md#tap) и
+  [INSTALL](INSTALL.md#homebrew).
+
+Остались заблокированными только Windows-хост (sandbox/сеть) и notarization
+(Apple Developer ID). Полный `brew install` — одна команда владельца.
 
 ## Формализация и каталог тестов (14.11.2026)
 
