@@ -1225,11 +1225,12 @@ streaming-прокси.
     token), settings store `/v1/config-forms/{entry}` с revision-fence и
     атомарной записью, browser-формы через relay и персистентность
     (коммиты `8c8b276`, `338df29`, `ee78493`).
-  - **Гейты:** полный `cargo test --workspace` — 376 passed + 3 ignored
-    (CI-эквивалент; в песочнице агента 373 passed, 1 environmental failure
-    `dshr-sandbox::seatbelt_confines_writes` из-за запрета вложенного
-    `sandbox-exec`, и 2 кейса того же класса исключены по имени), desktop 38,
-    web 11, bridge harness 121, client-half smoke 89; fmt/clippy/deny чисто.
+  - **Гейты (чистое окружение, 16.11.2026):** полный `cargo test --workspace`
+    — **376 passed + 3 ignored, 0 failed**; desktop **38**, web **11**, bridge
+    harness **121**, client-half smoke **89/89**, browser e2e **18/18**;
+    fmt/clippy/deny чисто. Прежние 373 passed и 17/18 e2e в песочнице агента
+    были ограничением вложенного `sandbox-exec`/PTY — чистый прогон это
+    подтвердил.
   - **Вне объёма C5 (LIMITATIONS/TECH-DEBT):** порт pnpm-движка upstream
     `PluginManager`, семантика конфигурационного движка DSH (схемы/слои/
     миграции), builtin-capture, thread-модель.

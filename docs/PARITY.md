@@ -151,9 +151,9 @@ shim'ы.
 ## Проверка (16.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 375 passed + 3 ignored (root; C5.3–C5.6a добавили
-  server-тесты фида/сессий/settings store и cordis-тест сервиса); desktop 38
-  passed (35 unit + 3 integration); web-крейт 11 unit — итого 424.
+- `cargo test --workspace`: **376 passed + 3 ignored, 0 failed** (чистый прогон
+  16.11.2026); desktop 38 passed (35 unit + 3 integration); web-крейт 11 unit —
+  итого **425**.
   К прежним 21 desktop-тестам добавлены single-instance lock, форвард папки и
   передача между поколениями, парсер login-shell env, таймаут, CLI-шим и ссылка
   в `~/.local/bin`, а также `tests/single_instance.rs` — второй запуск бинаря под
@@ -172,11 +172,11 @@ shim'ы.
   модалка approval для `bash` → Allow → выполнение → стрим ответа → карточка
   инструмента → файл реально записан → сессия в журнале; 18 проверок (второй ход
   с `edit`/diff, настройки провайдера, turn ordinal и смонтированные регионы),
-  джоба `web-e2e` в CI. Локально в песочнице агента 17/18: `bash`-инструмент не
-  может вложить seatbelt (`sandbox-exec: Operation not permitted`); в CI
-  вложенной песочницы нет. Для таких окружений добавлен opt-in
-  `DSHR_E2E_DANGER=1` (danger-full-access), но он меняет approval-сценарий и
-  поэтому не используется как замена гейту.
+  джоба `web-e2e` в CI. Чистый прогон 16.11.2026 — **18/18**; ранее в песочнице
+  агента было 17/18, потому что `bash`-инструмент не мог вложить seatbelt
+  (`sandbox-exec: Operation not permitted`) — ограничение окружения, а не кода.
+  Для таких окружений остаётся opt-in `DSHR_E2E_DANGER=1` (danger-full-access),
+  но он меняет approval-сценарий и гейт не заменяет.
 - Linux/Windows desktop: [run 43591784883](https://github.com/maximusmakarov/deepseek_harness_rust/actions/runs/43591784883)
   — обе сборки и упаковка успешны; `.deb` проверен `dpkg-deb --info`.
 - Cordis hot reload проверен на живом `serve`: правка entry перезагружает плагин

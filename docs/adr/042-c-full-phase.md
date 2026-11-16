@@ -99,11 +99,12 @@ SlotMap**, плагин регистрирует ту же ячейку с ме�
 | | C5.6a settings store | `338df29` | server +2 (revision-fence, unset, bad entry, internal-token) |
 | | C5.6b relay и персистентность | `ee78493` | harness 121, smoke 89 (файл настроек создаётся после Save) |
 
-**Итоговые гейты:** root 376 passed + 3 ignored (CI-эквивалентно; в песочнице
-агента 373 passed, 1 environmental failure — `dshr-sandbox::tests::
-seatbelt_confines_writes` из-за запрета вложенного `sandbox-exec`, и два
-исключённых кейса того же класса), desktop 38, web 11, bridge harness 121,
-client-half smoke 89, fmt/clippy/deny чисто.
+**Итоговые гейты (чистое окружение, 16.11.2026):** root **376 passed +
+3 ignored, 0 failed**, desktop **38** (35 unit + 3 integration), web **11**,
+bridge harness **121**, client-half smoke **89/89**, browser e2e **18/18**;
+fmt/clippy/deny чисто. Ранее в песочнице агента прогон давал 373 passed и
+17/18 e2e — это ограничение вложенного `sandbox-exec`/PTY, а не кода: чистый
+прогон подтвердил.
 
 **Что закрыто как «в объёме»:** плагин может заменить встроенный рендер
 core-узла и безопасно откатиться; сессии живут на событийной модели с реальным
