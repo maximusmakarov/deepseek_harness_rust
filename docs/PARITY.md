@@ -10,7 +10,8 @@ reference-клон community-плагина `dsh-desktop@233b76c`, устано�
 
 | Сценарий оригинала | dshr | Статус |
 |---|---|---|
-| Первый запуск, профиль по умолчанию, настройка | авто-создание home/README/desktop-profile + нативный provider setup (маршрут/модель/ключ, `desktop.env 0600`); wizard'а бандлов нет | ✅ |
+| Первый запуск, профиль по умолчанию, настройка | авто-создание home/README/desktop-profile; окно Settings (Account + Server) с **Sign in with DeepSeek** или ручным токеном, `desktop.env 0600`; wizard'а бандлов нет | ✅ |
+| Вход по аккаунту DeepSeek (browser PKCE) | **Sign in with DeepSeek**: `auth_init`/`auth_exchange` на `platform.deepseek.com` с PKCE S256, loopback callback, отмена и таймаут; токен — `desktop.env 0600`; автотест полного цикла против стаба платформы, живые `auth_init`/`auth_exchange` проверены | ✅ |
 | Запуск с папкой (`dsh-desktop <folder>`, drag-and-drop) | аргумент, сохранённая `desktop-folder` и drag-and-drop папки на окно (рестарт с новым cwd) | ✅ |
 | Профили: список в трее, переключение с рестартом, last-known-good | CLI `--profile`/`DSH_PROFILE`; трей: список, New profile…, переключение пишет `desktop-profile` и перезапускает shell | ✅ |
 | Профиль как композиция бандлов/зависимостей/патчей | config-слои + `bundles` с `requires`/semver + bundle/profile `patches` + Cordis-sidecar | ⚠️ |
@@ -18,7 +19,7 @@ reference-клон community-плагина `dsh-desktop@233b76c`, устано�
 | Локальный web-порт: random/фиксированный, LAN-подтверждение | трей Network: local/LAN с предупреждением, фиксированный/случайный порт; как в оригинале — без отдельного LAN-диалога подтверждения | ✅ |
 | Трей: show/hide, profile, terminal, updates, quit; закрытие окна = hide | трей: show/hide, профили, браузер, терминал, диагностика, quit; close-to-tray | ⚠️ |
 | Web UI: тема | light/dark через кнопку Theme, localStorage и `?theme=light`; live-тема для iframe-плагинов | ✅ |
-| Web UI: настройки провайдера | диалог Settings: маршрут/модель/base_url, запись user-слоя `config.yaml` (0600) и подсказка о перезапуске; ключи — из окружения | ✅ |
+| Web UI: настройки | экран Settings с сайдбаром Account / Models / Web search / Plugins / Server: маршрут/модель/base_url и Brave-ключ пишутся в user-слой `config.yaml` (0600) через `/v1/config/model` и `/v1/config/search` (ключ применяется без рестарта), плагины — `/v1/plugins/*`, открывается по `#settings` | ✅ |
 | Web UI: карточки инструментов и diff | карточка `tool_start` показывает сводку и превью изменений (`-old`/`+new` для `edit`, `+` для `write`, тело `apply_patch`), `tool_end` — результат | ✅ |
 | Plugin market | Plugins UI: каталог с категориями и тегами, серверный поиск `?q=`/`?category=`/`?limit=`, детальная карточка `GET /v1/plugins/catalog/{name}` (оценка, агрегат отзывов, признак установки), поиск/инфо npm, Install, менеджер установленных, оценки и отзывы с агрегатом ★/count; общая серверная база отзывов ограничена home'ом пользователя | ⚠️ |
 | Плагины: `dsh plugin --profile add/remove/update`, рестарт | CLI add/remove/update/list/enable/disable + Web-менеджер (installed, toggle/remove/install) для активного профиля | ✅ |
@@ -41,7 +42,7 @@ reference-клон community-плагина `dsh-desktop@233b76c`, устано�
 | Single-instance lock до чтения профиля, единоличное владение home | `desktop.lock` (exclusive; ожидание до 3 с для передачи при рестарте), второй запуск форвардит папку и выходит | ✅ |
 | Login-shell environment (`-ilc env -0`, delimiters, таймаут) | `login_env.rs`: один прогон на процесс, `DSHR_DESKTOP_LOGIN_SHELL_TIMEOUT_MS` (1–2 147 483 647 мс, по умолчанию 10 000), фильтр probe/owned-переменных | ✅ |
 | Bundled CLI launcher, работает при закрытом приложении | `<home>/bin/dshr` (+`.cmd`), трей «Install CLI command…» → `~/.local/bin/dshr`, чужая команда не перезаписывается | ✅ |
-| Welcome: browser sign-in (PKCE) и API-key page | нативный provider setup и `desktop.env` 0600 | ⚠️ иначе |
+| Welcome: browser sign-in (PKCE) и API-key page | окно Settings с **Sign in with DeepSeek** (публичный OAuth `platform.deepseek.com`, PKCE S256) и ручным токеном/API-key; `desktop.env` 0600 | ✅ |
 | NSIS-инсталлятор: локали, uninstall-data, restart-banner | macOS `.app`+DMG, Linux deb/tar.gz, Windows zip | ⏸ отложено |
 | Обновления: каналы, mandatory-policy, журнал, переиспользование блоков | Stable/Beta, скачивание с SHA256SUMS, установка macOS | ⏸ отложено |
 | Подпись: Windows EV, notarization, publisher | ad-hoc по умолчанию; тулинг Developer ID/notarytool | ⏸ отложено |
@@ -90,6 +91,13 @@ recovery-окно с профилями/плагинами, first-run home. 16.1
 официальной оболочки — отложены решением владельца.
 P1: plugin market — каталог с категориями/поиском и карточкой пакета сделан; GUI-менеджер
 плагинов есть; внешней (общей) базы отзывов нет — отзывы живут в home.
+Раунды 127–133 закрыли самодостаточность десктопа и Settings: встроенный
+сервер по умолчанию (attach — опция), браузерный вход DeepSeek, секции
+Models/Web search/Plugins в веб-UI с сайдбаром, отмена/таймаут входа,
+`config.yaml` как единственный источник модели. Осталось из этого блока:
+реальный прогон подтверждения в браузере, визуальная проверка сайдбара,
+авто-установка Node-runtime pack (сейчас sidecar требует системный `node`
+или `dshr runtime install`).
 P2: прогон brew/desktop CI на теге; **C-full закрыт фазой C5 (ADR-042,
 16.11.2026)** — renderer-семантика (shadowing по priority, builtin-fallback),
 живая модель сессий (`/v1/sessions/events`, `/v1/internal/session-events`,
