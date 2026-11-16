@@ -123,6 +123,10 @@ CLI: `<home>/bin/dshr` (и `dshr.cmd` на Windows) — launcher, запуска
 подхватывается. Трей **Install CLI command…** дополнительно линкует его в
 `~/.local/bin/dshr`, не перезаписывая чужую команду.
 
+Язык оболочки: `DSHR_DESKTOP_LANG=ru|en` (по умолчанию — по системной
+локали); переведены пункты трея и диалоги оболочки. В трее есть **About dshr**
+(версия, home, профиль, платформа) и **Developer tools** (Tauri devtools окна).
+
 Трей: Show/Hide, Open in browser, Open terminal, Open config folder, Restart in
 safe mode / Restart normally,
 New profile…, Export diagnostics…, Check for updates…, Profile (список

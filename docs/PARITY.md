@@ -48,8 +48,8 @@ reference-клон community-плагина `dsh-desktop@233b76c`, устано�
 | Подпись: Windows EV, notarization, publisher | ad-hoc по умолчанию; тулинг Developer ID/notarytool | ⏸ отложено |
 | Recovery: журнал операций, backup patch, диагностический отчёт | recovery-окно (профили, плагины, safe mode), `--export-diagnostics` | ⚠️ |
 | Browser guests и file-drag bridge | CUA через Chrome; drag-and-drop папки на окно | ⚠️ иначе |
-| i18n оболочки (8 языков) и локализованные нативные меню | ru/en в CLI, тексты оболочки en | ⚠️ |
-| DevTools, About, нативные меню | нет (только трей) | ❌ |
+| i18n оболочки (8 языков) и локализованные нативные меню | трей и диалоги: ru/en по `DSHR_DESKTOP_LANG` или системной локали, остальные строки en; 8 языков нет | ⚠️ |
+| DevTools, About, нативные меню | трей: **About dshr** (версия/home/профиль/платформа) и **Developer tools** (Tauri devtools); нативных меню нет | ⚠️ |
 
 ## Host и инструменты
 

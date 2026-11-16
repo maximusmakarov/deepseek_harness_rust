@@ -16,6 +16,9 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Desktop shell is bilingual (ru/en via `DSHR_DESKTOP_LANG` or the system
+  locale) for tray items and dialogs, and the tray gains "About dshr" and
+  "Developer tools".
 - Cordis sidecars provision a pinned Node 24.21.0 runtime pack on first use
   (macOS/Linux, sha256-verified, cached in `<home>/runtimes`); `DSHR_RUNTIME_AUTO=0`
   keeps the old PATH-only behaviour, and a failed download falls back to `node`.

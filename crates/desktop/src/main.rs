@@ -679,15 +679,72 @@ fn main() {
         });
 }
 
+/// Shell language: `DSHR_DESKTOP_LANG` wins, otherwise the system locale decides
+/// between Russian and English.
+fn ui_lang() -> &'static str {
+    let explicit = std::env::var("DSHR_DESKTOP_LANG")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let locale = explicit.unwrap_or_else(|| {
+        ["LC_ALL", "LC_MESSAGES", "LANG", "AppleLocale"]
+            .iter()
+            .find_map(|key| std::env::var(key).ok().filter(|value| !value.is_empty()))
+            .unwrap_or_default()
+    });
+    if locale.to_ascii_lowercase().starts_with("ru") {
+        "ru"
+    } else {
+        "en"
+    }
+}
+
+/// Shell strings for the current language; unknown keys fall back to English.
+fn tr_for(lang: &str, text: &'static str) -> &'static str {
+    if lang != "ru" {
+        return text;
+    }
+    match text {
+        "Show window" => "Показать окно",
+        "Hide window" => "Скрыть окно",
+        "Open in browser" => "Открыть в браузере",
+        "Open terminal" => "Открыть терминал",
+        "New profile…" => "Новый профиль…",
+        "Settings…" => "Настройки…",
+        "Check for updates…" => "Проверить обновления…",
+        "Rollback profile" => "Откатить профиль",
+        "Quit" => "Выход",
+        "Set port…" => "Задать порт…",
+        "Profile" => "Профиль",
+        "Window" => "Окно",
+        "Network" => "Сеть",
+        "About dshr" => "О dshr",
+        "Developer tools" => "Инструменты разработчика",
+        "Open config folder" => "Открыть папку конфигурации",
+        "Export diagnostics…" => "Экспорт диагностики…",
+        "Install CLI command…" => "Установить команду CLI…",
+        "Restart in safe mode" => "Перезапуск в безопасном режиме",
+        "Restart normally" => "Обычный перезапуск",
+        "Download update…" => "Скачать обновление…",
+        "Install downloaded update…" => "Установить скачанное обновление…",
+        "Local only" => "Только локально",
+        "LAN" => "Локальная сеть",
+        other => other,
+    }
+}
+
+fn tr(text: &'static str) -> &'static str {
+    tr_for(ui_lang(), text)
+}
+
 fn build_tray(
     app: &mut tauri::App,
     home: &Path,
     profile: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let show = MenuItem::with_id(app, "show", "Show window", true, None::<&str>)?;
-    let hide = MenuItem::with_id(app, "hide", "Hide window", true, None::<&str>)?;
-    let browser = MenuItem::with_id(app, "browser", "Open in browser", true, None::<&str>)?;
-    let terminal = MenuItem::with_id(app, "terminal", "Open terminal", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", tr("Show window"), true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, "hide", tr("Hide window"), true, None::<&str>)?;
+    let browser = MenuItem::with_id(app, "browser", tr("Open in browser"), true, None::<&str>)?;
+    let terminal = MenuItem::with_id(app, "terminal", tr("Open terminal"), true, None::<&str>)?;
     let install_cli = MenuItem::with_id(
         app,
         "install-cli",
@@ -695,8 +752,11 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
-    let new_profile = MenuItem::with_id(app, "new-profile", "New profile…", true, None::<&str>)?;
-    let settings_item = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+    let new_profile =
+        MenuItem::with_id(app, "new-profile", tr("New profile…"), true, None::<&str>)?;
+    let settings_item = MenuItem::with_id(app, "settings", tr("Settings…"), true, None::<&str>)?;
+    let about = MenuItem::with_id(app, "about", tr("About dshr"), true, None::<&str>)?;
+    let devtools = MenuItem::with_id(app, "devtools", tr("Developer tools"), true, None::<&str>)?;
     let config_folder = MenuItem::with_id(
         app,
         "config-folder",
@@ -711,7 +771,7 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
-    let updates = MenuItem::with_id(app, "updates", "Check for updates…", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", tr("Check for updates…"), true, None::<&str>)?;
     let download = MenuItem::with_id(
         app,
         "download-update",
@@ -760,7 +820,7 @@ fn build_tray(
     updates_menu.append(&stable)?;
     updates_menu.append(&beta)?;
 
-    let rollback = MenuItem::with_id(app, "rollback", "Rollback profile", true, None::<&str>)?;
+    let rollback = MenuItem::with_id(app, "rollback", tr("Rollback profile"), true, None::<&str>)?;
     let install = MenuItem::with_id(
         app,
         "install-update",
@@ -768,11 +828,11 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", tr("Quit"), true, None::<&str>)?;
 
     let window_settings = load_window_settings(home);
     let network = load_network_settings(home);
-    let network_menu = Submenu::new(app, "Network", true)?;
+    let network_menu = Submenu::new(app, tr("Network"), true)?;
     let local = MenuItem::with_id(
         app,
         "network:local",
@@ -795,12 +855,12 @@ fn build_tray(
         true,
         None::<&str>,
     )?;
-    let set_port = MenuItem::with_id(app, "network:port", "Set port…", true, None::<&str>)?;
+    let set_port = MenuItem::with_id(app, "network:port", tr("Set port…"), true, None::<&str>)?;
     network_menu.append(&local)?;
     network_menu.append(&lan)?;
     network_menu.append(&set_port)?;
 
-    let window_menu = Submenu::new(app, "Window", true)?;
+    let window_menu = Submenu::new(app, tr("Window"), true)?;
     let mode_compat = MenuItem::with_id(
         app,
         "window:mode:compatibility",
@@ -850,7 +910,7 @@ fn build_tray(
     window_menu.append(&mode_extended)?;
     window_menu.append(&material)?;
 
-    let profiles = Submenu::new(app, "Profile", true)?;
+    let profiles = Submenu::new(app, tr("Profile"), true)?;
     for name in list_profiles(home) {
         let label = if name == profile {
             format!("✓ {name}")
@@ -875,6 +935,8 @@ fn build_tray(
             &terminal,
             &install_cli,
             &settings_item,
+            &about,
+            &devtools,
             &config_folder,
             &updates,
             &download,
@@ -914,6 +976,26 @@ fn build_tray(
             "terminal" => {
                 let home = home_dir();
                 open_terminal(&home, &current_profile(&home));
+            }
+            "about" => {
+                let home = home_dir();
+                let profile = current_profile(&home);
+                show_error(
+                    tr("About dshr"),
+                    &format!(
+                        "dshr {}\nhome: {}\nprofile: {}\nplatform: {} {}",
+                        env!("CARGO_PKG_VERSION"),
+                        home.display(),
+                        profile,
+                        std::env::consts::OS,
+                        std::env::consts::ARCH
+                    ),
+                );
+            }
+            "devtools" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                }
             }
             "settings" => {
                 if let Err(error) = show_settings(app) {
@@ -2226,6 +2308,14 @@ mod server_settings_tests {
         );
         assert!(!api.env.contains_key("OPENAI_API_KEY"));
         assert!(!api.env.contains_key("DSH_DEEPSEEK_TOKEN"));
+    }
+
+    #[test]
+    fn shell_strings_switch_between_ru_and_en() {
+        assert_eq!(tr_for("ru", "Settings…"), "Настройки…");
+        assert_eq!(tr_for("ru", "Quit"), "Выход");
+        assert_eq!(tr_for("en", "Settings…"), "Settings…");
+        assert_eq!(tr_for("ru", "Unmapped"), "Unmapped");
     }
 
     #[test]
