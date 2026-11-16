@@ -224,7 +224,12 @@ pack `node` → `node` из PATH. Если не нашлось ничего, п�
   `isOwnedBy(id, owner)`, `rootOf()`, `resolveName()`, `getProvider()`, а также
   события `agent/created`/`agent/disposed` на дельте. Метаданные только: ни
   промптов, ни вывода модели через мост не идёт. Сервис `commands` (раунд 121) —
-  реестр плагинных слэш-команд (`register`/`list`/`get`/`run`). С раунда 120
+  реестр плагинных слэш-команд (`register`/`list`/`get`/`run`). Сервис
+  `settings` (раунд 122) — реестр пространств имён с послойным разрешением
+  (умолчания схемы → композиционный `base` → пользовательский слой), персистом
+  в `<home>/cordis/settings.json` и API `register`/`describe`/`get`/`update`/
+  `replace`/`mutate` плюс `watch` у scope; `configure()` — совместимый no-op для
+  плагинов, ждущих более новый API формы настроек. С раунда 120
   добавлен сервис `subagents`
   (`list`/`getProvider`/`registerProvider` + события `subagent/provider-*`):
   это реестр провайдеров, а не рантайм — дерево агентов живёт в хосте, поэтому

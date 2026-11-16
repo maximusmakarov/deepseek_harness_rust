@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–121)
+# Журнал раундов паритета (1–122)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 414 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **463**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 415 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **464**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1806,6 +1806,26 @@ link-safety) и +5 интеграционных на локальном registry
 - Остаток, записанный в TECH-DEBT: сервис форм настроек (`dsh-mnemon` пишет
   не-фатальное «could not persist displayMode») и вывод команд в UI/агенту
   (реестр есть, исполнение через `commands.run`).
+
+## Раунд 122 — сервис `settings` (16.11.2026)
+
+- `ctx.settings` (он же `ctx.get('settings')`) реализует контракт в объёме,
+  нужном плагинам: `register(ns, schema, {base, applies})` возвращает scope с
+  `get`/`watch`/`update`/`replace`; сервис отдаёт `describe()`, `get(ns)`,
+  `update`, `replace`, `mutate`, `writable` и `documentPath`.
+- Разрешение послойное, как в DSH: умолчания схемы → композиционный `base` →
+  пользовательский слой документа. Документ один —
+  `<home>/cordis/settings.json`, пишется атомарно (`.part` + rename);
+  `revision` в дескрипторе растёт на каждом коммите, `expectedRevision`
+  отбивает устаревшую запись, `watch` получает `(next, prev)`.
+- `configure()` добавлен как совместимый no-op: плагины, собранные против более
+  нового API формы настроек, вызывают его на старте и получают диспозер вместо
+  падения.
+
+Проверено: `dsh-mnemon@0.5.46` монтируется **без единого предупреждения**
+(3 инструмента), `dsh-remote@1.2.0` — по-прежнему 21. Регрессионный тест
+`settings_service_resolves_and_persists` проверяет умолчания+base, `watch`,
+`update`, дескрипторы и запись в `settings.json`.
 
 ## Формализация и каталог тестов (14.11.2026)
 

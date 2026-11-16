@@ -674,6 +674,191 @@ const configFormsService = {
   entries: () => [...configForms.keys()],
 };
 
+// `settings` service (round 122): registered namespaces with schema defaults,
+// the registrant's composition base and a persisted user layer. The storage is
+// one JSON document next to the host bridge (`<home>/cordis/settings.json`),
+// written atomically; it is the same shape DSH configuration surfaces render.
+const settingsPath = hostBridgeFile
+  ? path.join(path.dirname(hostBridgeFile), "settings.json")
+  : "";
+const settingsNamespaces = new Map();
+let settingsDoc = loadSettingsDocument();
+
+function loadSettingsDocument() {
+  if (!settingsPath) return {};
+  try {
+    const parsed = JSON.parse(require("node:fs").readFileSync(settingsPath, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistSettingsDocument() {
+  if (!settingsPath) return;
+  try {
+    const staging = settingsPath + ".part";
+    require("node:fs").writeFileSync(staging, JSON.stringify(settingsDoc, null, 2));
+    require("node:fs").renameSync(staging, settingsPath);
+  } catch (error) {
+    console.error("[cordis] settings persist failed:", error);
+  }
+}
+
+function settingsUserSection(ns) {
+  const section = settingsDoc[ns];
+  return section && typeof section === "object" && !Array.isArray(section) ? section : {};
+}
+
+/// Resolve schema defaults, then the registrant's base, then the user layer.
+function resolveSettings(entry) {
+  const { schema, base } = entry;
+  const merged = { ...(base ?? {}), ...settingsUserSection(entry.ns) };
+  if (typeof schema !== "function") return merged;
+  try {
+    return schema(merged);
+  } catch (error) {
+    const fallback = typeof schema === "function" ? schema({}) : {};
+    console.error("[cordis] settings value rejected by schema:", entry.ns, error);
+    return entry.lastGood ?? fallback ?? merged;
+  }
+}
+
+function settingsDescriptor(entry) {
+  return {
+    ns: entry.ns,
+    schema: typeof entry.schema?.toJSON === "function" ? entry.schema.toJSON() : undefined,
+    value: entry.value,
+    base: entry.base,
+    user: settingsUserSection(entry.ns),
+    revision: entry.revision,
+    applies: entry.applies,
+  };
+}
+
+function commitSettings(entry) {
+  const previous = entry.value;
+  entry.value = resolveSettings(entry);
+  entry.lastGood = entry.value;
+  entry.revision += 1;
+  for (const listener of [...entry.listeners]) {
+    try {
+      const result = listener(entry.value, previous);
+      if (result && typeof result.catch === "function") {
+        result.catch((error) => console.error("[cordis] settings watcher failed:", error));
+      }
+    } catch (error) {
+      console.error("[cordis] settings watcher failed:", error);
+    }
+  }
+}
+
+const settingsService = {
+  writable: true,
+  documentPath: settingsPath || undefined,
+  prepareDocument: async () => settingsPath || undefined,
+  register: (ns, schema, options = {}) => {
+    const name = String(ns);
+    if (settingsNamespaces.has(name)) {
+      throw new Error(`settings namespace '${name}' is already registered`);
+    }
+    const entry = {
+      ns: name,
+      schema,
+      base: options.base,
+      applies: options.applies ?? "live",
+      revision: 0,
+      listeners: new Set(),
+      value: {},
+    };
+    entry.value = resolveSettings(entry);
+    entry.lastGood = entry.value;
+    settingsNamespaces.set(name, entry);
+    const scope = {
+      get: () => entry.value,
+      watch: (callback) => {
+        if (typeof callback !== "function") return () => {};
+        entry.listeners.add(callback);
+        return () => entry.listeners.delete(callback);
+      },
+      update: async (patch) => {
+        const section = { ...settingsUserSection(name), ...(patch ?? {}) };
+        settingsDoc[name] = section;
+        persistSettingsDocument();
+        commitSettings(entry);
+      },
+      replace: async (section) => {
+        if (section && Object.keys(section).length > 0) settingsDoc[name] = { ...section };
+        else delete settingsDoc[name];
+        persistSettingsDocument();
+        commitSettings(entry);
+      },
+    };
+    return {
+      ...scope,
+      dispose: () => settingsNamespaces.delete(name),
+    };
+  },
+  describe: () => [...settingsNamespaces.values()].map(settingsDescriptor),
+  get: (ns) => settingsNamespaces.get(String(ns))?.value,
+  update: async (ns, patch, expectedRevision) => {
+    const entry = expectSettings(ns, expectedRevision);
+    settingsDoc[entry.ns] = { ...settingsUserSection(entry.ns), ...(patch ?? {}) };
+    persistSettingsDocument();
+    commitSettings(entry);
+  },
+  replace: async (ns, section, expectedRevision) => {
+    const entry = expectSettings(ns, expectedRevision);
+    if (section && Object.keys(section).length > 0) settingsDoc[entry.ns] = { ...section };
+    else delete settingsDoc[entry.ns];
+    persistSettingsDocument();
+    commitSettings(entry);
+  },
+  mutate: async (ns, ops, expectedRevision) => {
+    const entry = expectSettings(ns, expectedRevision);
+    const section = { ...settingsUserSection(entry.ns) };
+    for (const op of ops ?? []) {
+      const pathParts = Array.isArray(op?.path) ? op.path : String(op?.path ?? "").split(".").filter(Boolean);
+      if (pathParts.length === 0) continue;
+      if (op.op === "unset") deleteAtPath(section, pathParts);
+      else setAtPath(section, pathParts, op.value);
+    }
+    if (Object.keys(section).length > 0) settingsDoc[entry.ns] = section;
+    else delete settingsDoc[entry.ns];
+    persistSettingsDocument();
+    commitSettings(entry);
+  },
+  // Compatibility with the newer plugin-facing form API (`ctx.settings.configure`).
+  configure: () => () => {},
+};
+
+function expectSettings(ns, expectedRevision) {
+  const entry = settingsNamespaces.get(String(ns));
+  if (!entry) throw new Error(`settings namespace '${ns}' is not registered`);
+  if (typeof expectedRevision === "number" && expectedRevision !== entry.revision) {
+    throw new Error(`settings namespace '${ns}' moved to revision ${entry.revision}`);
+  }
+  return entry;
+}
+
+function setAtPath(target, pathParts, value) {
+  let node = target;
+  for (const part of pathParts.slice(0, -1)) {
+    if (node[part] === undefined || typeof node[part] !== "object" || Array.isArray(node[part])) node[part] = {};
+    node = node[part];
+  }
+  node[pathParts[pathParts.length - 1]] = value;
+}
+
+function deleteAtPath(target, pathParts) {
+  let node = target;
+  for (const part of pathParts.slice(0, -1)) {
+    if (node[part] === undefined || typeof node[part] !== "object") return;
+    node = node[part];
+  }
+  delete node[pathParts[pathParts.length - 1]];
+}
+
 // `agents` service (round 121): the host's live agent tree, hydrated from
 // `/v1/internal/agents`. The sidecar never constructs agents itself.
 const agentsService = {
@@ -799,6 +984,7 @@ const serviceMap = {
   subagents: subagentsService,
   agents: agentsService,
   commands: commandsService,
+  settings: settingsService,
 };
 
 const ctx = {
@@ -812,6 +998,7 @@ const ctx = {
   subagents: subagentsService,
   agents: agentsService,
   commands: commandsService,
+  settings: settingsService,
   webServer,
   configForms: configFormsService,
   // Reference fiber helper: run the callback only when every dependency exists.

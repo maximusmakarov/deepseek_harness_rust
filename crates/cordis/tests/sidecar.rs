@@ -394,3 +394,99 @@ export default {
     assert!(content.contains("\"parentId\":\"s1\""), "{content}");
     drop(stub);
 }
+
+/// The `settings` service resolves schema defaults over a composition base and
+/// a persisted user layer, notifies watchers and reports revisions.
+#[tokio::test]
+async fn settings_service_resolves_and_persists() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+export default {
+  apply(ctx) {
+    const settings = ctx.get("settings");
+    const scope = settings.register(
+      "probe-settings",
+      (value) => ({ mode: "auto", size: 5, ...value }),
+      { base: { size: 9 }, applies: "live" },
+    );
+    ctx.tool({
+      name: "settings_probe",
+      description: "settings",
+      handler: async () => {
+        const before = scope.get();
+        let seen = null;
+        const dispose = scope.watch((next) => { seen = next; });
+        await scope.update({ mode: "manual" });
+        dispose();
+        const after = scope.get();
+        const described = settings
+          .describe()
+          .map((item) => ({ ns: item.ns, revision: item.revision, applies: item.applies }));
+        return JSON.stringify({
+          before,
+          after,
+          seen,
+          described,
+          writable: settings.writable === true,
+          configured: typeof settings.configure === "function",
+        });
+      },
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "settings".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect");
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cordis__settings__settings_probe")
+        .expect("settings tool");
+    let ctx = ToolCtx {
+        cwd: dir.path().to_path_buf(),
+        session_id: SessionId::new(),
+        output_limit: 10_000,
+        spill_dir: dir.path().join("spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    let content = tool.execute(&ctx, json!({})).await.expect("call").content;
+    let value: serde_json::Value = serde_json::from_str(&content).expect("json");
+    assert_eq!(value["before"]["mode"], json!("auto"));
+    assert_eq!(value["before"]["size"], json!(9));
+    assert_eq!(value["after"]["mode"], json!("manual"));
+    assert_eq!(value["after"]["size"], json!(9));
+    assert_eq!(value["seen"]["mode"], json!("manual"));
+    assert_eq!(value["described"][0]["ns"], json!("probe-settings"));
+    assert_eq!(value["described"][0]["applies"], json!("live"));
+    assert_eq!(value["writable"], json!(true));
+    assert_eq!(value["configured"], json!(true));
+
+    let stored =
+        std::fs::read_to_string(dir.path().join("cordis/settings.json")).expect("settings");
+    assert!(stored.contains("probe-settings"), "{stored}");
+    assert!(stored.contains("manual"), "{stored}");
+}
