@@ -1631,8 +1631,10 @@ callback-моста), per-frame фильтрация цепочек (неско�
   `scripts/sync-homebrew-tap.sh --push` (коммит `dshr 0.1.0`), `brew tap
   maximusmakarov/dshr` видит формулу, `brew audit --strict` — 0 замечаний.
 - `brew fetch maximusmakarov/dshr/dshr` скачал манифест индекса и бутылку
-  `arm64_sequoia` из GHCR анонимно, sha256 совпал с формулой и ассетом релиза:
-  pour-путь подтверждён без установки на машину.
+  `arm64_sequoia` из GHCR анонимно, sha256 совпал с формулой и ассетом релиза;
+  `brew install maximusmakarov/dshr/dshr` налил бутылку
+  (`poured_from_bottle: true`), `brew test dshr` и `dshr --version` проходят —
+  установка из GHCR проверена end-to-end.
 - Найдено ограничение Homebrew 7: сторонний tap требует явного доверия —
   `brew trust maximusmakarov/dshr`, иначе `Refusing to load formula … from
   untrusted tap`. Записано в [RELEASE](RELEASE.md#tap) и

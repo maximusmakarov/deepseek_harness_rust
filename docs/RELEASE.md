@@ -103,8 +103,11 @@ OCI-индексом** `ghcr.io/<owner>/<repo>/dshr:<version>`. Индекс а�
   агрегирующий push подтверждён на реальном релизе;
 - `brew fetch maximusmakarov/dshr/dshr` скачал манифест индекса и бутылку
   `arm64_sequoia` из GHCR анонимно; sha256 совпал с формулой и с ассетом релиза
-  (`1f086b6a…`). Полная установка (`brew install`) — системная операция, её
-  выполняет пользователь.
+  (`1f086b6a…`);
+- `brew install maximusmakarov/dshr/dshr` на Apple Silicon собрал из бутылки
+  (`poured_from_bottle: true`, receipt указывает на tap `maximusmakarov/dshr`),
+  `brew test dshr` и `dshr --version` проходят — установка из GHCR проверена
+  end-to-end, не только fetch'ем.
 
 ### Tap
 

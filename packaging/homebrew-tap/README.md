@@ -68,9 +68,15 @@ dshr --version
 `brew tap maximusmakarov/dshr` видит формулу, `brew audit --strict` — 0
 замечаний, `brew fetch maximusmakarov/dshr/dshr` скачал манифест индекса и
 бутылку `arm64_sequoia` из GHCR анонимно, sha256 совпал с формулой и с ассетом
-релиза `v0.1.0` (`1f086b6a…`). Индекс содержал все четыре платформы.
+релиза `v0.1.0` (`1f086b6a…`), `brew install maximusmakarov/dshr/dshr` налил
+бутылку (`poured_from_bottle: true`), `brew test dshr` и `dshr --version`
+проходят. Индекс содержал все четыре платформы.
 
 ## Ограничения
+
+- Если в другом tap есть формула с тем же именем, brew отказывается резолвить
+  короткое имя (`Formulae found in multiple taps`). Лечится полным именем
+  `maximusmakarov/dshr/dshr` или `brew untap <лишний-tap>`.
 
 - Индекс `ghcr.io/<owner>/<repo>/dshr:<version>` один на версию и содержит все
   собранные платформы (`sonoma`, `arm64_sequoia`, `x86_64_linux`,

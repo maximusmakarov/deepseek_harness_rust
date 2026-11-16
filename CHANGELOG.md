@@ -14,7 +14,8 @@
   artifacts, including the Linux `.deb` and a multi-platform GHCR bottle index;
   `maximusmakarov/homebrew-dshr` carries the GHCR formula, and
   `brew fetch maximusmakarov/dshr/dshr` pulls the `arm64_sequoia` bottle from
-  GHCR anonymously with a matching sha256. Homebrew 7 needs
+  GHCR anonymously with a matching sha256, and `brew install` poured that bottle
+  (`poured_from_bottle: true`, `brew test dshr` passes). Homebrew 7 needs
   `brew trust maximusmakarov/dshr` before installing from the tap.
 - Release path: the GHCR bottle publisher now writes one OCI index per version
   containing every platform; per-bottle pushes replaced the index and left only
