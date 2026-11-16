@@ -10,6 +10,10 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- TUI: `/help` lists built-in and plugin commands and `/name args` runs a
+  `cmd__<plugin>__<name>` tool in the current session; plugin commands are now
+  reachable from the agent, over HTTP and from the terminal. A nightly workflow
+  runs the conformance matrix and uploads its report.
 - Cordis compat: `scripts/conformance.py` and docs/CONFORMANCE.md run the set of
   real DSH plugins and record which tools and commands work. The pass fixed two
   real bugs: plugins that `console.log` no longer corrupt the MCP channel

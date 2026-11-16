@@ -225,8 +225,9 @@ pack `node` → `node` из PATH. Если не нашлось ничего, п�
   события `agent/created`/`agent/disposed` на дельте. Метаданные только: ни
   промптов, ни вывода модели через мост не идёт. Сервис `commands` (раунды
   121–123) — реестр плагинных слэш-команд (`register`/`list`/`get`/`run`);
-  каждая команда публикуется агенту как инструмент `cmd__<plugin>__<name>` и
-  доступна по HTTP (`GET /v1/commands`, `POST /v1/commands/{name}`). Сервис
+  каждая команда публикуется агенту как инструмент `cmd__<plugin>__<name>`,
+  доступна по HTTP (`GET /v1/commands`, `POST /v1/commands/{name}`) и в TUI как
+  `/name args` (с `/help` по списку команд). Сервис
   `settings` (раунд 122) — реестр пространств имён с послойным разрешением
   (умолчания схемы → композиционный `base` → пользовательский слой), персистом
   в `<home>/cordis/settings.json` и API `register`/`describe`/`get`/`update`/

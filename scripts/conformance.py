@@ -56,6 +56,22 @@ def run(dshr: str, args, home: str, timeout: int, log: str) -> tuple[int, str]:
     return code, open(log, errors="ignore").read()
 
 
+def write_markdown(rows, path: str) -> None:
+    lines = [
+        "| Плагин | Установка | Пакетов | Инструменты | Команды | Примечание |",
+        "|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        install = "ok" if row["install_code"] == 0 else f"error ({row['install_code']})"
+        note = row["note"].replace("|", "\\|")
+        lines.append(
+            f"| `{row['spec']}` | {install} | {row['packages']} | "
+            f"{len(row['tools'])} | {len(row['commands'])} | {note} |"
+        )
+    with open(path, "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dshr", default="./target/debug/dshr")
@@ -64,6 +80,7 @@ def main() -> int:
     parser.add_argument("--install-timeout", type=int, default=600)
     parser.add_argument("--mount-timeout", type=int, default=180)
     parser.add_argument("--plugins", nargs="*", default=PLUGINS)
+    parser.add_argument("--markdown", help="also write the Markdown table here")
     args = parser.parse_args()
 
     shutil.rmtree(args.out, ignore_errors=True)
@@ -111,6 +128,8 @@ def main() -> int:
 
     with open(os.path.join(args.out, "conformance.json"), "w") as handle:
         json.dump(rows, handle, ensure_ascii=False, indent=2)
+    if args.markdown:
+        write_markdown(rows, args.markdown)
     print(json.dumps(rows, ensure_ascii=False, indent=2))
     return 0
 

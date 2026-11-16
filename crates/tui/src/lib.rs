@@ -49,6 +49,11 @@ pub struct TuiOptions {
 
 enum Command {
     Prompt(String),
+    /// `/name args` — a built-in or plugin command (`cmd__*` tools).
+    Slash {
+        name: String,
+        args: String,
+    },
     Quit,
 }
 
@@ -202,6 +207,82 @@ fn summarize(value: &serde_json::Value) -> String {
     format!("{}{}", &text[..end], if text.len() > 80 { "…" } else { "" })
 }
 
+/// Splits `/name rest of the input` into a command name and its arguments.
+fn parse_slash(input: &str) -> Option<(String, String)> {
+    let trimmed = input.trim();
+    let rest = trimmed.strip_prefix('/')?;
+    let mut parts = rest.splitn(2, char::is_whitespace);
+    let name = parts.next()?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let args = parts.next().unwrap_or("").trim().to_owned();
+    Some((name.to_owned(), args))
+}
+
+/// Whether a `cmd__*` tool answers to the slash name the user typed.
+fn command_matches(tool: &str, name: &str) -> bool {
+    tool.starts_with("cmd__")
+        && (tool == format!("cmd__{name}") || tool.ends_with(&format!("__{name}")))
+}
+
+/// Runs one `/command`: built-in `help`, or a plugin command tool.
+async fn run_slash(
+    tools: &ToolRegistry,
+    workspace: &std::path::Path,
+    session_id: &dshr_core::SessionId,
+    output_limit: usize,
+    name: &str,
+    args: &str,
+) -> String {
+    if name == "help" {
+        let mut lines = vec![
+            "commands:".to_owned(),
+            "  /help            list commands".to_owned(),
+            "  /quit            leave the session".to_owned(),
+        ];
+        let mut plugin: Vec<_> = tools
+            .definitions()
+            .into_iter()
+            .filter(|definition| definition.name.starts_with("cmd__"))
+            .collect();
+        plugin.sort_by(|left, right| left.name.cmp(&right.name));
+        for definition in plugin {
+            lines.push(format!(
+                "  /{:<14} {}",
+                definition.name, definition.description
+            ));
+        }
+        if lines.len() == 3 {
+            lines.push("  (no plugin commands registered)".to_owned());
+        }
+        return format!("{}\n", lines.join("\n"));
+    }
+    let Some(tool) = tools
+        .definitions()
+        .into_iter()
+        .find(|definition| command_matches(&definition.name, name))
+        .and_then(|definition| tools.get(&definition.name))
+    else {
+        return format!("unknown command '/{name}' — try /help\n");
+    };
+    let ctx = dshr_tools::ToolCtx {
+        cwd: workspace.to_path_buf(),
+        session_id: session_id.clone(),
+        output_limit,
+        spill_dir: workspace.join(".dshr/spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    match tool
+        .execute(&ctx, serde_json::json!({ "args": args }))
+        .await
+    {
+        Ok(outcome) => format!("{}\n", outcome.content),
+        Err(error) => format!("command '/{name}' failed: {error}\n"),
+    }
+}
+
 pub fn run(options: TuiOptions) -> Result<()> {
     let (event_tx, event_rx) = mpsc::channel();
     let (command_tx, command_rx) = mpsc::channel();
@@ -250,6 +331,12 @@ fn spawn_agent(
                 None
             };
             let title_store = std::sync::Arc::clone(&options.store);
+            // Plugin commands live in the tool registry, which Agent::new takes
+            // ownership of; keep a handle for `/command` execution.
+            let command_tools = std::sync::Arc::clone(&options.tools);
+            let command_output_limit = options.output_limit;
+            let command_workspace = PathBuf::from(&options.session.header.cwd);
+            let command_session = options.session.header.id.clone();
             let mut title_requested = false;
             let mut agent = Agent::new(
                 options.provider,
@@ -270,6 +357,23 @@ fn spawn_agent(
             while let Ok(command) = commands.recv() {
                 match command {
                     Command::Quit => break,
+                    Command::Slash { name, args } => {
+                        let text = run_slash(
+                            &command_tools,
+                            &command_workspace,
+                            &command_session,
+                            command_output_limit,
+                            &name,
+                            &args,
+                        )
+                        .await;
+                        let _ = events.send(UiEvent::Text(text));
+                        let _ = events.send(UiEvent::Done {
+                            usage: Usage::default(),
+                            steps: 0,
+                            tool_calls: 0,
+                        });
+                    }
                     Command::Prompt(prompt) => {
                         if let Some(provider) = &title_provider
                             && !title_requested
@@ -430,6 +534,18 @@ impl App {
     fn submit(&mut self, commands: &Sender<Command>) {
         let prompt = self.input.trim().to_owned();
         if prompt.is_empty() || self.busy {
+            return;
+        }
+        if let Some((name, args)) = parse_slash(&prompt) {
+            self.lines.push(format!("> {prompt}"));
+            self.input.clear();
+            if matches!(name.as_str(), "quit" | "exit") {
+                let _ = commands.send(Command::Quit);
+                return;
+            }
+            self.busy = true;
+            self.status = format!("/{name}");
+            let _ = commands.send(Command::Slash { name, args });
             return;
         }
         self.lines.push(format!("> {prompt}"));
@@ -695,6 +811,28 @@ mod tests {
 
     fn app() -> App {
         App::new("deepseek-flash".into(), "ses_test".into(), Lang::Ru)
+    }
+
+    #[test]
+    fn parses_slash_commands() {
+        assert_eq!(
+            parse_slash("/help"),
+            Some(("help".to_owned(), String::new()))
+        );
+        assert_eq!(
+            parse_slash("  /notify hello world  "),
+            Some(("notify".to_owned(), "hello world".to_owned()))
+        );
+        assert_eq!(parse_slash("/"), None);
+        assert_eq!(parse_slash("plain prompt"), None);
+    }
+
+    #[test]
+    fn matches_plugin_command_names() {
+        assert!(command_matches("cmd__dsh-remote__remote", "remote"));
+        assert!(command_matches("cmd__notify", "notify"));
+        assert!(!command_matches("cmd__dsh-remote__remote", "other"));
+        assert!(!command_matches("cordis__a__remote", "remote"));
     }
 
     #[test]

@@ -36,3 +36,25 @@ fn tui_accepts_a_prompt_and_streams_the_reply() {
     session.send("\r").expect("submit");
     session.expect("pong").expect("reply");
 }
+
+#[test]
+fn tui_lists_commands_for_a_slash_input() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cassette = write_cassette(dir.path());
+    let binary = env!("CARGO_BIN_EXE_dshr");
+
+    let mut session = spawn(format!(
+        "{binary} --home {} tui --cassette {}",
+        dir.path().display(),
+        cassette.display()
+    ))
+    .expect("spawn tui");
+    session.set_expect_timeout(Some(Duration::from_secs(15)));
+
+    session.expect("dshr").expect("header");
+    session.send("/help").expect("type command");
+    session.send("\r").expect("submit");
+    session.expect("commands:").expect("command list");
+    session.expect("/help").expect("/help listed");
+    session.expect("/quit").expect("/quit listed");
+}

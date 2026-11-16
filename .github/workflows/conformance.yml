@@ -1,0 +1,43 @@
+name: Conformance (nightly)
+
+# Runs the real-plugin matrix against the npm registry. Not part of the trunk
+# gate: it needs network, node and several minutes; it exists to catch upstream
+# drift (a plugin moving to a newer host API, a new Node requirement).
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build
+        run: cargo build --locked -p dshr-cli
+      - name: node version
+        run: node --version
+      - name: conformance matrix
+        env:
+          DSHR_NODE: node
+        run: |
+          python3 scripts/conformance.py \
+            --dshr ./target/debug/dshr \
+            --out /tmp/conformance \
+            --install-timeout 900 \
+            --mount-timeout 300 \
+            --markdown /tmp/conformance.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conformance
+          path: |
+            /tmp/conformance/conformance.json
+            /tmp/conformance.md
+          if-no-files-found: warn
