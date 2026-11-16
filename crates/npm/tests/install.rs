@@ -132,9 +132,16 @@ struct Package {
 }
 
 /// Builds one packument (all versions of `name`) plus its tarball routes.
-fn build_packument(
+fn build_packument(name: &str, versions: &[VersionSpec]) -> (Vec<u8>, Vec<(String, Vec<u8>)>) {
+    build_packument_with_peers(name, versions, &[], &[])
+}
+
+/// Same, with `peerDependencies` and optional peers for every version.
+fn build_packument_with_peers(
     name: &str,
-    versions: &[(&'static str, &'static [(&'static str, &'static str)])],
+    versions: &[VersionSpec],
+    peers: &[(&str, &str)],
+    optional_peers: &[&str],
 ) -> (Vec<u8>, Vec<(String, Vec<u8>)>) {
     let mut tarballs = Vec::new();
     let mut encoded_versions = serde_json::Map::new();
@@ -161,6 +168,16 @@ fn build_packument(
             serde_json::json!({
                 "version": version,
                 "dependencies": dependencies,
+                "peerDependencies": peers
+                    .iter()
+                    .map(|(dep, requirement)| {
+                        ((*dep).to_owned(), serde_json::Value::String((*requirement).to_owned()))
+                    })
+                    .collect::<serde_json::Map<_, _>>(),
+                "peerDependenciesMeta": optional_peers
+                    .iter()
+                    .map(|name| ((*name).to_owned(), serde_json::json!({"optional": true})))
+                    .collect::<serde_json::Map<_, _>>(),
                 "dist": { "tarball": format!("REPLACED{tarball_path}"), "integrity": integrity },
             }),
         );
@@ -402,6 +419,53 @@ async fn rejects_a_tarball_with_a_wrong_integrity() {
     assert!(!target.path().join("node_modules").exists());
     let cas = home.path().join("npm/cas");
     assert!(!cas.exists() || std::fs::read_dir(&cas).expect("cas").count() == 0);
+}
+
+#[tokio::test]
+async fn installs_peer_dependencies_and_skips_optional_peers() {
+    let (host_body, host_tarballs) = build_packument_with_peers(
+        "host",
+        &[("1.0.0", &[])],
+        &[("@scope/core", "^1.0.0"), ("@scope/optional-peer", "^9")],
+        &["@scope/optional-peer"],
+    );
+    let (core_body, core_tarballs) = build_packument("@scope/core", &[("1.2.0", &[])]);
+    let mut routes = HashMap::new();
+    for (path, body) in host_tarballs.into_iter().chain(core_tarballs) {
+        routes.insert(path, body);
+    }
+    routes.insert("/host".to_owned(), host_body);
+    routes.insert("/@scope%2Fcore".to_owned(), core_body);
+    let stub = start(routes);
+    let home = tempfile::tempdir().expect("home");
+    let target = tempfile::tempdir().expect("target");
+    let installer = Installer::with_registry(&stub.base, home.path());
+
+    let report = installer
+        .install(
+            target.path(),
+            &[PackageSpec::parse("host").expect("spec")],
+            &InstallOptions::default(),
+        )
+        .await
+        .expect("peers must not fail the install");
+
+    assert_eq!(report.version_of("host"), Some("1.0.0"));
+    assert_eq!(report.version_of("@scope/core"), Some("1.2.0"));
+    assert_eq!(
+        report.path_of("@scope/core"),
+        Some("node_modules/@scope/core")
+    );
+    assert!(
+        target
+            .path()
+            .join("node_modules/@scope/core/package.json")
+            .is_file()
+    );
+    assert!(
+        report.version_of("@scope/optional-peer").is_none(),
+        "an unresolvable optional peer is skipped"
+    );
 }
 
 #[tokio::test]

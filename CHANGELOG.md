@@ -10,6 +10,14 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Cordis compat: the sidecar exposes the reference `ctx` surface (`effect`,
+  `on`/`emit`, `provide`, `tools.register`, `systemPrompt.section`,
+  `sandbox.confine`, `config`), resolves a named `export const Config` for
+  `apply(ctx, config)`, and accepts host tools (`parameters`/`execute` from
+  `defineTool`). `plugin npm add` installs peer dependencies as host-level
+  singletons with cycle guards, so real DSH plugins resolve
+  `@deepseek-ai/dsh-tools`; `dsh-remote@1.2.0` now loads and executes its 21
+  tools through the sidecar.
 - npm resolver: `dshr-npm` resolves registry specs (ranges, dist-tags, npm
   spacing/hyphen/`||` syntax), walks transitive dependencies with hoisting and
   nested conflicts, verifies tarballs against `dist.integrity`, stores them once

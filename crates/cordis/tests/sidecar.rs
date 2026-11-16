@@ -132,3 +132,70 @@ export default {
     assert_eq!(outcome.content, "secret");
     assert!(!outcome.is_error);
 }
+
+/// The reference ctx surface real DSH plugins call: effects, provided services,
+/// events, prompt sections, sandbox confining, tool registration with the host
+/// `parameters`/`execute` shape, and schema-resolved plugin config.
+#[tokio::test]
+async fn exposes_the_reference_plugin_surface() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+export const Config = Object.assign((value) => ({ ...value, resolved: true }));
+
+export default {
+  apply(ctx, config) {
+    ctx.effect(() => () => {}, "demo.effect");
+    ctx.on("demo:event", () => {});
+    ctx.provide("demoService", { ping: () => "pong" });
+    ctx.systemPrompt.section({ title: "demo" });
+    const confined = ctx.sandbox.confine("/workspace/x");
+    const viaGet = ctx.get("demoService").ping();
+    ctx.tools.register({
+      name: "host_shape",
+      description: `config=${JSON.stringify(config)} confined=${confined} get=${viaGet}`,
+      parameters: { type: "object", properties: {} },
+      async execute() {
+        return "ok";
+      },
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "surface".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect");
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cordis__surface__host_shape")
+        .expect("host-shaped tool registered through ctx.tools.register");
+    let description = tool.description();
+    assert!(description.contains("\"resolved\":true"), "{description}");
+    assert!(
+        description.contains("confined=/workspace/x"),
+        "{description}"
+    );
+    assert!(description.contains("get=pong"), "{description}");
+}

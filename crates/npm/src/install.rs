@@ -14,6 +14,11 @@ use crate::{PackageSpec, Requirement};
 /// Name of the generated lock file.
 pub const LOCK_FILE: &str = "dshr-npm-lock.json";
 
+/// Safety valve against peer-dependency cycles: a real tree stays far below it.
+const MAX_PACKAGES: usize = 1500;
+/// Nesting cap; deeper placement means a peer loop, not a real dependency.
+const MAX_DEPTH: usize = 64;
+
 /// Knobs for one install run.
 #[derive(Debug, Clone, Default)]
 pub struct InstallOptions {
@@ -220,6 +225,9 @@ struct Request {
     name: String,
     requirement: Requirement,
     optional: bool,
+    /// Peer dependencies are host-level singletons: they are placed at the
+    /// root and never nested.
+    peer: bool,
 }
 
 async fn build_tree(
@@ -232,6 +240,8 @@ async fn build_tree(
         slots: BTreeMap::new(),
     };
     let mut packuments: BTreeMap<String, Packument> = BTreeMap::new();
+    let mut peer_seen: std::collections::BTreeSet<(String, String)> =
+        std::collections::BTreeSet::new();
     let mut queue: VecDeque<Request> = VecDeque::new();
     for spec in specs {
         queue.push_back(Request {
@@ -239,10 +249,22 @@ async fn build_tree(
             name: spec.name.clone(),
             requirement: spec.requirement(),
             optional: false,
+            peer: false,
         });
     }
 
     while let Some(request) = queue.pop_front() {
+        if tree.nodes.len() >= MAX_PACKAGES {
+            return Err(DshrError::invalid_input(format!(
+                "npm: dependency graph exceeds {MAX_PACKAGES} packages (peer-dependency cycle?)"
+            )));
+        }
+        if request.from_dir.components().count() > MAX_DEPTH {
+            return Err(DshrError::invalid_input(format!(
+                "npm: {} nests deeper than {MAX_DEPTH} packages (peer-dependency cycle?)",
+                request.name
+            )));
+        }
         let candidates = candidate_slots(&request.from_dir);
         if visible(&tree, &candidates, &request).is_some() {
             continue;
@@ -259,16 +281,32 @@ async fn build_tree(
             .store
             .ensure(resolvers.client, &request.name, &meta)
             .await?;
-        let slot = candidates
-            .iter()
-            .find(|slot| {
-                !tree
-                    .slots
-                    .get(*slot)
-                    .is_some_and(|entries| entries.contains_key(&request.name))
-            })
-            .cloned()
-            .unwrap_or_else(|| request.from_dir.join("node_modules"));
+        let slot = if request.peer {
+            let root = PathBuf::from("node_modules");
+            if tree
+                .slots
+                .get(&root)
+                .is_some_and(|entries| entries.contains_key(&request.name))
+            {
+                tracing::warn!(
+                    name = %request.name,
+                    "npm: peer dependency conflicts with the hoisted copy; skipped"
+                );
+                continue;
+            }
+            root
+        } else {
+            candidates
+                .iter()
+                .find(|slot| {
+                    !tree
+                        .slots
+                        .get(*slot)
+                        .is_some_and(|entries| entries.contains_key(&request.name))
+                })
+                .cloned()
+                .unwrap_or_else(|| request.from_dir.join("node_modules"))
+        };
         let index = tree.nodes.len();
         tree.nodes.push(Node {
             name: request.name.clone(),
@@ -289,6 +327,7 @@ async fn build_tree(
                 name: name.clone(),
                 requirement: Requirement::parse(requirement),
                 optional: false,
+                peer: false,
             });
         }
         if options.include_optional {
@@ -298,8 +337,27 @@ async fn build_tree(
                     name: name.clone(),
                     requirement: Requirement::parse(requirement),
                     optional: true,
+                    peer: false,
                 });
             }
+        }
+        // npm >= 7 installs peer dependencies as well; peers resolved from a
+        // higher level are reused by `visible()`. They stay best effort even
+        // when not marked optional in `peerDependenciesMeta`: DSH plugins pin
+        // peers to host versions that may be unpublished, and the sidecar
+        // provides those services itself.
+        for (name, requirement) in &meta.peer_dependencies {
+            let requirement = Requirement::parse(requirement);
+            if !peer_seen.insert((name.clone(), requirement.key())) {
+                continue;
+            }
+            queue.push_back(Request {
+                from_dir: PathBuf::new(),
+                name: name.clone(),
+                requirement,
+                optional: true,
+                peer: true,
+            });
         }
     }
     Ok(tree)

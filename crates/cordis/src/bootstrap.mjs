@@ -10,6 +10,8 @@ import { createRequire } from "node:module";
 const entry = process.argv[2];
 const root = path.resolve(process.env.DSHR_CORDIS_ROOT || process.cwd());
 const tools = new Map();
+const eventListeners = new Map();
+const promptSections = [];
 const grants = (() => {
   try {
     return JSON.parse(process.env.DSHR_CORDIS_GRANTS || "{}");
@@ -41,14 +43,18 @@ function addTool(definition) {
   if (typeof name !== "string" || name.length === 0) {
     throw new Error("tool.name is required");
   }
-  if (typeof definition.handler !== "function") {
+  // DSH host tools come from `defineTool` (`parameters`/`execute`), while dshr
+  // plugins use `inputSchema`/`handler`; accept either shape.
+  const handler = definition.handler ?? definition.execute;
+  if (typeof handler !== "function") {
     throw new Error(`tool ${name}: handler is required`);
   }
+  const schema = definition.inputSchema ?? definition.parameters ?? { type: "object" };
   tools.set(name, {
     name,
     description: definition.description || "",
-    inputSchema: definition.inputSchema || { type: "object" },
-    handler: definition.handler,
+    inputSchema: schema && Object.keys(schema).length > 0 ? schema : { type: "object" },
+    handler,
   });
 }
 
@@ -671,6 +677,9 @@ const serviceMap = {
 const ctx = {
   // Reference loader context: the file URL the plugin package was loaded from.
   baseUrl: pathToFileURL(root + path.sep).href,
+  // Plugin configuration (reference `ctx.config`); dshr has no per-plugin config
+  // schema yet, so plugins see an empty object instead of `undefined`.
+  config: {},
   tool: (definition) => addTool(definition),
   get: (name) => serviceMap[name],
   webServer,
@@ -690,6 +699,65 @@ const ctx = {
     }
   },
   log: (...args) => console.error("[cordis]", ...args),
+  // --- reference surface (ADR-040 §C-lite / cordis-compat) -----------------
+  // `effect` runs a disposer factory; `on` subscribes to plugin-local events;
+  // `provide` publishes a service under the name `ctx.get` uses.
+  effect: (callback, label) => {
+    try {
+      const dispose = callback();
+      return typeof dispose === "function" ? dispose : () => {};
+    } catch (error) {
+      console.error("[cordis] effect failed:", label ?? "", error);
+      return () => {};
+    }
+  },
+  on: (event, callback) => {
+    if (typeof callback !== "function") return () => {};
+    const listeners = eventListeners.get(event) ?? new Set();
+    listeners.add(callback);
+    eventListeners.set(event, listeners);
+    return () => listeners.delete(callback);
+  },
+  emit: (event, ...args) => {
+    const listeners = eventListeners.get(event);
+    if (!listeners) return;
+    for (const listener of [...listeners]) {
+      try {
+        listener(...args);
+      } catch (error) {
+        console.error("[cordis] listener failed:", event, error);
+      }
+    }
+  },
+  provide: (name, value) => {
+    const resolved = typeof value === "function" ? value(ctx) : value;
+    serviceMap[name] = resolved;
+    return () => {
+      if (serviceMap[name] === resolved) delete serviceMap[name];
+    };
+  },
+  tools: {
+    register: (definition) => {
+      addTool(definition);
+      return () => tools.delete(definition.name);
+    },
+    list: () => [...tools.values()],
+  },
+  systemPrompt: {
+    section: (section) => {
+      promptSections.push(section);
+      return () => {
+        const index = promptSections.indexOf(section);
+        if (index >= 0) promptSections.splice(index, 1);
+      };
+    },
+    sections: () => [...promptSections],
+  },
+  sandbox: {
+    // dshr confines through its own sandbox policy; a plugin asking for a
+    // narrower scope gets the workspace path back unchanged.
+    confine: (value) => value,
+  },
   fs: {
     readFile: async (name) => {
       if (!within(name, extraRead)) {
@@ -780,8 +848,29 @@ if (cordis && typeof cordis.Context === "function") {
     console.error("[cordis] real cordis failed, using direct apply:", error);
   }
 }
+// Cordis calls `apply(ctx, config)` where `config` is the user config resolved
+// against the plugin's exported `Config` schema. dshr has no per-plugin config
+// store yet, so resolve the schema defaults instead of passing `undefined`.
+function resolvePluginConfig(candidate, namespace) {
+  // DSH plugins export `Config` as a *named* export (`export const Config`),
+  // so the schema is not on the default object.
+  const schema =
+    namespace?.Config ??
+    namespace?.config ??
+    candidate.Config ??
+    candidate.config;
+  if (!schema) return {};
+  try {
+    if (typeof schema === "function") return schema({}) ?? {};
+    if (typeof schema.resolve === "function") return schema.resolve({}) ?? {};
+  } catch (error) {
+    console.error("[cordis] plugin config defaults failed:", error);
+  }
+  return {};
+}
+
 if (!applied && typeof plugin.apply === "function") {
-  await plugin.apply(ctx);
+  await plugin.apply(ctx, resolvePluginConfig(plugin, module));
 } else if (!applied && typeof plugin === "function") {
   await plugin(ctx);
 } else if (!applied && plugin.tools) {

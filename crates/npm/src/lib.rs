@@ -122,10 +122,32 @@ impl Requirement {
                 _ => Self::Invalid(value.to_owned()),
             };
         }
+        // npm treats a bare version as exact; the semver crate would read
+        // `0.0.1-rc.1` as a caret range and pick a newer release.
+        if !value.starts_with(['=', '^', '~', '>', '<', '*'])
+            && let Ok(version) = Version::parse(value)
+            && let Ok(range) = VersionReq::parse(&format!("={version}"))
+        {
+            return Self::Range(range);
+        }
         match VersionReq::parse(&normalise_range(value)) {
             Ok(range) => Self::Range(range),
             Err(_) if is_tag(value) => Self::Tag(value.to_owned()),
             Err(_) => Self::Invalid(value.to_owned()),
+        }
+    }
+
+    /// Stable key for de-duplicating repeated requests.
+    #[must_use]
+    pub fn key(&self) -> String {
+        match self {
+            Self::Tag(tag) => format!("tag:{tag}"),
+            Self::Range(range) => format!("range:{range}"),
+            Self::Any(ranges) => {
+                let parts: Vec<String> = ranges.iter().map(ToString::to_string).collect();
+                format!("any:{}", parts.join("|"))
+            }
+            Self::Invalid(spec) => format!("invalid:{spec}"),
         }
     }
 
@@ -280,6 +302,21 @@ mod tests {
             "{union:?}"
         );
         assert!(!union.matches(&Version::parse("2.0.0").expect("v")));
+    }
+
+    #[test]
+    fn bare_versions_are_exact() {
+        let exact = Requirement::parse("0.0.1-rc.1");
+        assert!(
+            exact.matches(&Version::parse("0.0.1-rc.1").expect("v")),
+            "{exact:?}"
+        );
+        assert!(
+            !exact.matches(&Version::parse("0.0.1-rc.5").expect("v")),
+            "a bare version must not drift to a newer prerelease"
+        );
+        let caret = Requirement::parse("^0.0.1-rc.1");
+        assert!(caret.matches(&Version::parse("0.0.1-rc.5").expect("v")));
     }
 
     #[test]

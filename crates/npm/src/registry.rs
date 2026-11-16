@@ -1,6 +1,6 @@
 //! Registry v2 client: abbreviated packuments with an on-disk cache.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -25,6 +25,9 @@ pub struct VersionMeta {
     pub shasum: Option<String>,
     pub dependencies: BTreeMap<String, String>,
     pub optional_dependencies: BTreeMap<String, String>,
+    pub peer_dependencies: BTreeMap<String, String>,
+    /// Peer names marked `optional: true` in `peerDependenciesMeta`.
+    pub peer_optional: BTreeSet<String>,
 }
 
 /// The parts of a packument the resolver needs.
@@ -221,6 +224,13 @@ fn parse_packument(name: &str, body: &str) -> Result<Packument> {
                 shasum: entry.dist.shasum,
                 dependencies: entry.dependencies,
                 optional_dependencies: entry.optional_dependencies,
+                peer_dependencies: entry.peer_dependencies,
+                peer_optional: entry
+                    .peer_meta
+                    .into_iter()
+                    .filter(|(_, meta)| meta.optional)
+                    .map(|(name, _)| name)
+                    .collect(),
             },
         );
     }
@@ -251,7 +261,17 @@ struct RawVersion {
     dependencies: BTreeMap<String, String>,
     #[serde(default, rename = "optionalDependencies")]
     optional_dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "peerDependencies")]
+    peer_dependencies: BTreeMap<String, String>,
+    #[serde(default, rename = "peerDependenciesMeta")]
+    peer_meta: BTreeMap<String, RawPeerMeta>,
     dist: RawDist,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawPeerMeta {
+    #[serde(default)]
+    optional: bool,
 }
 
 #[derive(Debug, Deserialize)]

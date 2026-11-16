@@ -425,6 +425,8 @@ mod tests {
             shasum: None,
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
+            peer_dependencies: Default::default(),
+            peer_optional: Default::default(),
         };
         assert!(matches!(expected_digest(&meta), Ok(Digest::Sha512(_))));
 
