@@ -16,6 +16,10 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Desktop Settings is rendered with the official design system: the theme
+  token sheets and the Models section CSS from DSH 0.2.2-rc.3 are embedded
+  verbatim, so provider cards, status dots, the masked API-key field with its
+  reveal button and the editor match the original visually.
 - Desktop Settings is a single page again: provider, model, API key, base URL
   and the server choice (embedded/attach + URL/token) share one Save, and the
   route is passed to the embedded server immediately. The web UI sidebar merges

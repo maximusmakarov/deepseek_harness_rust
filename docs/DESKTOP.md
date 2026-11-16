@@ -12,7 +12,7 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 
 | Где | Секции | Куда сохраняется |
 |---|---|---|
-| Окно десктопа (трей → Settings…) — **одна страница**: провайдер/модель/API-ключ/base URL + сервер (встроенный или attach) с одной кнопкой Save | `<home>/desktop.env` (0600) и `<home>/desktop-server.json` (0600) |
+| Окно десктопа (трей → Settings…) — **одна страница в официальном design-system**: карточки-провайдеры с точкой состояния, редактор с API-ключом (маска + показ), base URL, модель и сервер; см. скриншоты ниже | `<home>/desktop.env` (0600) и `<home>/desktop-server.json` (0600) |
 | Веб-UI приложения — экран Settings с **сайдбаром секций** (Connection / Models / Web search / Plugins); открывается кнопкой **Open app settings** в окне десктопа, трей → Settings → Open app settings) | **Account** (подсказка), **Models** (route/model/base URL), **Web search** (Brave key), **Plugins** (список Cordis-плагинов с переключателями) | `config.yaml`/профиль — через серверные эндпоинты `/v1/config/model`, `/v1/config/search`, `/v1/plugins/*` |
 
 Кнопка **Save and restart** валидирует поля (схема URL, `http(s)`), для attach
@@ -22,6 +22,18 @@ bearer-токеном, дожидается `/v1/health` и открывает U
 Провайдер и модель больше не передаются флагами `--provider/--model`: их читает
 `config.yaml` (секция `model`), которую редактирует веб-UI **Models**. Окружение
 (`desktop.env`) поставляет только креденшелы.
+
+### Оформление Settings
+
+Окно собрано из **официальных** стилей: токены `design-platform.css` и
+`base.css` (радиусы, шрифты) и классы `ModelsSection.module.css`
+(`rowCard`/`credentialDot`/`editor`/`field`/`keyInput`) из
+`@deepseek-ai/dsh-client-ui-theme` и `dsh-client-ui-settings-models` 0.2.2-rc.3,
+взятые из установленного приложения без правок. Поэтому карточки, отступы,
+точки состояния, кнопки и поле ключа совпадают с оригиналом, а не имитируют его.
+
+![Settings](../docs/screenshots/desktop-settings.png)
+![Settings, редактор провайдера](../docs/screenshots/desktop-settings-editor.png)
 
 ### Отмена и таймаут входа
 

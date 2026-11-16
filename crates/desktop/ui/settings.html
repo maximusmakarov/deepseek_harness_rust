@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dshr settings</title>
+<style>
+{{BASE_CSS}}
+</style>
+<style>
+{{TOKENS}}
+</style>
+<style>
+{{MODELS_CSS}}
+</style>
+<style>
+/* Page scaffolding only; every control below uses the official design-system
+   classes ported above (tokens from design-platform.css, card and editor CSS
+   from ModelsSection.module.css). */
+html, body { margin: 0; }
+body {
+  min-height: 100vh;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-family: var(--dsw-font-family);
+  -webkit-font-smoothing: antialiased;
+}
+.page { padding: 24px; display: flex; justify-content: center; }
+.page .section { width: 100%; }
+.editor[hidden] { display: none; }
+.footer { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+.spacer { flex: 1; }
+</style>
+</head>
+<body data-ds-dark-theme>
+<div class="page">
+  <div class="section">
+    <h2 class="title">Settings</h2>
+    <p class="intro">Choose how dshr reaches a model, then where its server runs. Credentials stay on this Mac in <code>~/.dshr/desktop.env</code> (0600).</p>
+
+    <ul class="rows">
+      <li class="rowCard">
+        <div class="rowHead">
+          <span class="rowIdentity">
+            <span class="credentialDot {{DEEPSEEK_DOT}}"></span>
+            <span class="rowName">DeepSeek</span>
+            <span class="rowTag">account</span>
+          </span>
+          <span class="rowActions">
+            <button class="secondaryButton" id="edit-deepseek" onclick="edit('deepseek')">Edit</button>
+          </span>
+        </div>
+        <div class="editor" id="editor-deepseek" hidden>
+          <div class="editorHeader">
+            <span class="editorTitle">DeepSeek</span>
+            <span class="editorRoute">deepseek-account</span>
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="deepseek-model">Model</label>
+            <input class="input" id="deepseek-model" value="{{MODEL}}" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="deepseek-auth">Authentication</label>
+            <select class="input selectInput" id="deepseek-auth">
+              <option value="account"{{DEEPSEEK_AUTH_ACCOUNT}}>DeepSeek account token</option>
+              <option value="api_key"{{DEEPSEEK_AUTH_KEY}}>API key</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="deepseek-key">API key</label>
+            <div class="keyInput savedKeyInput">
+              <input class="input" id="deepseek-key" type="password" autocomplete="new-password"
+                     placeholder="{{DEEPSEEK_MASK}}" spellcheck="false">
+              <button class="keyToggle" type="button" aria-label="Show key" aria-pressed="false"
+                      onclick="reveal('deepseek-key', this)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                     stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                  <path d="M1.5 8C2.9 5.25 5.25 3.5 8 3.5C10.75 3.5 13.1 5.25 14.5 8C13.1 10.75 10.75 12.5 8 12.5C5.25 12.5 2.9 10.75 1.5 8ZM10 8C10 9.1 9.1 10 8 10C6.9 10 6 9.1 6 8C6 6.9 6.9 6 8 6C9.1 6 10 6.9 10 8Z"/>
+                </svg>
+              </button>
+            </div>
+            <p class="notice" id="deepseek-notice" hidden></p>
+          </div>
+          <div class="editorActions">
+            <button class="primaryButton" onclick="apply('deepseek')">Apply</button>
+            <button class="secondaryButton" onclick="edit('deepseek')">Cancel</button>
+          </div>
+        </div>
+      </li>
+
+      <li class="rowCard">
+        <div class="rowHead">
+          <span class="rowIdentity">
+            <span class="credentialDot {{OPENAI_DOT}}"></span>
+            <span class="rowName">OpenAI-compatible</span>
+            <span class="rowTag">api key</span>
+          </span>
+          <span class="rowActions">
+            <button class="secondaryButton" onclick="edit('openai')">Edit</button>
+          </span>
+        </div>
+        <div class="editor" id="editor-openai" hidden>
+          <div class="editorHeader">
+            <span class="editorTitle">OpenAI-compatible</span>
+            <span class="editorRoute">openai-compatible</span>
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="openai-model">Model</label>
+            <input class="input" id="openai-model" value="{{OPENAI_MODEL}}" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="openai-base">Base URL</label>
+            <input class="input" id="openai-base" value="{{BASE_URL}}" spellcheck="false">
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="openai-key">API key</label>
+            <div class="keyInput savedKeyInput">
+              <input class="input" id="openai-key" type="password" autocomplete="new-password"
+                     placeholder="{{OPENAI_MASK}}" spellcheck="false">
+              <button class="keyToggle" type="button" aria-label="Show key" aria-pressed="false"
+                      onclick="reveal('openai-key', this)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                     stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                  <path d="M1.5 8C2.9 5.25 5.25 3.5 8 3.5C10.75 3.5 13.1 5.25 14.5 8C13.1 10.75 10.75 12.5 8 12.5C5.25 12.5 2.9 10.75 1.5 8ZM10 8C10 9.1 9.1 10 8 10C6.9 10 6 9.1 6 8C6 6.9 6.9 6 8 6C9.1 6 10 6.9 10 8Z"/>
+                </svg>
+              </button>
+            </div>
+            <p class="notice" id="openai-notice" hidden></p>
+          </div>
+          <div class="editorActions">
+            <button class="primaryButton" onclick="apply('openai')">Apply</button>
+            <button class="secondaryButton" onclick="edit('openai')">Cancel</button>
+          </div>
+        </div>
+      </li>
+
+      <li class="rowCard">
+        <div class="rowHead">
+          <span class="rowIdentity">
+            <span class="credentialDot {{SERVER_DOT}}"></span>
+            <span class="rowName">Server</span>
+            <span class="rowTag">{{SERVER_TAG}}</span>
+          </span>
+          <span class="rowActions">
+            <button class="secondaryButton" onclick="edit('server')">Edit</button>
+          </span>
+        </div>
+        <div class="editor" id="editor-server" hidden>
+          <div class="editorHeader">
+            <span class="editorTitle">Server</span>
+            <span class="editorRoute">{{SERVER_ROUTE}}</span>
+          </div>
+          <div class="field">
+            <label class="fieldLabel" for="server-mode">Where the harness runs</label>
+            <select class="input selectInput" id="server-mode" onchange="toggleServer()">
+              <option value="local"{{SERVER_LOCAL}}>Run the embedded server (default)</option>
+              <option value="attach"{{SERVER_ATTACH}}>Attach to a running dshr serve</option>
+            </select>
+          </div>
+          <div class="field" id="server-url-field" hidden>
+            <label class="fieldLabel" for="server-url">Server URL</label>
+            <input class="input" id="server-url" value="{{SERVER_URL}}" placeholder="http://127.0.0.1:4317" spellcheck="false">
+          </div>
+          <div class="field" id="server-token-field" hidden>
+            <label class="fieldLabel" for="server-token">Server token</label>
+            <div class="keyInput savedKeyInput">
+              <input class="input" id="server-token" type="password" autocomplete="new-password"
+                     placeholder="token printed by dshr serve" spellcheck="false">
+              <button class="keyToggle" type="button" aria-label="Show token" aria-pressed="false"
+                      onclick="reveal('server-token', this)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+                     stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+                  <path d="M1.5 8C2.9 5.25 5.25 3.5 8 3.5C10.75 3.5 13.1 5.25 14.5 8C13.1 10.75 10.75 12.5 8 12.5C5.25 12.5 2.9 10.75 1.5 8ZM10 8C10 9.1 9.1 10 8 10C6.9 10 6 9.1 6 8C6 6.9 6.9 6 8 6C9.1 6 10 6.9 10 8Z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="editorActions">
+            <button class="primaryButton" onclick="apply('server')">Apply</button>
+            <button class="secondaryButton" onclick="edit('server')">Cancel</button>
+          </div>
+        </div>
+      </li>
+    </ul>
+
+    <div class="footer">
+      <button class="primaryButton" id="signin" onclick="signIn()">Sign in with DeepSeek</button>
+      <button class="secondaryButton" onclick="openAppSettings()">App settings…</button>
+      <span class="spacer"></span>
+      <span class="notice" id="status"></span>
+    </div>
+  </div>
+</div>
+<script>
+const invoke = (command, args) => window.__TAURI__.core.invoke(command, args);
+
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+function reveal(id, button) {
+  const input = document.getElementById(id);
+  const shown = input.type === 'text';
+  input.type = shown ? 'password' : 'text';
+  button.setAttribute('aria-pressed', String(!shown));
+  button.setAttribute('aria-label', shown ? 'Show key' : 'Hide key');
+}
+
+function edit(which) {
+  const ids = ['deepseek', 'openai', 'server'];
+  for (const id of ids) {
+    const editor = document.getElementById('editor-' + id);
+    const open = id === which && editor.hidden;
+    editor.hidden = !open;
+  }
+  toggleServer();
+}
+
+function toggleServer() {
+  const attach = document.getElementById('server-mode').value === 'attach';
+  document.getElementById('server-url-field').hidden = !attach;
+  document.getElementById('server-token-field').hidden = !attach;
+}
+
+async function save(payload) {
+  setStatus('saving…');
+  try {
+    await invoke('save_settings_form', { form: payload });
+  } catch (error) {
+    setStatus(String(error));
+  }
+}
+
+async function apply(which) {
+  const serverMode = document.getElementById('server-mode').value;
+  const base = {
+    serverMode,
+    serverUrl: document.getElementById('server-url').value,
+    serverToken: document.getElementById('server-token').value,
+  };
+  if (which === 'deepseek') {
+    const secret = document.getElementById('deepseek-key').value;
+    return save({ ...base, provider: 'deepseek-account', model: document.getElementById('deepseek-model').value, baseUrl: '', auth: document.getElementById('deepseek-auth').value, secret });
+  }
+  if (which === 'openai') {
+    const secret = document.getElementById('openai-key').value;
+    return save({ ...base, provider: 'openai-compatible', model: document.getElementById('openai-model').value, baseUrl: document.getElementById('openai-base').value, auth: 'api_key', secret });
+  }
+  // Server-only save: an empty provider keeps the saved route and model.
+  return save({ ...base, provider: '', model: '', baseUrl: '', auth: '', secret: '' });
+}
+
+async function signIn() {
+  setStatus('waiting for the browser…');
+  try {
+    await invoke('sign_in_deepseek');
+  } catch (error) {
+    setStatus(String(error));
+  }
+}
+
+async function openAppSettings() {
+  try {
+    await invoke('open_app_settings');
+  } catch (error) {
+    setStatus(String(error));
+  }
+}
+</script>
+</body>
+</html>

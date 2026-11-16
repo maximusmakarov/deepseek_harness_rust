@@ -165,6 +165,17 @@ fn validated_server_settings(mode: &str, url: &str, token: &str) -> Result<Serve
 
 /// In-app Settings window: account/model and the server choice, mirroring the
 /// official desktop's Settings surface instead of native dialogs.
+/// Masked preview of a saved credential, like the official `ApiKeyInput`.
+fn masked_secret(value: Option<&String>) -> String {
+    match value {
+        Some(value) if value.len() > 8 => format!("{}…{}", &value[..4], &value[value.len() - 4..]),
+        Some(_) => "••••••••".to_owned(),
+        None => "not configured".to_owned(),
+    }
+}
+
+/// In-app Settings window: the official design-system card layout with the
+/// provider rows (API key, base URL, model) and the server choice on one page.
 fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.set_focus();
@@ -173,87 +184,110 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     let home = home_dir();
     let server = load_server_settings(&home);
     let provider = load_provider_settings(&home);
-    let server_url = escape_html(server.url.as_deref().unwrap_or(""));
+    let env = provider
+        .as_ref()
+        .map(|settings| settings.env.clone())
+        .unwrap_or_default();
     let route = provider
         .as_ref()
         .and_then(|settings| settings.provider.clone())
         .unwrap_or_else(|| "deepseek-account".to_owned());
-    let model = escape_html(
-        provider
-            .as_ref()
-            .and_then(|settings| settings.model.clone())
-            .unwrap_or_else(|| "deepseek-flash".to_owned())
-            .as_str(),
-    );
-    let base_url = escape_html(
-        provider
-            .as_ref()
-            .and_then(|settings| settings.env.get("OPENAI_BASE_URL").cloned())
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_owned())
-            .as_str(),
-    );
-    let account_auth = provider
+    let model = provider
         .as_ref()
-        .is_some_and(|settings| settings.env.contains_key("DSH_DEEPSEEK_TOKEN"));
-    let local_checked = if server.mode == "local" {
-        " checked"
+        .and_then(|settings| settings.model.clone())
+        .unwrap_or_else(|| "deepseek-flash".to_owned());
+    let openai_model = if route.starts_with("deepseek") {
+        "gpt-4o-mini".to_owned()
     } else {
-        ""
+        model.clone()
     };
-    let attach_checked = if server.mode == "local" {
-        ""
+    let base_url = env
+        .get("OPENAI_BASE_URL")
+        .cloned()
+        .unwrap_or_else(|| "https://api.openai.com/v1".to_owned());
+    let deepseek_secret = env
+        .get("DSH_DEEPSEEK_TOKEN")
+        .or_else(|| env.get("DEEPSEEK_API_KEY"));
+    let openai_secret = env
+        .get("OPENAI_API_KEY")
+        .or_else(|| env.get("ROUTERAI_API_KEY"));
+    let deepseek_dot = if deepseek_secret.is_some() {
+        "credentialDotConfigured"
     } else {
-        " checked"
+        "credentialDotMissing"
     };
-    let deepseek_selected = if route.starts_with("deepseek") {
-        " selected"
+    let openai_dot = if openai_secret.is_some() {
+        "credentialDotConfigured"
     } else {
-        ""
+        "credentialDotMissing"
     };
-    let openai_selected = if route.starts_with("deepseek") {
-        ""
-    } else {
-        " selected"
+    let local_mode = server.mode == "local";
+    let account_auth = env.contains_key("DSH_DEEPSEEK_TOKEN");
+    let replace = |template: &str, pairs: &[(&str, String)]| {
+        let mut out = template.to_owned();
+        for (key, value) in pairs {
+            out = out.replace(&format!("{{{{{key}}}}}"), value);
+        }
+        out
     };
-    let account_selected = if account_auth { " selected" } else { "" };
-    let api_key_selected = if account_auth { "" } else { " selected" };
-    let html = format!(
-        "<!doctype html><meta charset=\"utf-8\">\
-         <style>body{{font:13px ui-sans-serif;margin:22px;background:#1b1b1b;color:#eee}}\
-         h3{{margin:22px 0 6px;font-size:12px;color:#bbb;text-transform:uppercase;letter-spacing:.05em}}\
-         label{{display:block;margin:9px 0 3px}}input,select{{width:100%;padding:7px;border-radius:6px;\
-         border:1px solid #555;background:#222;color:#eee}}button{{margin:14px 8px 0 0;padding:8px 14px;\
-         border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}\
-         p{{color:#999}}a{{color:#8ab4ff}}</style>\
-         <h2>Settings</h2>\
-         <h3>Provider and key</h3>\
-         <button onclick=\"signIn()\">Sign in with DeepSeek</button>\
-         <label>Provider<select id=\"provider\" onchange=\"toggleBase()\">\
-         <option value=\"deepseek-account\"{deepseek_selected}>DeepSeek</option>\
-         <option value=\"openai-compatible\"{openai_selected}>OpenAI-compatible</option></select></label>\
-         <label>Model<input id=\"model\" value=\"{model}\"></label>\
-         <label>Authentication<select id=\"auth\"><option value=\"account\"{account_selected}>DeepSeek account token</option>\
-         <option value=\"api_key\"{api_key_selected}>API key</option></select></label>\
-         <label>API key<input id=\"secret\" type=\"password\" placeholder=\"leave empty to keep the saved key\"></label>\
-         <label id=\"base-row\">Base URL<input id=\"base_url\" value=\"{base_url}\"></label>\
-         <p>Keys are stored in <code>~/.dshr/desktop.env</code> (0600); create them on <a href=\"https://platform.deepseek.com/api_keys\">platform.deepseek.com</a>.</p>\
-         <h3>Server</h3>\
-         <label><input type=\"radio\" name=\"server_mode\" value=\"local\"{local_checked}> Run the embedded server (default)</label>\
-         <label><input type=\"radio\" name=\"server_mode\" value=\"attach\"{attach_checked}> Attach to a running dshr serve</label>\
-         <label>Server URL<input id=\"server_url\" value=\"{server_url}\" placeholder=\"http://127.0.0.1:4317\"></label>\
-         <label>Server token<input id=\"server_token\" type=\"password\" placeholder=\"token printed by dshr serve\"></label>\
-         <button onclick=\"save()\">Save and restart</button>\
-         <button onclick=\"window.__TAURI__.window.getCurrentWindow().close()\">Cancel</button>\
-         <p id=\"status\"></p>\
-         <script>\
-         function toggleBase() {{\n           const openai = document.getElementById('provider').value !== 'deepseek-account';\n           document.getElementById('base-row').style.display = openai ? 'block' : 'none';\n         }}\n         toggleBase();\n         async function signIn() {{\n           const status = document.getElementById('status');\n           status.textContent = 'waiting for the browser…';\n           try {{ await window.__TAURI__.core.invoke('sign_in_deepseek'); }} catch (error) {{ status.textContent = String(error); }}\n         }}\n         async function save() {{\n           const form = {{\n             provider: document.getElementById('provider').value,\n             model: document.getElementById('model').value,\n             baseUrl: document.getElementById('base_url').value,\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{ await window.__TAURI__.core.invoke('save_settings_form', {{ form }}); }} catch (error) {{ status.textContent = String(error); }}\n         }}\n         </script>"
+    let html = replace(
+        include_str!("../ui/settings.html"),
+        &[
+            ("BASE_CSS", include_str!("../ui/base.css").to_owned()),
+            ("TOKENS", include_str!("../ui/tokens.css").to_owned()),
+            ("MODELS_CSS", include_str!("../ui/models.css").to_owned()),
+            ("DEEPSEEK_DOT", deepseek_dot.to_owned()),
+            ("OPENAI_DOT", openai_dot.to_owned()),
+            ("SERVER_DOT", "credentialDotConfigured".to_owned()),
+            (
+                "SERVER_TAG",
+                if local_mode { "embedded" } else { "attach" }.to_owned(),
+            ),
+            (
+                "SERVER_ROUTE",
+                if local_mode {
+                    "127.0.0.1 · supervised"
+                } else {
+                    "remote dshr serve"
+                }
+                .to_owned(),
+            ),
+            ("MODEL", escape_html(&model)),
+            ("OPENAI_MODEL", escape_html(&openai_model)),
+            ("BASE_URL", escape_html(&base_url)),
+            (
+                "DEEPSEEK_MASK",
+                escape_html(&masked_secret(deepseek_secret)),
+            ),
+            ("OPENAI_MASK", escape_html(&masked_secret(openai_secret))),
+            (
+                "DEEPSEEK_AUTH_ACCOUNT",
+                if account_auth { " selected" } else { "" }.to_owned(),
+            ),
+            (
+                "DEEPSEEK_AUTH_KEY",
+                if account_auth { "" } else { " selected" }.to_owned(),
+            ),
+            (
+                "SERVER_URL",
+                escape_html(server.url.as_deref().unwrap_or("")),
+            ),
+            (
+                "SERVER_LOCAL",
+                if local_mode { " selected" } else { "" }.to_owned(),
+            ),
+            (
+                "SERVER_ATTACH",
+                if local_mode { "" } else { " selected" }.to_owned(),
+            ),
+        ],
     );
     let url = data_url(&html)
         .parse::<tauri::Url>()
         .map_err(tauri::Error::InvalidUrl)?;
     WebviewWindowBuilder::new(app, "settings", WebviewUrl::External(url))
         .title("dshr settings")
-        .inner_size(620.0, 720.0)
+        .inner_size(720.0, 780.0)
         .build()?;
     Ok(())
 }
@@ -515,14 +549,31 @@ fn plugin_toggle(app: AppHandle, name: String, enabled: bool) -> Result<(), Stri
 fn save_settings_form(app: AppHandle, form: SettingsForm) -> Result<(), String> {
     let home = home_dir();
     let existing = load_provider_settings(&home);
-    let provider = validated_provider_settings(
-        &form.provider,
-        &form.model,
-        &form.base_url,
-        &form.auth,
-        &form.secret,
-        existing.as_ref(),
-    )?;
+    // A server-only save sends an empty provider and keeps the current route.
+    let provider = if form.provider.trim().is_empty() {
+        let mut kept = existing.clone().unwrap_or_default();
+        kept.env.retain(|name, _| {
+            matches!(
+                name.as_str(),
+                "DSH_DEEPSEEK_TOKEN"
+                    | "DEEPSEEK_API_KEY"
+                    | "OPENAI_API_KEY"
+                    | "OPENAI_BASE_URL"
+                    | "ROUTERAI_API_KEY"
+                    | "BRAVE_SEARCH_API_KEY"
+            )
+        });
+        kept
+    } else {
+        validated_provider_settings(
+            &form.provider,
+            &form.model,
+            &form.base_url,
+            &form.auth,
+            &form.secret,
+            existing.as_ref(),
+        )?
+    };
     let server =
         validated_server_settings(&form.server_mode, &form.server_url, &form.server_token)?;
     if server.mode == "attach"
@@ -2431,6 +2482,25 @@ mod server_settings_tests {
                 .is_err()
         );
         assert!(validated_provider_settings("nope", "m", "", "api_key", "k", None).is_err());
+    }
+
+    #[test]
+    fn settings_ui_assets_are_the_official_design_system() {
+        let template = include_str!("../ui/settings.html");
+        for placeholder in [
+            "{{BASE_CSS}}",
+            "{{TOKENS}}",
+            "{{MODELS_CSS}}",
+            "{{DEEPSEEK_DOT}}",
+            "{{OPENAI_DOT}}",
+            "{{SERVER_DOT}}",
+        ] {
+            assert!(template.contains(placeholder), "missing {placeholder}");
+        }
+        assert!(template.contains("rowCard") && template.contains("keyInput"));
+        assert!(include_str!("../ui/base.css").contains("--dsw-radius-xl: 20px"));
+        assert!(include_str!("../ui/tokens.css").contains("--dsw-alias-label-primary"));
+        assert!(include_str!("../ui/models.css").contains(".credentialDotConfigured"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–138)
+# Журнал раундов паритета (1–139)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -2125,6 +2125,23 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Тесты: `provider_form_keeps_the_chosen_key_and_route` (deepseek + openai,
   флаги, base URL, отказ на `ftp://` и неизвестном провайдере), `free_port`
   сделан устойчивым к гонке за эфемерный порт; десктоп 46 + 3.
+
+## Раунд 139 — пиксельный паритет Settings (16.11.2026)
+
+- Окно Settings десктопа пересобрано на **официальных стилях**: из app.asar
+  0.2.2-rc.3 извлечены `design-platform.css` (токены `--dsw-alias-*`),
+  `base.css` (радиусы/шрифты) и `ModelsSection.module.css` (карточки, точки
+  состояния, редактор, `keyInput`/`keyToggle`), вшиты в страницу без правок.
+  Разметка повторяет официальную: `section/title/intro/rows/rowCard/rowHead/
+  rowIdentity/credentialDot/rowTag/rowActions/editor/field/editorActions`.
+- Ключ показывается маской сохранённого значения (как `ApiKeyInput`), поле
+  черновика с кнопкой-глазом, пустое поле сохраняет прежний секрет; карточки
+  DeepSeek / OpenAI-compatible / Server с точками состояния; сервер-only
+  сохранение больше не перезаписывает маршрут (пустой provider = сохранить).
+- Проверка: страница отрендерена headless Chrome (два скриншота в
+  `docs/screenshots/`), тест `settings_ui_assets_are_the_official_design_system`
+  фиксирует наличие плейсхолдеров и ключевых селекторов/токенов; десктоп
+  47 + 3.
 
 ## Формализация и каталог тестов (14.11.2026)
 
