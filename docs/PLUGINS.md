@@ -577,8 +577,11 @@ conversation-слоты на узел. Оставшееся reference-расхо
 `{status, value, base, user, revision, writable}`, `POST` принимает
 `{ops:[{op:"set"|"unset", path, value}], expected_revision}` и пишет атомарно;
 устаревшая ревизия — `409`. Доступ — bearer или `x-dshr-internal-token`.
-Browser-половины пока держат форму в памяти кадра (правки не переживают
-reload) — переход на этот store через host-relay запланирован как C5.6b.
+Browser-половины живут на этом store через host-relay (C5.6b): кадр не имеет
+ни токена, ни сети, поэтому `configForms` шлёт `config-form-read`/`-mutate`
+шеллу, а шелл отвечает `config-form-snapshot` после запроса к
+`/v1/config-forms/{entry}`. Правки переживают reload кадра, локальный snapshot
+обновляется только из ответа, устаревшая ревизия отклоняется.
 
 ### Host-сервис `pluginManager` (C5.5)
 

@@ -405,12 +405,22 @@
   // but `register(namespace, dicts)` is supported so components that declare
   // `locale` get a working `t()` prop.
   const localeDictionaries = new Map();
-  // Minimal browser-side `configForms` service (C1.2): real plugins register
-  // settings cards that read/mutate a form snapshot. dshr has no DSH config
-  // engine in the frame, so this is a per-frame in-memory writable form; the
-  // card renders/toggles and the mutation contract is honoured, but edits are
-  // not persisted across frame reloads (documented limitation).
+  // Browser-side `configForms` (C1.2), persisted by C5.6b: the form is a view of
+  // the server's settings store (`/v1/config-forms/{entry}`). The frame asks the
+  // shell — it holds the user token — to read or mutate an entry and applies the
+  // returned snapshot, so edits survive a frame reload.
   const configFormStates = new Map();
+  const configFormWaiters = new Map();
+  let configFormSeq = 0;
+
+  function requestConfigForm(type, payload) {
+    const id = "config-form-" + ++configFormSeq;
+    return new Promise(function (resolve) {
+      configFormWaiters.set(id, resolve);
+      post(Object.assign({ type: type, id: id }, payload));
+    });
+  }
+
   function browserConfigForm(entryId) {
     const existing = configFormStates.get(entryId);
     if (existing) return existing;
@@ -421,8 +431,8 @@
       value: {},
       base: {},
       user: {},
-      // Reference ConfigFormSnapshot.revision is a number; undefined before the
-      // first Host view (dshr starts ready with revision 0).
+      // Reference ConfigFormSnapshot.revision is a number; dshr starts at 0
+      // until the shell answers with the stored revision.
       revision: 0,
       listeners: new Set(),
       // `useSyncExternalStore` requires a stable snapshot object between
@@ -448,37 +458,15 @@
           state.listeners.delete(listener);
         };
       },
-      mutate: function (operations, expectedRevision) {
-        if (!Array.isArray(operations)) return Promise.resolve(false);
-        if (expectedRevision !== undefined && expectedRevision !== state.revision) {
-          return Promise.resolve(false);
-        }
-        let next = {};
-        try {
-          next = JSON.parse(JSON.stringify(state.value));
-        } catch (error) {
-          fail(error);
-          return Promise.resolve(false);
-        }
-        for (const operation of operations) {
-          if (!operation || (operation.op !== "set" && operation.op !== "unset")) {
-            return Promise.resolve(false);
-          }
-          const segments = Array.isArray(operation.path) ? operation.path : [operation.path];
-          if (segments.length === 0) return Promise.resolve(false);
-          let cursor = next;
-          for (let index = 0; index < segments.length - 1; index += 1) {
-            const segment = String(segments[index]);
-            if (typeof cursor[segment] !== "object" || cursor[segment] === null) cursor[segment] = {};
-            cursor = cursor[segment];
-          }
-          const last = String(segments[segments.length - 1]);
-          if (operation.op === "unset") delete cursor[last];
-          else cursor[last] = operation.value;
-        }
-        state.value = next;
-        state.user = next;
-        state.revision = (Number(state.revision) || 0) + 1;
+      applySnapshot: function (snapshot) {
+        if (!snapshot || typeof snapshot !== "object") return false;
+        state.status = typeof snapshot.status === "string" ? snapshot.status : "ready";
+        state.value = snapshot.value && typeof snapshot.value === "object" ? snapshot.value : {};
+        state.base = snapshot.base && typeof snapshot.base === "object" ? snapshot.base : {};
+        state.user =
+          snapshot.user && typeof snapshot.user === "object" ? snapshot.user : state.value;
+        state.revision = Number(snapshot.revision) || 0;
+        state.writable = snapshot.writable !== false;
         state.snapshot = null;
         state.listeners.forEach(function (listener) {
           try {
@@ -487,7 +475,25 @@
             fail(error);
           }
         });
-        return Promise.resolve(true);
+        return true;
+      },
+      mutate: async function (operations, expectedRevision) {
+        if (!Array.isArray(operations)) return false;
+        if (expectedRevision !== undefined && Number(expectedRevision) !== Number(state.revision)) {
+          return false;
+        }
+        const reply = await requestConfigForm("config-form-mutate", {
+          entry: entryId,
+          ops: operations,
+          expected_revision: expectedRevision === undefined ? null : Number(expectedRevision),
+        });
+        if (!reply || reply.error || typeof reply.snapshot !== "string") return false;
+        try {
+          return state.applySnapshot(JSON.parse(reply.snapshot));
+        } catch (error) {
+          fail(error);
+          return false;
+        }
       },
       set: function (field, value) {
         return state.mutate([{ op: "set", path: [field], value: value }]);
@@ -497,6 +503,15 @@
       },
     };
     configFormStates.set(entryId, state);
+    // Hydrate without blocking the synchronous handle contract.
+    requestConfigForm("config-form-read", { entry: entryId }).then(function (reply) {
+      if (!reply || reply.error || typeof reply.snapshot !== "string") return;
+      try {
+        state.applySnapshot(JSON.parse(reply.snapshot));
+      } catch (error) {
+        fail(error);
+      }
+    });
     return state;
   }
   const configFormsService = {
@@ -1684,6 +1699,13 @@
         } catch (error) {
           report("owner-props", error);
         }
+      }
+    }
+    else if (data.type === "config-form-snapshot") {
+      const settle = configFormWaiters.get(data.id);
+      if (settle) {
+        configFormWaiters.delete(data.id);
+        settle(data);
       }
     }
     else if (data.type === "action-result") {

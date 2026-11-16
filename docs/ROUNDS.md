@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–112)
+# Журнал раундов паритета (1–113)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
 проверка. Итоговая сверка: 375 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **424**, `clippy`/`fmt`/`deny` чисто, release-бинарь
+11 unit-тестов web-крейта = **424**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1186,6 +1186,26 @@ streaming-прокси.
   - Осталось: C5.6b — browser-`configForms` через host-relay на этот store
     (сейчас форма в кадре по-прежнему in-memory, правки не переживают reload),
     затем C5.7 — закрытие фазы.
+
+- 113: **C5.6b — browser-`configForms` через host-relay** (фаза C-full,
+  [ADR-042](adr/042-c-full-phase.md)). Правки форм больше не теряются при
+  reload кадра:
+  - `crates/cordis/src/bridge.js`: форма стала представлением серверного
+    store — при создании шлёт `config-form-read`, `mutate` шлёт
+    `config-form-mutate` с `expected_revision` и применяет полученный
+    `config-form-snapshot`; локальное состояние обновляется только из ответа,
+    `useSyncExternalStore` получает стабильный snapshot;
+  - `crates/web/src/main.rs`: обработчики `config-form-read`/`-mutate`
+    (shell держит пользовательский токен и ходит в `/v1/config-forms/{entry}`),
+    ответ — `config-form-snapshot` тому же кадру. Поймано: numeric
+    `expected_revision` приходит как f64, и `0.0` сервер отвергал как float —
+    теперь конвертируется в u64 до сериализации;
+  - harness **121** (+2: relay-контракт и отклонение устаревшей ревизии),
+    client-half smoke **89/89** (+1: после Save в карточке
+    `dsh-plugin-debugging` файл `<home>/cordis/config-forms/*.json` реально
+    создан с `revision >= 1`).
+  - Осталось: C5.7 — закрытие фазы (сверка трёх направлений, матрица, отчёт,
+    решение о complete).
 
 ## Что осталось
 

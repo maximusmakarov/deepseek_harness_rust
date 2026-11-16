@@ -866,6 +866,57 @@ async function reactScenario() {
     { effectDisposed },
   );
 
+  // C5.6b: the browser form is a relay to the server store through the shell.
+  // Play the shell side here with a tiny in-memory store.
+  const configFormStore = { value: {}, revision: 0 };
+  const configFormHandled = new Set();
+  const configFormPump = setInterval(() => {
+    for (const message of page.posted) {
+      if (!message || !message.id || configFormHandled.has(message.id)) continue;
+      if (message.type !== "config-form-read" && message.type !== "config-form-mutate") continue;
+      configFormHandled.add(message.id);
+      if (message.type === "config-form-mutate") {
+        const expected = message.expected_revision;
+        if (expected !== null && expected !== undefined && Number(expected) !== configFormStore.revision) {
+          page.deliver({
+            v: 1,
+            ns: "dshr-shell",
+            type: "config-form-snapshot",
+            id: message.id,
+            error: "HTTP 409",
+          });
+          continue;
+        }
+        for (const operation of message.ops || []) {
+          const segments = Array.isArray(operation.path) ? operation.path : [operation.path];
+          let cursor = configFormStore.value;
+          for (let index = 0; index < segments.length - 1; index += 1) {
+            cursor[segments[index]] = cursor[segments[index]] || {};
+            cursor = cursor[segments[index]];
+          }
+          const last = segments[segments.length - 1];
+          if (operation.op === "unset") delete cursor[last];
+          else cursor[last] = operation.value;
+        }
+        configFormStore.revision += 1;
+      }
+      page.deliver({
+        v: 1,
+        ns: "dshr-shell",
+        type: "config-form-snapshot",
+        id: message.id,
+        snapshot: JSON.stringify({
+          status: "ready",
+          value: configFormStore.value,
+          base: {},
+          user: configFormStore.value,
+          revision: configFormStore.revision,
+          writable: true,
+        }),
+      });
+    }
+  }, 1);
+
   // configForms parity with the reference ConfigForm contract.
   const forms = dshr.get("configForms");
   const form = forms.get("harness.settings");
@@ -902,6 +953,16 @@ async function reactScenario() {
       !("enable" in afterUnset.value) &&
       afterUnset.revision === afterSet.revision + 1,
     { accepted: unsetAccepted, snapshot: afterUnset },
+  );
+
+  clearInterval(configFormPump);
+
+  // A stale revision never overwrites newer settings.
+  const stale = await form.mutate([{ op: "set", path: ["stale"], value: true }], 0);
+  check(
+    "configForms rejects a stale revision",
+    stale === false && !("stale" in form.getSnapshot().value),
+    { stale, snapshot: form.getSnapshot() },
   );
 
   const component = function KeyedSlot() {

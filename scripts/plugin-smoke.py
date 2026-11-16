@@ -2524,6 +2524,28 @@ def run(args: argparse.Namespace) -> int:
             debug_state,
         )
 
+        # C5.6b: the browser form is a relay to the server settings store, so the
+        # mutation has to land in <home>/cordis/config-forms/*.json.
+        form_docs = []
+        config_forms_dir = home / "cordis" / "config-forms"
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            form_docs = []
+            if config_forms_dir.is_dir():
+                for document in config_forms_dir.glob("*.json"):
+                    try:
+                        form_docs.append(json.loads(document.read_text()))
+                    except (OSError, ValueError):
+                        continue
+            if any(int(document.get("revision", 0) or 0) >= 1 for document in form_docs):
+                break
+            time.sleep(0.1)
+        check(
+            "configForms mutations persist to the settings store (C5.6b)",
+            any(int(document.get("revision", 0) or 0) >= 1 for document in form_docs),
+            {"dir": str(config_forms_dir), "exists": config_forms_dir.is_dir(), "docs": form_docs, "frame": debug_state},
+        )
+
         click("dialog button", "Close")
         wait_until(
             lambda: not shell.eval("!!document.querySelector('dialog h3')"),

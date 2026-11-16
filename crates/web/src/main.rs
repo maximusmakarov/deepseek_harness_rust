@@ -556,6 +556,39 @@ fn post_action_result(source: Option<js_sys::Object>, id: &str, ok: bool, error:
     let _ = post.call2(&source, &message.into(), &"*".into());
 }
 
+/// Answers a frame's `configForms` read/mutate with the server snapshot (C5.6b).
+///
+/// The frame has no user token and no network access, so the shell performs the
+/// request and hands back the stored document.
+fn post_config_snapshot(
+    source: Option<js_sys::Object>,
+    id: &str,
+    snapshot: Option<&str>,
+    error: &str,
+) {
+    let Some(source) = source else {
+        return;
+    };
+    let message = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(&message, &"v".into(), &1u32.into());
+    let _ = js_sys::Reflect::set(&message, &"ns".into(), &"dshr-shell".into());
+    let _ = js_sys::Reflect::set(&message, &"type".into(), &"config-form-snapshot".into());
+    let _ = js_sys::Reflect::set(&message, &"id".into(), &id.into());
+    if let Some(snapshot) = snapshot {
+        let _ = js_sys::Reflect::set(&message, &"snapshot".into(), &snapshot.into());
+    }
+    if !error.is_empty() {
+        let _ = js_sys::Reflect::set(&message, &"error".into(), &error.into());
+    }
+    let Ok(post) = js_sys::Reflect::get(&source, &"postMessage".into()) else {
+        return;
+    };
+    let Some(post) = post.dyn_ref::<js_sys::Function>() else {
+        return;
+    };
+    let _ = post.call2(&source, &message.into(), &"*".into());
+}
+
 /// Pushes the live theme into every frame — registry and slot frames alike.
 fn push_theme_all(theme: &str) {
     let Some(document) = web_sys::window().and_then(|window| window.document()) else {
@@ -2907,6 +2940,60 @@ fn App() -> impl IntoView {
                                 String::new()
                             };
                             break;
+                        }
+                    });
+                }
+                "config-form-read" => {
+                    let id = field_of(&data, "id");
+                    let entry = field_of(&data, "entry");
+                    let value = token.get_untracked();
+                    let source = source.clone();
+                    spawn_local(async move {
+                        let path = format!("/v1/config-forms/{entry}");
+                        match get_json::<Value>(&path, &value).await {
+                            Ok(snapshot) => post_config_snapshot(
+                                source,
+                                &id,
+                                Some(&snapshot.to_string()),
+                                "",
+                            ),
+                            Err(error) => post_config_snapshot(source, &id, None, &error),
+                        }
+                    });
+                }
+                "config-form-mutate" => {
+                    let id = field_of(&data, "id");
+                    let entry = field_of(&data, "entry");
+                    let value = token.get_untracked();
+                    let source = source.clone();
+                    let ops = js_sys::Reflect::get(&data, &"ops".into())
+                        .unwrap_or(wasm_bindgen::JsValue::NULL);
+                    let ops_json = js_sys::JSON::stringify(&ops)
+                        .ok()
+                        .and_then(|value| value.as_string())
+                        .unwrap_or_else(|| "[]".to_owned());
+                    let ops: Value = serde_json::from_str(&ops_json).unwrap_or_default();
+                    // JSON numbers arrive as f64; the server field is u64, so a
+                    // raw 0.0 would be rejected as a float.
+                    let expected = js_sys::Reflect::get(&data, &"expected_revision".into())
+                        .ok()
+                        .and_then(|value| value.as_f64())
+                        .filter(|revision| *revision >= 0.0 && revision.is_finite())
+                        .map(|revision| revision as u64);
+                    let body = serde_json::json!({
+                        "ops": ops,
+                        "expected_revision": expected,
+                    });
+                    spawn_local(async move {
+                        let path = format!("/v1/config-forms/{entry}");
+                        match post_json::<Value>(&path, &value, &body).await {
+                            Ok(snapshot) => post_config_snapshot(
+                                source,
+                                &id,
+                                Some(&snapshot.to_string()),
+                                "",
+                            ),
+                            Err(error) => post_config_snapshot(source, &id, None, &error),
                         }
                     });
                 }
