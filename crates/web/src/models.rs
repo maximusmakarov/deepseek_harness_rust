@@ -136,6 +136,7 @@ struct ProviderDraft {
     api_key_env: String,
     models: Vec<ModelDraft>,
     configured: bool,
+    custom: bool,
     account: bool,
     default_base_url: Option<String>,
     default_api_key_env: Option<String>,
@@ -151,6 +152,7 @@ impl ProviderDraft {
             api_key_env: row.api_key_env.clone().unwrap_or_default(),
             models: row.models.iter().map(model_draft).collect(),
             configured: row.configured,
+            custom: false,
             account: row.account,
             default_base_url: catalog
                 .and_then(|entry| entry.default_base_url.clone())
@@ -182,11 +184,69 @@ impl ProviderDraft {
                 })
                 .collect(),
             configured: false,
+            custom: false,
             account: entry.account,
             default_base_url: entry.default_base_url.clone(),
             default_api_key_env: entry.api_key_env.clone(),
         }
     }
+
+    fn new_custom() -> Self {
+        Self {
+            id: String::new(),
+            display_name: String::new(),
+            protocol: "openai-chat".into(),
+            base_url: String::new(),
+            api_key_env: String::new(),
+            models: Vec::new(),
+            configured: false,
+            custom: true,
+            account: false,
+            default_base_url: None,
+            default_api_key_env: None,
+        }
+    }
+}
+
+/// Levels the adapters accept, in escalation order.
+const REASONING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// The level -> value rows of a model's reasoning declaration.
+fn reasoning_entries(value: &Option<Value>) -> Vec<(String, String)> {
+    match value {
+        Some(Value::Object(map)) => map
+            .iter()
+            .filter_map(|(level, value)| {
+                value
+                    .as_str()
+                    .map(|value| (level.clone(), value.to_owned()))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn reasoning_object(entries: &[(String, String)]) -> Value {
+    Value::Object(
+        entries
+            .iter()
+            .map(|(level, value)| (level.clone(), Value::String(value.clone())))
+            .collect(),
+    )
+}
+
+fn reasoning_enabled(value: &Option<Value>) -> bool {
+    matches!(value, Some(Value::Object(_)))
+}
+
+/// The upstream starting point when the switch turns on.
+fn reasoning_default() -> Value {
+    reasoning_object(&[
+        ("off".into(), "off".into()),
+        ("low".into(), "low".into()),
+        ("medium".into(), "medium".into()),
+        ("high".into(), "high".into()),
+    ])
 }
 
 fn model_draft(model: &ModelInfo) -> ModelDraft {
@@ -241,6 +301,29 @@ fn draft_body(draft: &ProviderDraft) -> Result<Value, String> {
         }
         let context_window = parse_capacity(&model.context_window, "context window")?;
         let max_tokens = parse_capacity(&model.max_tokens, "max output tokens")?;
+        if let Some(efforts) = &model.reasoning_efforts {
+            match efforts {
+                Value::Bool(false) => {}
+                Value::Object(levels) => {
+                    if levels.is_empty() {
+                        return Err(format!("model '{id}' enables reasoning without any level"));
+                    }
+                    for (level, value) in levels {
+                        if !REASONING_LEVELS.contains(&level.as_str()) {
+                            return Err(format!(
+                                "model '{id}' names an unknown reasoning level '{level}'"
+                            ));
+                        }
+                        if !value.as_str().is_some_and(|value| !value.trim().is_empty()) {
+                            return Err(format!(
+                                "model '{id}' has an empty value for reasoning level '{level}'"
+                            ));
+                        }
+                    }
+                }
+                _ => return Err(format!("model '{id}' has an invalid reasoning declaration")),
+            }
+        }
         let mut input = Vec::new();
         if model.text {
             input.push("text");
@@ -332,6 +415,24 @@ fn credential_dot(row: &ProviderRow) -> (&'static str, &'static str) {
     }
 }
 
+fn protocol_label(protocol: &str) -> &'static str {
+    match protocol {
+        "anthropic-messages" => "Anthropic Messages",
+        "openai-chat" => "OpenAI Chat Completions",
+        _ => "Custom protocol",
+    }
+}
+
+fn valid_route(route: &str) -> bool {
+    !route.is_empty()
+        && route.len() <= 64
+        && route.starts_with(|ch: char| ch.is_ascii_lowercase())
+        && route
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+        && !route.ends_with('-')
+}
+
 #[component]
 pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
     let snapshot = RwSignal::new(None::<ModelsSnapshot>);
@@ -341,6 +442,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
     let editing = RwSignal::new(None::<ProviderDraft>);
     let deleting = RwSignal::new(None::<String>);
     let add_choice = RwSignal::new(String::new());
+    let add_mode = RwSignal::new("catalog".to_owned());
 
     let load = move || {
         let value = token.get_untracked();
@@ -353,7 +455,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         error.set(String::new());
                     }
                     Err(problem) => {
-                        error.set(format!("cannot read the models snapshot: {problem}"))
+                        error.set(format!("cannot read the models snapshot: {problem}"));
                     }
                 },
                 Err(message) => error.set(message),
@@ -371,6 +473,34 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             .get_untracked()
             .map(|value| value.revision)
             .unwrap_or_default();
+        if draft.custom {
+            if !valid_route(&draft.id) {
+                error.set(
+                    "the provider id must start with a letter and use lowercase letters, digits or '-'"
+                        .into(),
+                );
+                return;
+            }
+            let taken = snapshot
+                .get_untracked()
+                .is_some_and(|value| value.providers.iter().any(|row| row.id == draft.id));
+            if taken {
+                error.set(format!("a provider with id '{}' already exists", draft.id));
+                return;
+            }
+            if draft.base_url.trim().is_empty() {
+                error.set("a custom provider needs a base URL".into());
+                return;
+            }
+            if draft.models.is_empty() {
+                error.set("a custom provider needs at least one model".into());
+                return;
+            }
+            if draft.models.iter().any(|model| model.id.trim().is_empty()) {
+                error.set("every model needs an id".into());
+                return;
+            }
+        }
         let mut body = match draft_body(&draft) {
             Ok(body) => body,
             Err(message) => {
@@ -452,52 +582,19 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         });
     };
 
-    let add = move || {
+    let add_catalog = move || {
         let choice = add_choice.get_untracked();
-        let Some(value) = snapshot.get_untracked() else {
-            return;
-        };
-        let Some(entry) = value
-            .catalog
-            .iter()
-            .find(|entry| entry.id == choice)
-            .cloned()
+        let Some(entry) = snapshot
+            .get_untracked()
+            .and_then(|value| value.catalog.into_iter().find(|entry| entry.id == choice))
         else {
             return;
         };
-        let draft = ProviderDraft::from_catalog(&entry);
-        let already_listed = value.providers.iter().any(|row| row.id == entry.id);
-        if !already_listed {
-            // A draft card needs a row to live in; the next reload replaces
-            // this synthetic default row with the stored profile.
-            let row = ProviderRow {
-                id: entry.id.clone(),
-                display_name: entry.display_name.clone(),
-                protocol: entry.protocol.clone(),
-                base_url: None,
-                effective_base_url: entry.default_base_url.clone(),
-                api_key_env: entry.api_key_env.clone(),
-                account: entry.account,
-                summary: entry.summary.clone(),
-                models: entry
-                    .models
-                    .iter()
-                    .map(|model| ModelInfo {
-                        id: model.id.clone(),
-                        name: Some(model.name.clone()),
-                        ..ModelInfo::default()
-                    })
-                    .collect(),
-                editable: true,
-                ..ProviderRow::default()
-            };
-            snapshot.update(|value| {
-                if let Some(value) = value {
-                    value.providers.push(row);
-                }
-            });
-        }
-        editing.set(Some(draft));
+        editing.set(Some(ProviderDraft::from_catalog(&entry)));
+        error.set(String::new());
+    };
+    let add_custom = move || {
+        editing.set(Some(ProviderDraft::new_custom()));
         error.set(String::new());
     };
 
@@ -526,7 +623,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         return view! { <li class="tool">"loading…"</li> }.into_any();
                     };
                     let active_snapshot = snapshot_value.active.clone();
-                    let catalog_snapshot = snapshot_value.catalog.clone();
+                    let active_model = active_snapshot.model.clone();
                     snapshot_value
                         .providers
                         .into_iter()
@@ -538,9 +635,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             let configured = row.configured;
                             let name = row.display_name.clone();
                             let route = row.id.clone();
-                            let protocol = row.protocol.clone();
+                            let protocol = protocol_label(&row.protocol);
                             let models_count = row.models.len();
-                            let catalog_entry = catalog_snapshot
+                            let catalog_entry = snapshot_value
+                                .catalog
                                 .iter()
                                 .find(|entry| entry.id == row.id)
                                 .cloned();
@@ -552,24 +650,21 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 .unwrap_or_default();
                             let use_route = row.id.clone();
                             let use_model = if row.active {
-                                active_snapshot.model.clone()
+                                active_model.clone()
                             } else {
-                                first_model.clone()
+                                first_model
                             };
                             let delete_id = row.id.clone();
-                            let edit_id = row.id.clone();
-                            let editor_key = row.id.clone();
                             let error_text = row.error.clone().unwrap_or_default();
-                            let route_for_header = route.clone();
                             view! {
                                 <li class="models-row" data-provider=card_id.clone()>
                                     <div class="models-row-head">
                                         <span class=dot_class title=dot_label></span>
                                         <span class="models-name">{name.clone()}</span>
-                                        <span class="models-tag">{route_for_header.clone()}</span>
+                                        <span class="models-tag">{route.clone()}</span>
                                         {active.then(|| view! { <span class="models-tag active">"active"</span> })}
                                         {(!configured).then(|| view! { <span class="models-tag">"defaults"</span> })}
-                                        <span class="models-tag">{protocol.clone()}</span>
+                                        <span class="models-tag">{protocol}</span>
                                         {row.models_from_profile.then(|| view! { <span class="models-tag">"custom list"</span> })}
                                         <span class="models-actions">
                                             {editable.then(|| view! {
@@ -615,209 +710,6 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             </div>
                                         })
                                     }}
-                                    {move || {
-                                        let open = editing.get().is_some_and(|draft| draft.id == editor_key);
-                                        if !open {
-                                            return view! { <span></span> }.into_any();
-                                        }
-                                        let Some(draft) = editing.get() else {
-                                            return view! { <span></span> }.into_any();
-                                        };
-                                        let protocol_hint = draft.protocol.clone();
-                                        let default_base = draft.default_base_url.clone().unwrap_or_default();
-                                        let default_key = draft.default_api_key_env.clone().unwrap_or_default();
-                                        view! {
-                                            <div class="models-editor" data-edit=edit_id.clone()>
-                                                <div class="models-field">
-                                                    <label>"Base URL"</label>
-                                                    <input
-                                                        placeholder=default_base
-                                                        prop:value=move || editing.get().map(|draft| draft.base_url).unwrap_or_default()
-                                                        on:input=move |event| {
-                                                            let value = event_target_value(&event);
-                                                            editing.update(|draft| { if let Some(draft) = draft { draft.base_url = value; } });
-                                                        }
-                                                    />
-                                                </div>
-                                                <div class="models-field">
-                                                    <label>"API key variable"</label>
-                                                    <input
-                                                        placeholder=default_key
-                                                        prop:value=move || editing.get().map(|draft| draft.api_key_env).unwrap_or_default()
-                                                        on:input=move |event| {
-                                                            let value = event_target_value(&event);
-                                                            editing.update(|draft| { if let Some(draft) = draft { draft.api_key_env = value; } });
-                                                        }
-                                                    />
-                                                    <span class="tool">{format!("protocol: {protocol_hint}")}</span>
-                                                </div>
-                                                <div class="models-models-head">
-                                                    <strong>"Models"</strong>
-                                                    <span class="tool">"Save an empty list to inherit the catalog defaults."</span>
-                                                </div>
-                                                <div class="models-model-list">
-                                                    {move || {
-                                                        let Some(draft) = editing.get() else {
-                                                            return view! { <span></span> }.into_any();
-                                                        };
-                                                        draft.models.iter().enumerate().map(|(index, model)| {
-                                                            let id_value = model.id.clone();
-                                                            let name_value = model.name.clone();
-                                                            let context_value = model.context_window.clone();
-                                                            let output_value = model.max_tokens.clone();
-                                                            let text = model.text;
-                                                            let image = model.image;
-                                                            let model_id_for_use = model.id.clone();
-                                                            let provider_for_use = draft.id.clone();
-                                                            let can_use = !model_id_for_use.trim().is_empty();
-                                                            view! {
-                                                                <div class="models-model-row">
-                                                                    <input
-                                                                        class="model-id"
-                                                                        placeholder="model id"
-                                                                        prop:value=id_value
-                                                                        on:input=move |event| {
-                                                                            let value = event_target_value(&event);
-                                                                            editing.update(|draft| {
-                                                                                if let Some(draft) = draft
-                                                                                    && let Some(model) = draft.models.get_mut(index)
-                                                                                {
-                                                                                    model.id = value;
-                                                                                }
-                                                                            });
-                                                                        }
-                                                                    />
-                                                                    <input
-                                                                        placeholder="display name"
-                                                                        prop:value=name_value
-                                                                        on:input=move |event| {
-                                                                            let value = event_target_value(&event);
-                                                                            editing.update(|draft| {
-                                                                                if let Some(draft) = draft
-                                                                                    && let Some(model) = draft.models.get_mut(index)
-                                                                                {
-                                                                                    model.name = value;
-                                                                                }
-                                                                            });
-                                                                        }
-                                                                    />
-                                                                    <input
-                                                                        class="model-number"
-                                                                        placeholder="context"
-                                                                        prop:value=context_value
-                                                                        on:input=move |event| {
-                                                                            let value = event_target_value(&event);
-                                                                            editing.update(|draft| {
-                                                                                if let Some(draft) = draft
-                                                                                    && let Some(model) = draft.models.get_mut(index)
-                                                                                {
-                                                                                    model.context_window = value;
-                                                                                }
-                                                                            });
-                                                                        }
-                                                                    />
-                                                                    <input
-                                                                        class="model-number"
-                                                                        placeholder="max out"
-                                                                        prop:value=output_value
-                                                                        on:input=move |event| {
-                                                                            let value = event_target_value(&event);
-                                                                            editing.update(|draft| {
-                                                                                if let Some(draft) = draft
-                                                                                    && let Some(model) = draft.models.get_mut(index)
-                                                                                {
-                                                                                    model.max_tokens = value;
-                                                                                }
-                                                                            });
-                                                                        }
-                                                                    />
-                                                                    <label class="models-check">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            prop:checked=text
-                                                                            on:change=move |event| {
-                                                                                let checked = event_target_checked(&event);
-                                                                                editing.update(|draft| {
-                                                                                    if let Some(draft) = draft
-                                                                                        && let Some(model) = draft.models.get_mut(index)
-                                                                                    {
-                                                                                        model.text = checked;
-                                                                                    }
-                                                                                });
-                                                                            }
-                                                                        />
-                                                                        "text"
-                                                                    </label>
-                                                                    <label class="models-check">
-                                                                        <input
-                                                                            type="checkbox"
-                                                                            prop:checked=image
-                                                                            on:change=move |event| {
-                                                                                let checked = event_target_checked(&event);
-                                                                                editing.update(|draft| {
-                                                                                    if let Some(draft) = draft
-                                                                                        && let Some(model) = draft.models.get_mut(index)
-                                                                                    {
-                                                                                        model.image = checked;
-                                                                                    }
-                                                                                });
-                                                                            }
-                                                                        />
-                                                                        "image"
-                                                                    </label>
-                                                                    <button
-                                                                        title="make this the active model"
-                                                                        disabled=move || busy.get() || !can_use
-                                                                        on:click=move |_| {
-                                                                            activate(provider_for_use.clone(), model_id_for_use.clone());
-                                                                        }
-                                                                    >"Use"</button>
-                                                                    <button
-                                                                        title="remove this row"
-                                                                        on:click=move |_| {
-                                                                            editing.update(|draft| {
-                                                                                if let Some(draft) = draft {
-                                                                                    let _ = draft.models.remove(index);
-                                                                                }
-                                                                            });
-                                                                        }
-                                                                    >"×"</button>
-                                                                </div>
-                                                            }
-                                                        }).collect_view().into_any()
-                                                    }}
-                                                </div>
-                                                <div class="row">
-                                                    <button on:click=move |_| {
-                                                        editing.update(|draft| {
-                                                            if let Some(draft) = draft {
-                                                                draft.models.push(ModelDraft {
-                                                                    id: String::new(),
-                                                                    name: String::new(),
-                                                                    context_window: String::new(),
-                                                                    max_tokens: String::new(),
-                                                                    text: true,
-                                                                    image: false,
-                                                                    reasoning_efforts: None,
-                                                                });
-                                                            }
-                                                        });
-                                                    }>"Add model"</button>
-                                                    <button on:click=move |_| {
-                                                        editing.update(|draft| { if let Some(draft) = draft { draft.models.clear(); } });
-                                                    }>"Restore catalog defaults"</button>
-                                                </div>
-                                                <div class="row">
-                                                    <button
-                                                        class="primary"
-                                                        on:click=move |_| save()
-                                                        disabled=move || busy.get()
-                                                    >"Save"</button>
-                                                    <button on:click=move |_| { editing.set(None); load(); }>"Cancel"</button>
-                                                </div>
-                                            </div>
-                                        }.into_any()
-                                    }}
                                 </li>
                             }
                         })
@@ -825,22 +717,425 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         .into_any()
                 }}
             </ul>
+
+            {move || {
+                let Some(draft) = editing.get() else {
+                    return view! { <span></span> }.into_any();
+                };
+                let custom = draft.custom;
+                let editor_id = draft.id.clone();
+                let header_name = if custom {
+                    if draft.display_name.trim().is_empty() {
+                        "New custom provider".to_owned()
+                    } else {
+                        draft.display_name.clone()
+                    }
+                } else {
+                    draft.display_name.clone()
+                };
+                let header_tag = if custom { "custom".to_owned() } else { draft.id.clone() };
+                let protocol = draft.protocol.clone();
+                let default_base = if custom {
+                    if protocol == "anthropic-messages" {
+                        "https://gateway.example".to_owned()
+                    } else {
+                        "https://gateway.example/v1".to_owned()
+                    }
+                } else {
+                    draft.default_base_url.clone().unwrap_or_default()
+                };
+                let default_key = draft.default_api_key_env.clone().unwrap_or_default();
+                view! {
+                    <div class="models-row models-editor-card" data-provider=editor_id.clone()>
+                        <div class="models-row-head">
+                            <span class="models-name">{header_name}</span>
+                            <span class="models-tag">{header_tag}</span>
+                            <span class="models-tag">{protocol_label(&protocol)}</span>
+                            <span class="models-actions">
+                                <button on:click=move |_| { editing.set(None); load(); }>"Cancel"</button>
+                            </span>
+                        </div>
+                        {custom.then(|| view! {
+                            <div class="models-field">
+                                <label>"Provider ID"</label>
+                                <input
+                                    placeholder="acme-gateway"
+                                    prop:value=move || editing.get().map(|draft| draft.id).unwrap_or_default()
+                                    on:input=move |event| {
+                                        let value = event_target_value(&event);
+                                        editing.update(|draft| { if let Some(draft) = draft { draft.id = value; } });
+                                    }
+                                />
+                                <span class="tool">"fixed after creation"</span>
+                            </div>
+                            <div class="models-field">
+                                <label>"Display name"</label>
+                                <input
+                                    placeholder="optional"
+                                    prop:value=move || editing.get().map(|draft| draft.display_name).unwrap_or_default()
+                                    on:input=move |event| {
+                                        let value = event_target_value(&event);
+                                        editing.update(|draft| { if let Some(draft) = draft { draft.display_name = value; } });
+                                    }
+                                />
+                            </div>
+                            <div class="models-field">
+                                <label>"Protocol"</label>
+                                <select
+                                    prop:value=move || editing.get().map(|draft| draft.protocol).unwrap_or_default()
+                                    on:change=move |event| {
+                                        let value = event_target_value(&event);
+                                        editing.update(|draft| { if let Some(draft) = draft { draft.protocol = value; } });
+                                    }
+                                >
+                                    <option value="openai-chat">"OpenAI Chat Completions"</option>
+                                    <option value="anthropic-messages">"Anthropic Messages"</option>
+                                </select>
+                            </div>
+                        })}
+                        <div class="models-field">
+                            <label>"Base URL"</label>
+                            <input
+                                placeholder=default_base
+                                prop:value=move || editing.get().map(|draft| draft.base_url).unwrap_or_default()
+                                on:input=move |event| {
+                                    let value = event_target_value(&event);
+                                    editing.update(|draft| { if let Some(draft) = draft { draft.base_url = value; } });
+                                }
+                            />
+                        </div>
+                        <div class="models-field">
+                            <label>"API key variable"</label>
+                            <input
+                                placeholder=default_key
+                                prop:value=move || editing.get().map(|draft| draft.api_key_env).unwrap_or_default()
+                                on:input=move |event| {
+                                    let value = event_target_value(&event);
+                                    editing.update(|draft| { if let Some(draft) = draft { draft.api_key_env = value; } });
+                                }
+                            />
+                            <span class="tool">"the value stays in the environment"</span>
+                        </div>
+                        <div class="models-models-head">
+                            <strong>"Models"</strong>
+                            <span class="tool">
+                                {if custom {
+                                    "A custom provider needs at least one model."
+                                } else {
+                                    "Save an empty list to inherit the catalog defaults."
+                                }}
+                            </span>
+                        </div>
+                        <div class="models-model-list">
+                            {move || {
+                                let Some(draft) = editing.get() else {
+                                    return view! { <span></span> }.into_any();
+                                };
+                                let custom = draft.custom;
+                                draft.models.iter().enumerate().map(|(index, model)| {
+                                    let id_value = model.id.clone();
+                                    let name_value = model.name.clone();
+                                    let context_value = model.context_window.clone();
+                                    let output_value = model.max_tokens.clone();
+                                    let text = model.text;
+                                    let image = model.image;
+                                    let model_id_for_use = model.id.clone();
+                                    let provider_for_use = draft.id.clone();
+                                    let can_use = !custom && !model_id_for_use.trim().is_empty();
+                                    let reasoning_on = reasoning_enabled(&model.reasoning_efforts);
+                                    let level_rows = reasoning_entries(&model.reasoning_efforts);
+                                    view! {
+                                        <div class="models-model-block">
+                                        <div class="models-model-row">
+                                            <input
+                                                class="model-id"
+                                                placeholder="model id"
+                                                prop:value=id_value
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(model) = draft.models.get_mut(index)
+                                                        {
+                                                            model.id = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                            <input
+                                                placeholder="display name"
+                                                prop:value=name_value
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(model) = draft.models.get_mut(index)
+                                                        {
+                                                            model.name = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                            <input
+                                                class="model-number"
+                                                placeholder="context"
+                                                prop:value=context_value
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(model) = draft.models.get_mut(index)
+                                                        {
+                                                            model.context_window = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                            <input
+                                                class="model-number"
+                                                placeholder="max out"
+                                                prop:value=output_value
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(model) = draft.models.get_mut(index)
+                                                        {
+                                                            model.max_tokens = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                            <label class="models-check">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=text
+                                                    on:change=move |event| {
+                                                        let checked = event_target_checked(&event);
+                                                        editing.update(|draft| {
+                                                            if let Some(draft) = draft
+                                                                && let Some(model) = draft.models.get_mut(index)
+                                                            {
+                                                                model.text = checked;
+                                                            }
+                                                        });
+                                                    }
+                                                />
+                                                "text"
+                                            </label>
+                                            <label class="models-check">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=image
+                                                    on:change=move |event| {
+                                                        let checked = event_target_checked(&event);
+                                                        editing.update(|draft| {
+                                                            if let Some(draft) = draft
+                                                                && let Some(model) = draft.models.get_mut(index)
+                                                            {
+                                                                model.image = checked;
+                                                            }
+                                                        });
+                                                    }
+                                                />
+                                                "image"
+                                            </label>
+                                            <button
+                                                title="make this the active model"
+                                                disabled=move || busy.get() || !can_use
+                                                on:click=move |_| {
+                                                    activate(provider_for_use.clone(), model_id_for_use.clone());
+                                                }
+                                            >"Use"</button>
+                                            <button
+                                                title="remove this row"
+                                                on:click=move |_| {
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft {
+                                                            let _ = draft.models.remove(index);
+                                                        }
+                                                    });
+                                                }
+                                            >"×"</button>
+                                        </div>
+                                        <div class="models-reasoning">
+                                            <label class="models-check">
+                                                <input
+                                                    type="checkbox"
+                                                    prop:checked=reasoning_on
+                                                    on:change=move |event| {
+                                                        let checked = event_target_checked(&event);
+                                                        editing.update(|draft| {
+                                                            if let Some(draft) = draft
+                                                                && let Some(model) = draft.models.get_mut(index)
+                                                            {
+                                                                model.reasoning_efforts = Some(if checked {
+                                                                    reasoning_default()
+                                                                } else {
+                                                                    json!(false)
+                                                                });
+                                                            }
+                                                        });
+                                                    }
+                                                />
+                                                "reasoning levels"
+                                            </label>
+                                            {reasoning_on.then(|| view! {
+                                                <div class="models-levels">
+                                                    {level_rows.iter().enumerate().map(|(level_index, (level, value))| {
+                                                        let level_value = level.clone();
+                                                        let api_value = value.clone();
+                                                        view! {
+                                                            <div class="models-level-row">
+                                                                <select
+                                                                    prop:value=level_value
+                                                                    on:change=move |event| {
+                                                                        let selected = event_target_value(&event);
+                                                                        editing.update(|draft| {
+                                                                            if let Some(draft) = draft
+                                                                                && let Some(model) = draft.models.get_mut(index)
+                                                                            {
+                                                                                let mut rows = reasoning_entries(&model.reasoning_efforts);
+                                                                                let duplicate = rows.iter().enumerate().any(|(position, (used, _))| position != level_index && *used == selected);
+                                                                                if !duplicate && let Some(row) = rows.get_mut(level_index) {
+                                                                                    row.0 = selected;
+                                                                                }
+                                                                                model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                >
+                                                                    {REASONING_LEVELS.iter().map(|choice| view! { <option value=*choice>{*choice}</option> }).collect_view()}
+                                                                </select>
+                                                                <input
+                                                                    placeholder="API value"
+                                                                    prop:value=api_value
+                                                                    on:input=move |event| {
+                                                                        let value = event_target_value(&event);
+                                                                        editing.update(|draft| {
+                                                                            if let Some(draft) = draft
+                                                                                && let Some(model) = draft.models.get_mut(index)
+                                                                            {
+                                                                                let mut rows = reasoning_entries(&model.reasoning_efforts);
+                                                                                if let Some(row) = rows.get_mut(level_index) {
+                                                                                    row.1 = value;
+                                                                                }
+                                                                                model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                />
+                                                                <button on:click=move |_| {
+                                                                    editing.update(|draft| {
+                                                                        if let Some(draft) = draft
+                                                                            && let Some(model) = draft.models.get_mut(index)
+                                                                        {
+                                                                            let mut rows = reasoning_entries(&model.reasoning_efforts);
+                                                                            if level_index < rows.len() {
+                                                                                let _ = rows.remove(level_index);
+                                                                            }
+                                                                            model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                        }
+                                                                    });
+                                                                }>"×"</button>
+                                                            </div>
+                                                        }
+                                                    }).collect_view()}
+                                                    <div class="row">
+                                                        <button on:click=move |_| {
+                                                            editing.update(|draft| {
+                                                                if let Some(draft) = draft
+                                                                    && let Some(model) = draft.models.get_mut(index)
+                                                                {
+                                                                    let mut rows = reasoning_entries(&model.reasoning_efforts);
+                                                                    if let Some(level) = REASONING_LEVELS.iter().find(|candidate| !rows.iter().any(|(used, _)| used == *candidate)) {
+                                                                        rows.push(((*level).to_owned(), (*level).to_owned()));
+                                                                    }
+                                                                    model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                }
+                                                            });
+                                                        }>"Add level"</button>
+                                                        {level_rows.is_empty().then(|| view! { <span class="tool">"at least one level is required"</span> })}
+                                                    </div>
+                                                </div>
+                                            })}
+                                        </div>
+                                        </div>
+                                    }
+                                }).collect_view().into_any()
+                            }}
+                        </div>
+                        <div class="row">
+                            <button on:click=move |_| {
+                                editing.update(|draft| {
+                                    if let Some(draft) = draft {
+                                        draft.models.push(ModelDraft {
+                                            id: String::new(),
+                                            name: String::new(),
+                                            context_window: String::new(),
+                                            max_tokens: String::new(),
+                                            text: true,
+                                            image: false,
+                                            reasoning_efforts: None,
+                                        });
+                                    }
+                                });
+                            }>"Add model"</button>
+                            {move || (!editing.get().is_some_and(|draft| draft.custom)).then(|| view! {
+                                <button on:click=move |_| {
+                                    editing.update(|draft| { if let Some(draft) = draft { draft.models.clear(); } });
+                                }>"Restore catalog defaults"</button>
+                            })}
+                        </div>
+                        <div class="row">
+                            <button
+                                class="primary"
+                                on:click=move |_| save()
+                                disabled=move || busy.get()
+                            >"Save"</button>
+                            <button on:click=move |_| { editing.set(None); load(); }>"Cancel"</button>
+                        </div>
+                    </div>
+                }.into_any()
+            }}
+
             <div class="row models-add">
-                <label>"Add provider"</label>
-                <select
-                    prop:value=move || add_choice.get()
-                    on:change=move |event| add_choice.set(event_target_value(&event))
-                >
-                    <option value="">"choose a catalog provider…"</option>
-                    {move || snapshot.get().map(|value| {
-                        value.catalog.into_iter().map(|entry| {
-                            let id = entry.id.clone();
-                            let label = format!("{} · {}", entry.display_name, entry.id);
-                            view! { <option value=id>{label}</option> }
-                        }).collect_view()
-                    }).unwrap_or_default()}
-                </select>
-                <button on:click=move |_| add() disabled=move || busy.get()>"Add"</button>
+                <div class="models-mode">
+                    <button
+                        class:active=move || add_mode.get() == "catalog"
+                        on:click=move |_| add_mode.set("catalog".into())
+                    >"Catalog provider"</button>
+                    <button
+                        class:active=move || add_mode.get() == "custom"
+                        on:click=move |_| {
+                            add_mode.set("custom".into());
+                            if !editing.get_untracked().is_some_and(|draft| draft.custom) {
+                                add_custom();
+                            }
+                        }
+                    >"Custom model API"</button>
+                </div>
+                {move || (add_mode.get() == "catalog").then(|| view! {
+                    <select
+                        prop:value=move || add_choice.get()
+                        on:change=move |event| add_choice.set(event_target_value(&event))
+                    >
+                        <option value="">"choose a catalog provider…"</option>
+                        {move || snapshot.get().map(|value| {
+                            value.catalog.into_iter().map(|entry| {
+                                let id = entry.id.clone();
+                                let label = format!("{} · {}", entry.display_name, entry.id);
+                                view! { <option value=id>{label}</option> }
+                            }).collect_view()
+                        }).unwrap_or_default()}
+                    </select>
+                })}
+                {move || (add_mode.get() == "catalog").then(|| view! {
+                    <button on:click=move |_| add_catalog() disabled=move || busy.get()>"Add"</button>
+                })}
+                {move || (add_mode.get() == "custom").then(|| view! {
+                    <button on:click=move |_| add_custom() disabled=move || busy.get()>"New custom provider"</button>
+                })}
                 <span class="tool">{move || if busy.get() { "working…" } else { "" }}</span>
             </div>
             <p class="tool models-status">{move || status.get()}</p>
@@ -869,6 +1164,7 @@ mod tests {
                 reasoning_efforts: Some(json!({"high": "high"})),
             }],
             configured: false,
+            custom: false,
             account: false,
             default_base_url: Some("https://api.deepseek.com/anthropic".into()),
             default_api_key_env: Some("DEEPSEEK_API_KEY".into()),
@@ -930,6 +1226,40 @@ mod tests {
         assert_eq!(draft.models[1].id, "gpt-4o");
         assert_eq!(draft.api_key_env, "OPENAI_API_KEY");
         assert!(draft.models.iter().all(|model| model.text));
+    }
+
+    #[test]
+    fn reasoning_rows_round_trip_and_refuse_bad_declarations() {
+        let entries = vec![
+            ("off".to_owned(), "off".to_owned()),
+            ("high".to_owned(), "high".to_owned()),
+        ];
+        let value = reasoning_object(&entries);
+        assert!(reasoning_enabled(&Some(value.clone())));
+        let round = reasoning_entries(&Some(value));
+        assert_eq!(round.len(), 2);
+        assert!(round.contains(&("off".to_owned(), "off".to_owned())));
+        assert!(round.contains(&("high".to_owned(), "high".to_owned())));
+
+        let mut value = draft();
+        value.models[0].reasoning_efforts = Some(json!({}));
+        assert!(draft_body(&value).is_err());
+
+        let mut value = draft();
+        value.models[0].reasoning_efforts = Some(json!({"banana": "high"}));
+        assert!(draft_body(&value).is_err());
+
+        let mut value = draft();
+        value.models[0].reasoning_efforts = Some(json!({"high": "  "}));
+        assert!(draft_body(&value).is_err());
+
+        let mut value = draft();
+        value.models[0].reasoning_efforts = Some(json!(true));
+        assert!(draft_body(&value).is_err());
+
+        let mut value = draft();
+        value.models[0].reasoning_efforts = Some(json!(false));
+        assert!(draft_body(&value).is_ok());
     }
 
     #[test]

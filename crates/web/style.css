@@ -266,6 +266,52 @@ dialog.settings-dialog {
     align-items: center;
     flex-wrap: wrap;
 }
+.models-mode {
+    display: flex;
+    gap: 4px;
+}
+.models-mode button.active {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.models-editor-card {
+    margin-top: 8px;
+    border-color: var(--accent);
+}
 .models-add select {
     min-width: 280px;
+}
+.models-model-block {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-bottom: 7px;
+    border-bottom: 1px dashed var(--border);
+}
+.models-model-block:last-child {
+    border-bottom: 0;
+}
+.models-reasoning {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 2px;
+}
+.models-levels {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 18px;
+}
+.models-level-row {
+    display: grid;
+    grid-template-columns: 110px minmax(140px, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+}
+.models-level-row select,
+.models-level-row input {
+    padding: 2px 6px;
+    font-size: 12px;
+    min-width: 0;
 }

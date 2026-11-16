@@ -379,7 +379,7 @@ def run(args: argparse.Namespace) -> int:
             lambda: evaluate(
                 smoke,
                 dt,
-                """!!document.querySelector('.models-row[data-provider="deepseek-account"] .models-editor')""",
+                """!!document.querySelector('.models-editor-card[data-provider="deepseek-account"]')""",
             ),
             timeout=STEP_TIMEOUT,
             label="provider editor",
@@ -388,7 +388,7 @@ def run(args: argparse.Namespace) -> int:
             smoke,
             dt,
             """(() => {
-                const editor = document.querySelector('.models-row[data-provider="deepseek-account"] .models-editor');
+                const editor = document.querySelector('.models-editor-card[data-provider="deepseek-account"]');
                 const fields = editor.querySelectorAll('.models-field input');
                 const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
                 setter.call(fields[0], 'https://gateway.example/anthropic');
@@ -436,7 +436,7 @@ def run(args: argparse.Namespace) -> int:
             lambda: evaluate(
                 smoke,
                 dt,
-                "!!document.querySelector('.models-row[data-provider=\"openai\"] .models-editor')",
+                "!!document.querySelector('.models-editor-card[data-provider=\"openai\"]')",
             ),
             timeout=STEP_TIMEOUT,
             label="openai draft editor",
@@ -445,7 +445,7 @@ def run(args: argparse.Namespace) -> int:
             smoke,
             dt,
             """(() => {
-                const editor = document.querySelector('.models-row[data-provider="openai"] .models-editor');
+                const editor = document.querySelector('.models-editor-card[data-provider="openai"]');
                 const fields = editor.querySelectorAll('.models-field input');
                 const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
                 setter.call(fields[0], 'https://openai.example/v1');
@@ -519,6 +519,91 @@ def run(args: argparse.Namespace) -> int:
             "deleting a provider restores the catalog defaults",
             "openai:" not in models_file.read_text(),
             models_file.read_text(),
+        )
+
+        # A hand-declared provider: id, protocol, endpoint, key reference and
+        # one model, all persisted through the same revision-fenced write.
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                [...document.querySelectorAll('.models-mode button')]
+                    .find(b => b.textContent.trim() === 'Custom model API').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-editor-card[data-provider=\"\"]')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="custom provider card",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const card = document.querySelector('.models-editor-card[data-provider=""]');
+                const fields = card.querySelectorAll('.models-field input');
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                const set = (input, value) => {
+                    setter.call(input, value);
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                };
+                set(fields[0], 'acme-gateway');
+                set(fields[1], 'Acme Gateway');
+                set(fields[2], 'https://acme.example/v1');
+                set(fields[3], 'ACME_GATEWAY_KEY');
+                [...card.querySelectorAll('button')]
+                    .find(b => b.textContent.trim() === 'Add model').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-editor-card[data-provider=\"acme-gateway\"] .models-model-row')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="custom model row",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const card = document.querySelector('.models-editor-card[data-provider="acme-gateway"]');
+                const input = card.querySelector('.models-model-row > input');
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input, 'acme-one');
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                // The reasoning switch starts from off/low/medium/high.
+                card.querySelector('.models-reasoning input[type=checkbox]').click();
+                [...card.querySelectorAll('button')]
+                    .find(b => b.textContent.trim() === 'Save').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "document.querySelector('.models-status')?.textContent.includes('acme-gateway')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="custom provider saved",
+        )
+        written = models_file.read_text()
+        check(
+            "a custom provider is persisted with its protocol, model and reasoning levels",
+            "acme-gateway:" in written
+            and "ACME_GATEWAY_KEY" in written
+            and "acme-one" in written
+            and "reasoning_efforts" in written
+            and "high" in written,
+            written,
         )
 
         evaluate(

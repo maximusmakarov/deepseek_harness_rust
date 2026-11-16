@@ -2,6 +2,11 @@
 
 ## 0.1.0 — current
 
+- Models settings gained a hand-declared provider flow (Custom model API: id,
+  protocol, endpoint, key variable, at least one model) and per-model reasoning
+  levels (off/on, level -> API value rows, validated and persisted in
+  `models.yaml`). The editor is one card shared by catalog adoption, editing and
+  creation; adapters do not send the effort yet.
 - Models settings is now a real provider section, not a single route pair:
   a five-provider catalog (DeepSeek Account / DeepSeek API / OpenAI /
   OpenAI-compatible / RouterAI), per-provider profiles in `<home>/models.yaml`
