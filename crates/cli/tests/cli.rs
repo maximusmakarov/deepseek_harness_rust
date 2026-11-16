@@ -1823,3 +1823,48 @@ fn runtime_install_rejects_a_wrong_sha256() {
         "a rejected archive installs nothing"
     );
 }
+
+/// Every directory under `root` (missing roots yield nothing).
+fn walk_dirs(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                out.push(entry.path());
+                stack.push(entry.path());
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn plugin_npm_add_resolves_without_the_npm_binary() {
+    let home = tempfile::tempdir().expect("home");
+    // The registry is unreachable and the npm binary does not exist: reaching
+    // the registry error proves the built-in resolver handles the spec.
+    dshr()
+        .args([
+            "--home",
+            home.path().to_str().expect("utf8"),
+            "plugin",
+            "npm",
+            "add",
+            "lodash",
+        ])
+        .env("DSHR_NPM_REGISTRY", "http://127.0.0.1:1")
+        .env("DSHR_NPM", "/nonexistent/npm")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("npm: cannot reach"));
+    let packages = home.path().join("cordis/packages");
+    let installed: Vec<_> = walk_dirs(&packages);
+    assert!(
+        installed.iter().all(|path| !path.ends_with("node_modules")),
+        "a failed resolve installs no tree: {installed:?}"
+    );
+}

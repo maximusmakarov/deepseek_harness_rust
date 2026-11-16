@@ -1256,6 +1256,7 @@ dependencies = [
  "dshr-llm-openai",
  "dshr-lsp",
  "dshr-mcp",
+ "dshr-npm",
  "dshr-office",
  "dshr-prompt",
  "dshr-sandbox",
@@ -1478,6 +1479,24 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "dshr-npm"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "dshr-core",
+ "flate2",
+ "reqwest 0.12.28",
+ "ring",
+ "semver",
+ "serde",
+ "serde_json",
+ "tar",
+ "tempfile",
+ "tokio",
  "tracing",
 ]
 

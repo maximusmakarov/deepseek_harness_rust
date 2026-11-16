@@ -10,6 +10,12 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- npm resolver: `dshr-npm` resolves registry specs (ranges, dist-tags, npm
+  spacing/hyphen/`||` syntax), walks transitive dependencies with hoisting and
+  nested conflicts, verifies tarballs against `dist.integrity`, stores them once
+  in `<home>/npm/cas`, hard-links the tree and writes `dshr-npm-lock.json`; no
+  lifecycle scripts run. `dshr plugin npm add|update` use it instead of the npm
+  binary (file:/git specs still fall back to npm).
 - Runtime packs: `dshr runtime install|list|use|remove` installs a pinned engine
   (Node) for Cordis sidecars from a local `.tar.gz` or an https URL. sha256 is
   mandatory, an optional Ed25519 signature is verified over the archive before

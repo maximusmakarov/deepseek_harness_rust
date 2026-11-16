@@ -132,6 +132,42 @@ node, `DSHR_CORDIS_ROOT` — корень (ставится автоматиче
 задан, sidecar берёт `node` из установленного runtime pack (см. ниже), иначе из
 PATH. Кэша грантов нет: каждый запуск sidecar получает гранты заново из конфига.
 
+## npm-резолвер и content-addressed store
+
+`dshr plugin npm add <spec>` не вызывает `npm`: пакет ставит собственный резолвер
+из крейта `dshr-npm`.
+
+- **Реестр**: packument-запросы к `DSHR_NPM_REGISTRY` (по умолчанию
+  `https://registry.npmjs.org`) с `Accept: application/vnd.npm.install-v1+json`,
+  кэш в `<home>/npm/registry`; при недоступной сети используется кэш.
+- **Спеки**: `name`, `name@range`, `@scope/name@range`, dist-теги (`latest`,
+  `beta`); поддержаны npm-формы записи диапазонов — пробелы (`>= 2.1.2 < 3.0.0`),
+  дефисные диапазоны (`1.2.3 - 2.0.0`) и объединения (`^1 || ^3`).
+- **Граф**: транзитивные `dependencies`; совместимая версия переиспользуется
+  (hoisting в `node_modules`), конфликтующая вкладывается в
+  `node_modules/<dependent>/node_modules`; `optionalDependencies` — best-effort
+  при `include_optional`, `devDependencies` игнорируются.
+- **Store**: тарболы проверяются по `dist.integrity` (SRI sha512, fallback
+  sha1) и распаковываются один раз в `<home>/npm/cas/<digest>/`; tar-архив
+  кэшируется в `<home>/npm/cache/tarballs`. Распаковка отклоняет абсолютные
+  пути, `..`, ссылки за пределы пакета и спецфайлы, потолок — 512 МиБ.
+- **Материализация**: пакеты не симлинкуются, а раскладываются жёсткими
+  ссылками (fallback — копия). Node разрешает симлинк в реальный путь, поэтому
+  симлинк в store ломал импорты зависимостей изнутри пакета — та же проблема,
+  которую pnpm решает отдельными `node_modules` в store.
+- **Lock**: `<install dir>/dshr-npm-lock.json` (`lockfileVersion`, `roots`,
+  точные версии, integrity, пути); `dshr plugin npm update` пере-резолвит
+  зависимости из `package.json` и переписывает lock.
+- **Никаких lifecycle-скриптов**: `preinstall`/`postinstall`/`install` пакетов
+  не выполняются.
+
+Ограничения: `peerDependencies` не устанавливаются (npm ≥ 7 ставит их сам), а
+спеки `workspace:^`/`link:…`/`file:` отклоняются с явной ошибкой — такие
+зависимости бывают у неаккуратно опубликованных пакетов. Плагины, которые
+импортируют host-пакеты DSH (`@deepseek-ai/dsh-tools` и подобные), по-прежнему
+не загрузятся: это граница шима `@dshr/cordis-compat@1`, а не резолвера.
+Спеки `file:`/`git+` обслуживает прежний путь через бинарь npm (`DSHR_NPM`).
+
 ## Runtime pack (Node для sidecar)
 
 Чтобы sidecar не зависел от системного Node, dshr ставит «runtime pack» —

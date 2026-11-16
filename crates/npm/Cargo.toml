@@ -1,0 +1,28 @@
+[package]
+name = "dshr-npm"
+description = "Minimal npm registry client, resolver and content-addressed store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+dshr-core.workspace = true
+flate2.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+semver.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tar.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+flate2.workspace = true
+ring.workspace = true
+serde_json.workspace = true
+tar.workspace = true
+tempfile.workspace = true
+tokio.workspace = true

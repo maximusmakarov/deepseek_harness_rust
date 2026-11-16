@@ -21,6 +21,7 @@ dshr-browser.workspace = true
 dshr-config.workspace = true
 dshr-core.workspace = true
 dshr-cordis.workspace = true
+dshr-npm.workspace = true
 dshr-jobs.workspace = true
 dshr-lsp.workspace = true
 dshr-llm.workspace = true

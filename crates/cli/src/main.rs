@@ -142,7 +142,7 @@ async fn run(cli: Cli) -> Result<u8> {
         Command::Sessions(args) => sessions::execute(&loader, &args),
         Command::Tui(args) => tui_cmd::execute(&loader, &args).await,
         Command::Prompt(args) => prompt_cmd::execute(&loader, &args).await,
-        Command::Plugin(args) => plugin_cmd::execute(&loader, &args),
+        Command::Plugin(args) => plugin_cmd::execute(&loader, &args).await,
         Command::Release(args) => release_cmd::execute(&args),
         Command::Serve(args) => serve_cmd::execute(&loader, &args).await,
         Command::Schedule(args) => schedule_cmd::execute(&loader, &args).await,

@@ -27,6 +27,7 @@ members = [
     "crates/perf",
     "crates/wasm",
     "crates/cordis",
+    "crates/npm",
     "crates/sign",
     "crates/sdk",
     "crates/acp",
@@ -69,6 +70,7 @@ dshr-search = { path = "crates/search" }
 dshr-wasm = { path = "crates/wasm" }
 dshr-cordis = { path = "crates/cordis" }
 dshr-sign = { path = "crates/sign" }
+dshr-npm = { path = "crates/npm" }
 dshr-acp = { path = "crates/acp" }
 dshr-i18n = { path = "crates/i18n" }
 dshr-compaction = { path = "crates/compaction" }

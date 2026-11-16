@@ -5,6 +5,7 @@ use clap::{Args, Subcommand};
 use dshr_config::ConfigLoader;
 use dshr_core::{DshrError, Result};
 use dshr_i18n::current;
+use dshr_npm::{InstallOptions, Installer, PackageSpec};
 use serde_json::{Value, json};
 
 #[derive(Debug, Args)]
@@ -119,7 +120,7 @@ pub enum NpmAction {
     },
 }
 
-pub fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
+pub async fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
     match &args.action {
         PluginAction::List { json } => list(loader, *json),
         PluginAction::Add {
@@ -133,15 +134,15 @@ pub fn execute(loader: &ConfigLoader, args: &PluginArgs) -> Result<u8> {
         PluginAction::Keygen { out } => keygen(out),
         PluginAction::Sign { manifest, key } => sign(manifest, key),
         PluginAction::Verify { manifest, key } => verify(manifest, key.as_deref()),
-        PluginAction::Npm { action } => npm(loader, action),
+        PluginAction::Npm { action } => npm(loader, action).await,
     }
 }
 
-fn npm(loader: &ConfigLoader, action: &NpmAction) -> Result<u8> {
+async fn npm(loader: &ConfigLoader, action: &NpmAction) -> Result<u8> {
     match action {
-        NpmAction::Add { spec, name } => npm_add(loader, spec, name.as_deref()),
+        NpmAction::Add { spec, name } => npm_add(loader, spec, name.as_deref()).await,
         NpmAction::Remove { name } => npm_remove(loader, name),
-        NpmAction::Update { name } => npm_update(loader, name.as_deref()),
+        NpmAction::Update { name } => npm_update(loader, name.as_deref()).await,
         NpmAction::Enable { name } => npm_set_enabled(loader, name, true),
         NpmAction::Disable { name } => npm_set_enabled(loader, name, false),
         NpmAction::List { json } => npm_list(loader, *json),
@@ -303,7 +304,56 @@ fn plugin_config_path(loader: &ConfigLoader) -> PathBuf {
     }
 }
 
-fn npm_add(loader: &ConfigLoader, spec: &str, requested_name: Option<&str>) -> Result<u8> {
+async fn npm_add(loader: &ConfigLoader, spec: &str, requested_name: Option<&str>) -> Result<u8> {
+    let Ok(parsed) = PackageSpec::parse(spec) else {
+        // `file:`/`git+` specs stay with npm; the resolver only speaks the registry.
+        return npm_add_legacy(loader, spec, requested_name);
+    };
+    let package = parsed.name.clone();
+    let name = requested_name.unwrap_or(&package).to_owned();
+    let dir = install_dir(loader, &name);
+    std::fs::create_dir_all(&dir)?;
+    let installer = Installer::for_home(loader.home());
+    let report = installer
+        .install(
+            &dir,
+            std::slice::from_ref(&parsed),
+            &InstallOptions::default(),
+        )
+        .await?;
+    let entry = dir.join("node_modules").join(&package);
+    if !entry.is_dir() {
+        return Err(DshrError::invalid_input(format!(
+            "npm installed no package directory at {}",
+            entry.display()
+        )));
+    }
+    let requirement = parsed
+        .requirement
+        .clone()
+        .unwrap_or_else(|| "latest".to_owned());
+    write_package_json(&dir, &name, &[(&package, &requirement)])?;
+    let version = report.version_of(&package).unwrap_or("?").to_owned();
+    let mut root = load_raw(loader)?;
+    let plugins = cordis_mut(&mut root)?;
+    plugins.retain(|plugin| plugin["name"].as_str() != Some(&name));
+    plugins.push(json!({
+        "name": name,
+        "entry": entry.display().to_string(),
+        "enabled": true
+    }));
+    save_raw(loader, &root)?;
+    println!("{}", current().plugin_added(&name));
+    println!(
+        "resolved {package}@{version} into {} ({} packages)",
+        entry.display(),
+        report.packages.len()
+    );
+    Ok(0)
+}
+
+/// npm fallback for specs the registry resolver does not handle.
+fn npm_add_legacy(loader: &ConfigLoader, spec: &str, requested_name: Option<&str>) -> Result<u8> {
     let package = package_name(spec)
         .or_else(|| requested_name.map(ToOwned::to_owned))
         .ok_or_else(|| {
@@ -384,13 +434,14 @@ fn set_cordis_enabled(root: &mut Value, name: &str, enabled: bool) -> Result<boo
     Ok(found)
 }
 
-fn npm_update(loader: &ConfigLoader, name: Option<&str>) -> Result<u8> {
+async fn npm_update(loader: &ConfigLoader, name: Option<&str>) -> Result<u8> {
     let config = loader.load()?.config;
     let plugins: Vec<_> = config
         .plugins
         .cordis
         .iter()
         .filter(|plugin| name.is_none_or(|name| plugin.name == name))
+        .cloned()
         .collect();
     if plugins.is_empty() {
         return Err(DshrError::not_found(format!(
@@ -398,17 +449,73 @@ fn npm_update(loader: &ConfigLoader, name: Option<&str>) -> Result<u8> {
             name.unwrap_or("*")
         )));
     }
-    let npm = npm_binary();
+    let installer = Installer::for_home(loader.home());
     for plugin in plugins {
         let dir = install_dir(loader, &plugin.name);
-        run_npm(
-            &npm,
-            &["update", "--prefix", &dir.display().to_string()],
-            &dir,
-        )?;
+        let specs = read_dependencies(&dir)?;
+        if specs.is_empty() {
+            // Installs created by the npm binary keep their own package.json
+            // shape; let npm update them.
+            let npm = npm_binary();
+            run_npm(
+                &npm,
+                &["update", "--prefix", &dir.display().to_string()],
+                &dir,
+            )?;
+        } else {
+            let report = installer
+                .install(&dir, &specs, &InstallOptions::default())
+                .await?;
+            println!(
+                "{} ({} packages, {})",
+                current().plugin_updated(&plugin.name),
+                report.packages.len(),
+                report.lock_path.display()
+            );
+            continue;
+        }
         println!("{}", current().plugin_updated(&plugin.name));
     }
     Ok(0)
+}
+
+/// Reads `dependencies` from an installed plugin's package.json.
+fn read_dependencies(dir: &Path) -> Result<Vec<PackageSpec>> {
+    let path = dir.join("package.json");
+    let Ok(body) = std::fs::read_to_string(&path) else {
+        return Ok(Vec::new());
+    };
+    let value: Value = serde_json::from_str(&body).map_err(|error| {
+        DshrError::config(format!(
+            "npm: {} is not valid JSON: {error}",
+            path.display()
+        ))
+    })?;
+    let mut specs = Vec::new();
+    if let Some(dependencies) = value.get("dependencies").and_then(Value::as_object) {
+        for (name, requirement) in dependencies {
+            if let Some(requirement) = requirement.as_str() {
+                specs.push(PackageSpec::new(name.clone(), Some(requirement.to_owned())));
+            }
+        }
+    }
+    Ok(specs)
+}
+
+fn write_package_json(dir: &Path, name: &str, dependencies: &[(&str, &str)]) -> Result<()> {
+    let mut map = serde_json::Map::new();
+    for (package, requirement) in dependencies {
+        map.insert((*package).to_owned(), json!(requirement));
+    }
+    let document = json!({
+        "name": name,
+        "private": true,
+        "dependencies": map,
+    });
+    let encoded = serde_json::to_vec_pretty(&document)
+        .map_err(|error| DshrError::config(format!("npm: package.json: {error}")))?;
+    std::fs::write(dir.join("package.json"), encoded)?;
+    Ok(())
 }
 
 fn npm_list(loader: &ConfigLoader, json: bool) -> Result<u8> {
