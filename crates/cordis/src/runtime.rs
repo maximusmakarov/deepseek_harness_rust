@@ -23,6 +23,53 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dshr_core::{DshrError, Result};
 use serde::{Deserialize, Serialize};
 
+/// Node.js release the sidecar provisions when no `DSHR_NODE` and no installed
+/// pack exist. Matches the official desktop's bundled major (24.x), whose
+/// `zstdDecompressSync` the session-superagent plugin needs.
+pub const NODE_PIN_VERSION: &str = "24.21.0";
+
+/// One downloadable Node distribution: URL, pinned sha256 and executable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodePackSpec {
+    pub version: String,
+    pub url: String,
+    pub sha256: String,
+    pub bin: String,
+}
+
+/// Pinned Node distribution for a platform, or `None` when unsupported (Windows
+/// ships zip archives, so it keeps using a system `node`).
+#[must_use]
+pub fn node_pack_spec(os: &str, arch: &str) -> Option<NodePackSpec> {
+    let (platform, sha256) = match (os, arch) {
+        ("macos", "aarch64") => (
+            "darwin-arm64",
+            "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
+        ),
+        ("macos", "x86_64") => (
+            "darwin-x64",
+            "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097",
+        ),
+        ("linux", "aarch64") => (
+            "linux-arm64",
+            "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5",
+        ),
+        ("linux", "x86_64") => (
+            "linux-x64",
+            "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
+        ),
+        _ => return None,
+    };
+    Some(NodePackSpec {
+        version: NODE_PIN_VERSION.to_owned(),
+        url: format!(
+            "https://nodejs.org/dist/v{NODE_PIN_VERSION}/node-v{NODE_PIN_VERSION}-{platform}.tar.gz"
+        ),
+        sha256: sha256.to_owned(),
+        bin: DEFAULT_BIN.to_owned(),
+    })
+}
+
 /// Default executable inside a pack, relative to the pack root.
 pub const DEFAULT_BIN: &str = "bin/node";
 
@@ -351,10 +398,80 @@ pub fn node_program(home: &Path) -> String {
     {
         return value;
     }
-    match current_program(home, NODE_ENGINE) {
+    match ensure_node(home) {
         Some(program) => program.display().to_string(),
         None => NODE_ENGINE.to_owned(),
     }
+}
+
+/// Resolves the Node executable for the Cordis sidecar: `DSHR_NODE`, then an
+/// installed runtime pack, then a pinned pack downloaded once (the official
+/// desktop bundles Node, so plugins must not depend on the user's toolchain).
+/// Set `DSHR_RUNTIME_AUTO=0` to keep the old PATH-only behaviour; a failed
+/// download falls back to `node` from PATH with a warning.
+#[must_use]
+pub fn ensure_node(home: &Path) -> Option<PathBuf> {
+    if let Some(program) = current_program(home, NODE_ENGINE) {
+        return Some(program);
+    }
+    let auto = std::env::var("DSHR_RUNTIME_AUTO")
+        .map(|value| !(value == "0" || value.eq_ignore_ascii_case("false")))
+        .unwrap_or(true);
+    if !auto {
+        return None;
+    }
+    let spec = node_pack_spec(std::env::consts::OS, std::env::consts::ARCH)?;
+    match download_pack(home, &spec) {
+        Ok(installed) => {
+            eprintln!(
+                "dshr: installed node {} runtime pack at {}",
+                spec.version,
+                installed.dir.display()
+            );
+            current_program(home, NODE_ENGINE)
+        }
+        Err(error) => {
+            eprintln!("dshr: node runtime pack unavailable ({error}); using node from PATH");
+            None
+        }
+    }
+}
+
+/// Downloads a pack to a temporary file, verifies its pinned sha256 by
+/// installing it, and removes the download in every outcome.
+fn download_pack(home: &Path, spec: &NodePackSpec) -> Result<Installed> {
+    let dir = home.join("runtimes");
+    fs::create_dir_all(&dir)?;
+    let archive = dir.join(format!(
+        ".node-download-{}-{}.tar.gz",
+        std::process::id(),
+        nanos()
+    ));
+    let download = std::process::Command::new("curl")
+        .args(["-fsSL", "--max-time", "600", "-o"])
+        .arg(&archive)
+        .arg(&spec.url)
+        .output();
+    let outcome = match download {
+        Ok(output) if output.status.success() => {
+            let request = InstallRequest::new(
+                NODE_ENGINE,
+                spec.version.clone(),
+                &archive,
+                spec.sha256.clone(),
+            );
+            install(home, request)
+        }
+        Ok(output) => Err(DshrError::invalid_input(format!(
+            "node pack download failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))),
+        Err(error) => Err(DshrError::invalid_input(format!(
+            "node pack download failed: {error}"
+        ))),
+    };
+    let _ = fs::remove_file(&archive);
+    outcome
 }
 
 fn current_version(home: &Path, engine: &str) -> Result<Option<String>> {
@@ -807,6 +924,79 @@ mod tests {
         );
         assert!(current(home.path(), "node").expect("current").is_some());
         assert_eq!(list(home.path()).expect("list").len(), 1);
+    }
+
+    #[test]
+    fn pinned_node_covers_desktop_platforms() {
+        for (os, arch) in [
+            ("macos", "aarch64"),
+            ("macos", "x86_64"),
+            ("linux", "aarch64"),
+            ("linux", "x86_64"),
+        ] {
+            let spec = node_pack_spec(os, arch).expect("supported");
+            assert_eq!(spec.version, NODE_PIN_VERSION);
+            assert_eq!(spec.sha256.len(), 64);
+            assert!(spec.url.ends_with(".tar.gz"));
+            assert_eq!(spec.bin, DEFAULT_BIN);
+        }
+        assert!(node_pack_spec("windows", "x86_64").is_none());
+        assert!(node_pack_spec("freebsd", "x86_64").is_none());
+    }
+
+    #[test]
+    fn download_pack_installs_a_verified_archive_from_a_local_url() {
+        let home = TempDir::new().expect("home");
+        let work = TempDir::new().expect("work");
+        let archive = pack_archive(work.path(), "node-v24.21.0");
+        let sha = sha256_of(&archive);
+        let spec = NodePackSpec {
+            version: "24.21.0".to_owned(),
+            url: format!("file://{}", archive.display()),
+            sha256: sha,
+            bin: DEFAULT_BIN.to_owned(),
+        };
+        let installed = download_pack(home.path(), &spec).expect("installed");
+        assert!(installed.program().is_file());
+        assert_eq!(
+            current_version(home.path(), NODE_ENGINE)
+                .expect("version")
+                .as_deref(),
+            Some("24.21.0")
+        );
+        assert!(
+            !home
+                .path()
+                .join("runtimes")
+                .read_dir()
+                .expect("dir")
+                .any(|entry| entry
+                    .map(|entry| entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".node-download-"))
+                    .unwrap_or(false)),
+            "temporary download must be removed"
+        );
+    }
+
+    #[test]
+    fn download_pack_rejects_a_tampered_archive() {
+        let home = TempDir::new().expect("home");
+        let work = TempDir::new().expect("work");
+        let archive = pack_archive(work.path(), "node-v24.21.0");
+        let spec = NodePackSpec {
+            version: "24.21.0".to_owned(),
+            url: format!("file://{}", archive.display()),
+            sha256: "0".repeat(64),
+            bin: DEFAULT_BIN.to_owned(),
+        };
+        assert!(download_pack(home.path(), &spec).is_err());
+        assert!(
+            current_version(home.path(), NODE_ENGINE)
+                .expect("version")
+                .is_none()
+        );
     }
 
     #[test]

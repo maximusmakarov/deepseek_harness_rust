@@ -249,6 +249,18 @@ rw_connect…»). Граница на 119: `dsh-mnemon@0.5.46` ставится 
 падает на отсутствующем сервисе `subagents` и на своём обращении к
 `configForms.get(...).writable` — это следующие инкременты шима, а не резолвера.
 
+## Node-runtime pack
+
+Cordis-sidecar больше не требует системного `node`: если `DSHR_NODE` не задан и
+пак не установлен, `ensure_node` один раз скачивает запиненный Node **24.21.0**
+(macOS/Linux, arm64/x64) с `nodejs.org` и проверяет sha256 из `runtime.rs`
+(`bed7eea…`, `1462cb3…`, `724282c…`, `6e1db87…`), затем распаковывает его в
+`<home>/runtimes/node/24.21.0` и делает активным. Признак в логе:
+`dshr: installed node 24.21.0 runtime pack at …`. Windows (zip-дистрибутив)
+продолжает использовать системный `node`. Отключить авто-скачивание:
+`DSHR_RUNTIME_AUTO=0`; при сетевой ошибке sidecar откатывается на `node` из PATH
+с предупреждением.
+
 ## Матрица сервисов
 
 Что sidecar отдаёт плагинам через `ctx.get('<name>')` / `ctx.<name>`. «Честная

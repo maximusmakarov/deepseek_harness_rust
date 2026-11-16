@@ -15,7 +15,18 @@ use dshr_tools::{ToolCtx, ToolRegistry};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+/// Tests must not download the pinned Node pack: they exercise the sidecar with
+/// the system `node` and stay hermetic.
+fn disable_runtime_download() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        // SAFETY: called before any test thread reads the variable.
+        unsafe { std::env::set_var("DSHR_RUNTIME_AUTO", "0") };
+    });
+}
+
 fn node_available() -> bool {
+    disable_runtime_download();
     std::process::Command::new("node")
         .arg("--version")
         .output()

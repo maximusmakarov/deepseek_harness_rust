@@ -56,6 +56,7 @@ reference-клон community-плагина `dsh-desktop@233b76c`, устано�
 | Область | dshr | Статус |
 |---|---|---|
 | LLM-провайдеры, tool-loop, сессии, resume/fork/rewind, compaction | DeepSeek + OpenAI-совместимые | ✅ |
+| Node-runtime для Cordis-sidecar | авто-провижининг запиненного Node 24.21.0 (macOS/Linux), sha256, `DSHR_RUNTIME_AUTO=0`, fallback на PATH; Windows — системный node | ✅ |
 | Инструменты fs/shell/search/todo/present/web | есть | ✅ |
 | `apply_patch` (DSH-формат) | есть, multi-file add/update/delete/move | ✅ |
 | LLM-заголовки сессий | `run`, HTTP server и TUI генерируют заголовок провайдером (DSH-промпт), fallback — первая строка | ✅ |
