@@ -342,6 +342,9 @@ struct UiState {
     anchors: RwSignal<BTreeMap<String, Vec<SlotAnchor>>>,
     /// Chain election state, keyed by `<slot>|<occurrence>`.
     chains: RwSignal<BTreeMap<String, ChainInstance>>,
+    /// Frame token -> error message for renderers whose frame crashed. A failed
+    /// keyed-cell winner yields to the shell's built-in renderer (C5.2).
+    renderer_errors: RwSignal<BTreeMap<String, String>>,
     /// Nested child frames: frame token -> (parent frame token, anchor id), so a
     /// child's measured height can be reserved in the parent's layout.
     nested: RwSignal<BTreeMap<String, (String, String)>>,
@@ -1982,32 +1985,51 @@ fn is_core_chat_kind(kind: &str) -> bool {
     matches!(kind, "user" | "assistant-step")
 }
 
-/// Whether a plugin shadows the built-in renderer of a keyed cell.
+/// Which renderer owns one `conversation.chat.node` cell.
+#[derive(Clone, Debug, PartialEq)]
+enum ChatNodeRenderer {
+    /// The shell's built-in view (no registration, a non-shadowing one, or a
+    /// crashed winner).
+    Builtin,
+    /// A plugin frame, identified by the token the shell mounts for it.
+    Plugin { token: String },
+}
+
+/// Resolves one chat-node cell: built-in view or the winning plugin frame.
 ///
-/// Only a strictly lower priority shadows: registering the same key at the
-/// default priority documents intent without taking the built-in view away.
-fn core_renderer_shadowed(slots: &[ClientSlot], name: &str, key: &str) -> bool {
-    slots.iter().any(|slot| {
-        slot.name == name
-            && slot.kind == "keyed"
-            && slot.key == key
-            && slot.priority < CORE_RENDERER_PRIORITY
-    })
-}
-
-/// Whether any registration targets the keyed cell (plugin-specific kinds).
-fn keyed_registration(slots: &[ClientSlot], name: &str, key: &str) -> bool {
-    slots
+/// `errors` holds frame tokens that reported a crash; a crashed winner yields
+/// to the built-in view, so a broken renderer never leaves an empty message.
+fn chat_node_renderer(
+    slots: &[ClientSlot],
+    kind: &str,
+    occurrence: &str,
+    errors: &BTreeMap<String, String>,
+) -> ChatNodeRenderer {
+    let core = is_core_chat_kind(kind);
+    let mut candidates: Vec<&ClientSlot> = slots
         .iter()
-        .any(|slot| slot.name == name && slot.kind == "keyed" && slot.key == key)
-}
-
-/// Resolves one chat-node cell: `true` when a plugin renders it.
-fn chat_node_replaced_by_plugin(slots: &[ClientSlot], kind: &str) -> bool {
-    if is_core_chat_kind(kind) {
-        core_renderer_shadowed(slots, "conversation.chat.node", kind)
-    } else {
-        keyed_registration(slots, "conversation.chat.node", kind)
+        .filter(|slot| {
+            slot.name == "conversation.chat.node" && slot.kind == "keyed" && slot.key == kind
+        })
+        .filter(|slot| !core || slot.priority < CORE_RENDERER_PRIORITY)
+        .collect();
+    candidates.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then(left.order.cmp(&right.order))
+            .then(left.plugin.cmp(&right.plugin))
+            .then(left.id.cmp(&right.id))
+    });
+    match candidates.first() {
+        None => ChatNodeRenderer::Builtin,
+        Some(slot) => {
+            let token = slot_token(slot, occurrence);
+            if errors.contains_key(&token) {
+                ChatNodeRenderer::Builtin
+            } else {
+                ChatNodeRenderer::Plugin { token }
+            }
+        }
     }
 }
 
@@ -2057,7 +2079,40 @@ fn ChatNodeRow(index: usize) -> impl IntoView {
     // (the reference `dsh-genui` uses `priority: -1`) shadows them; a
     // registration at the default priority keeps the built-in view.
     let kind_renderer = kind.clone();
-    let replaced = move || chat_node_replaced_by_plugin(&ui.slots.get(), &kind_renderer);
+    let occurrence_renderer = occurrence.clone();
+    let renderer = move || {
+        chat_node_renderer(
+            &ui.slots.get(),
+            &kind_renderer,
+            &occurrence_renderer,
+            &ui.renderer_errors.get(),
+        )
+    };
+    let replaced = move || matches!(renderer(), ChatNodeRenderer::Plugin { .. });
+    let kind_state = kind.clone();
+    let occurrence_state = occurrence.clone();
+    let state_attr = move || match chat_node_renderer(
+        &ui.slots.get(),
+        &kind_state,
+        &occurrence_state,
+        &ui.renderer_errors.get(),
+    ) {
+        ChatNodeRenderer::Builtin => "builtin".to_owned(),
+        ChatNodeRenderer::Plugin { .. } => "plugin".to_owned(),
+    };
+    let kind_token = kind.clone();
+    let occurrence_token = occurrence.clone();
+    let token_attr = move || {
+        match chat_node_renderer(
+            &ui.slots.get(),
+            &kind_token,
+            &occurrence_token,
+            &ui.renderer_errors.get(),
+        ) {
+            ChatNodeRenderer::Builtin => String::new(),
+            ChatNodeRenderer::Plugin { token } => token,
+        }
+    };
     let entry_key = kind.clone();
     let owner_slot = owner.clone();
     let context_slot = context.clone();
@@ -2070,6 +2125,8 @@ fn ChatNodeRow(index: usize) -> impl IntoView {
             data-chat-flow-key=node_key
             data-chat-flow-kind=node_kind
             data-turn=turn.to_string()
+            data-renderer-state=state_attr
+            data-renderer-token=token_attr
         >
             {move || {
                 if replaced() {
@@ -2230,6 +2287,7 @@ fn App() -> impl IntoView {
     // SlotFrame/ChainHost components and the window message handler share them.
     let anchors = RwSignal::new(BTreeMap::<String, Vec<SlotAnchor>>::new());
     let chains = RwSignal::new(BTreeMap::<String, ChainInstance>::new());
+    let renderer_errors = RwSignal::new(BTreeMap::<String, String>::new());
     let nested = RwSignal::new(BTreeMap::<String, (String, String)>::new());
     // Owner-callback surfaces: `openFile` opens a file inspector, `inspectCall`
     // opens the tool call that a plugin asked about.
@@ -2415,6 +2473,7 @@ fn App() -> impl IntoView {
         versions: frame_versions,
         anchors,
         chains,
+        renderer_errors,
         nested,
         nodes,
     });
@@ -2753,6 +2812,11 @@ fn App() -> impl IntoView {
                     } else {
                         message
                     };
+                    // A crashed renderer must not leave an empty keyed cell: the
+                    // resolver below falls back to the built-in view (C5.2).
+                    renderer_errors.update(|map| {
+                        map.insert(frame.clone(), message.clone());
+                    });
                     // A panel-stage error belongs to the stage head; errors from
                     // a sidebar/settings/message frame surface in the status bar.
                     if frame.starts_with("slot:panel:") {
@@ -3540,6 +3604,7 @@ fn App() -> impl IntoView {
 #[cfg(test)]
 mod renderer_tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     fn node_entry(kind: &str, key: &str, priority: i64) -> ClientSlot {
         ClientSlot {
@@ -3556,45 +3621,125 @@ mod renderer_tests {
         }
     }
 
+    fn errors(tokens: &[&str]) -> BTreeMap<String, String> {
+        tokens
+            .iter()
+            .map(|token| ((*token).to_owned(), "boom".to_owned()))
+            .collect()
+    }
+
+    fn is_plugin(renderer: &ChatNodeRenderer) -> bool {
+        matches!(renderer, ChatNodeRenderer::Plugin { .. })
+    }
+
     #[test]
     fn core_kinds_keep_the_builtin_renderer_without_a_registration() {
         let slots: Vec<ClientSlot> = Vec::new();
-        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
-        assert!(!chat_node_replaced_by_plugin(&slots, "user"));
+        assert_eq!(
+            chat_node_renderer(&slots, "assistant-step", "1:0", &BTreeMap::new()),
+            ChatNodeRenderer::Builtin
+        );
+        assert_eq!(
+            chat_node_renderer(&slots, "user", "1:0", &BTreeMap::new()),
+            ChatNodeRenderer::Builtin
+        );
     }
 
     #[test]
     fn a_default_priority_registration_does_not_take_the_builtin() {
         let slots = vec![node_entry("keyed", "assistant-step", 0)];
-        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        assert!(!is_plugin(&chat_node_renderer(
+            &slots,
+            "assistant-step",
+            "1:0",
+            &BTreeMap::new()
+        )));
     }
 
     #[test]
     fn a_negative_priority_shadows_a_core_kind() {
         let slots = vec![node_entry("keyed", "assistant-step", -1)];
-        assert!(chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        let renderer = chat_node_renderer(&slots, "assistant-step", "1:0", &BTreeMap::new());
+        assert!(is_plugin(&renderer));
+        if let ChatNodeRenderer::Plugin { token } = renderer {
+            assert!(token.starts_with("slot:chat.node:"), "{token}");
+        }
         let user = vec![node_entry("keyed", "user", -2)];
-        assert!(chat_node_replaced_by_plugin(&user, "user"));
+        assert!(is_plugin(&chat_node_renderer(
+            &user,
+            "user",
+            "1:0",
+            &BTreeMap::new()
+        )));
     }
 
     #[test]
     fn a_shadowed_other_key_does_not_replace_this_node() {
         let slots = vec![node_entry("keyed", "reasoning", -1)];
-        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        assert!(!is_plugin(&chat_node_renderer(
+            &slots,
+            "assistant-step",
+            "1:0",
+            &BTreeMap::new()
+        )));
     }
 
     #[test]
     fn plugin_specific_kinds_render_their_keyed_registration() {
         let slots = vec![node_entry("keyed", "custom-card", 0)];
-        assert!(chat_node_replaced_by_plugin(&slots, "custom-card"));
-        assert!(!chat_node_replaced_by_plugin(&slots, "another-card"));
+        assert!(is_plugin(&chat_node_renderer(
+            &slots,
+            "custom-card",
+            "1:0",
+            &BTreeMap::new()
+        )));
+        assert!(!is_plugin(&chat_node_renderer(
+            &slots,
+            "another-card",
+            "1:0",
+            &BTreeMap::new()
+        )));
     }
 
     #[test]
     fn non_keyed_registrations_never_replace_a_node() {
         let slots = vec![node_entry("single", "assistant-step", -1)];
-        assert!(!chat_node_replaced_by_plugin(&slots, "assistant-step"));
+        assert!(!is_plugin(&chat_node_renderer(
+            &slots,
+            "assistant-step",
+            "1:0",
+            &BTreeMap::new()
+        )));
         let list = vec![node_entry("list", "custom-card", -1)];
-        assert!(!chat_node_replaced_by_plugin(&list, "custom-card"));
+        assert!(!is_plugin(&chat_node_renderer(
+            &list,
+            "custom-card",
+            "1:0",
+            &BTreeMap::new()
+        )));
+    }
+
+    #[test]
+    fn a_crashed_winner_falls_back_to_the_builtin_view() {
+        let slots = vec![node_entry("keyed", "assistant-step", -1)];
+        let winner = chat_node_renderer(&slots, "assistant-step", "1:0", &BTreeMap::new());
+        let ChatNodeRenderer::Plugin { token } = winner else {
+            panic!("expected a plugin renderer");
+        };
+        assert_eq!(
+            chat_node_renderer(&slots, "assistant-step", "1:0", &errors(&[token.as_str()])),
+            ChatNodeRenderer::Builtin
+        );
+    }
+
+    #[test]
+    fn an_unrelated_crash_does_not_remove_the_winner() {
+        let slots = vec![node_entry("keyed", "assistant-step", -1)];
+        assert!(is_plugin(&chat_node_renderer(
+            &slots,
+            "assistant-step",
+            "1:0",
+            &errors(&["slot:chat.node:other:1"])
+        )));
     }
 }

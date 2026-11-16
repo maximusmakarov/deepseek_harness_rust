@@ -146,12 +146,13 @@ shim'ы.
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
 - `cargo test --workspace`: 366 passed + 3 ignored (root-крейты не менялись);
-  desktop 38 passed (35 unit + 3 integration); web-крейт 6 unit — итого 410.
+  desktop 38 passed (35 unit + 3 integration); web-крейт 8 unit — итого 412.
   К прежним 21 desktop-тестам добавлены single-instance lock, форвард папки и
   передача между поколениями, парсер login-shell env, таймаут, CLI-шим и ссылка
   в `~/.local/bin`, а также `tests/single_instance.rs` — второй запуск бинаря под
   чужим lock (с папкой и без) и отказ до старта Tauri. Web-тесты покрывают
-  затенение встроенного рендера ядра (C5.1).
+  затенение встроенного рендера ядра (C5.1) и fallback упавшего рендерера
+  (C5.2).
 - `scripts/check-reproducible.sh`: два независимых билда дали одинаковый sha256
   (`abdca627…`).
 - `dshr-desktop --check` живьём: `desktop check ok`, в `desktop.log` —
