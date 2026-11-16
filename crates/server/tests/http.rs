@@ -734,3 +734,100 @@ async fn plugin_endpoints_accept_the_internal_bridge_token() {
     let value: Value = serde_json::from_slice(&bytes).expect("json");
     assert!(value["plugins"].is_array(), "{value}");
 }
+
+#[tokio::test]
+async fn config_forms_persist_with_a_revision_fence() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+
+    let (status, initial) = call(
+        &app,
+        "GET",
+        "/v1/config-forms/demo.card",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{initial}");
+    assert_eq!(initial["revision"].as_u64(), Some(0));
+    assert_eq!(initial["value"], json!({}));
+
+    let (status, mutated) = call(
+        &app,
+        "POST",
+        "/v1/config-forms/demo.card",
+        Some("test-token"),
+        Body::from(r#"{"ops":[{"op":"set","path":["temperature"],"value":0.7}]}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{mutated}");
+    assert_eq!(mutated["revision"].as_u64(), Some(1));
+    assert_eq!(mutated["value"]["temperature"], json!(0.7));
+    assert_eq!(mutated["writable"], json!(true));
+
+    // The document is on disk and survives a new request.
+    let (status, reloaded) = call(
+        &app,
+        "GET",
+        "/v1/config-forms/demo.card",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reloaded["revision"].as_u64(), Some(1));
+    assert_eq!(reloaded["value"]["temperature"], json!(0.7));
+
+    // A stale form cannot overwrite a newer one.
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/config-forms/demo.card",
+        Some("test-token"),
+        Body::from(
+            r#"{"ops":[{"op":"set","path":["temperature"],"value":0.1}],"expected_revision":0}"#,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let (status, removed) = call(
+        &app,
+        "POST",
+        "/v1/config-forms/demo.card",
+        Some("test-token"),
+        Body::from(r#"{"ops":[{"op":"unset","path":["temperature"]}],"expected_revision":1}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{removed}");
+    assert_eq!(removed["revision"].as_u64(), Some(2));
+    assert!(removed["value"].get("temperature").is_none());
+}
+
+#[tokio::test]
+async fn config_forms_reject_bad_entries_and_accept_the_internal_token() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state_with_bridge(dir.path(), Some("form-secret")));
+
+    let (status, _) = call(
+        &app,
+        "GET",
+        "/v1/config-forms/bad%20name",
+        Some("test-token"),
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/config-forms/host.card")
+                .header("x-dshr-internal-token", "form-secret")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+}

@@ -145,9 +145,9 @@ shim'ы.
 ## Проверка (16.11.2026)
 
 - `cargo build --release --workspace --locked` и `cargo deny check` — чисто.
-- `cargo test --workspace`: 373 passed + 3 ignored (root; C5.3/C5.4/C5.5
-  добавили server-тесты фида/сессий и cordis-тест сервиса); desktop 38 passed
-  (35 unit + 3 integration); web-крейт 11 unit — итого 422.
+- `cargo test --workspace`: 375 passed + 3 ignored (root; C5.3–C5.6a добавили
+  server-тесты фида/сессий/settings store и cordis-тест сервиса); desktop 38
+  passed (35 unit + 3 integration); web-крейт 11 unit — итого 424.
   К прежним 21 desktop-тестам добавлены single-instance lock, форвард папки и
   передача между поколениями, парсер login-shell env, таймаут, CLI-шим и ссылка
   в `~/.local/bin`, а также `tests/single_instance.rs` — второй запуск бинаря под

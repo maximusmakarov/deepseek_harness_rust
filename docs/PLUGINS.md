@@ -569,6 +569,17 @@ conversation-слоты на узел. Оставшееся reference-расхо
 `select(ownerProps)` и реальные owner shares (`wide`, `message.action`,
 `ComposerChainProps`) реализованы в C4.1; store-seats — в C3.1.
 
+### Settings store и `configForms` (C5.6)
+
+`<home>/cordis/config-forms/<entry>.json` (`{value, revision}`) — общий
+документ host-половин и сервера. С C5.6a сервер отдаёт его как источник
+истины: `GET /v1/config-forms/{entry}` возвращает
+`{status, value, base, user, revision, writable}`, `POST` принимает
+`{ops:[{op:"set"|"unset", path, value}], expected_revision}` и пишет атомарно;
+устаревшая ревизия — `409`. Доступ — bearer или `x-dshr-internal-token`.
+Browser-половины пока держат форму в памяти кадра (правки не переживают
+reload) — переход на этот store через host-relay запланирован как C5.6b.
+
 ### Host-сервис `pluginManager` (C5.5)
 
 Host-половина получает `ctx.get('pluginManager')`: `list()`/`listBundles()` и

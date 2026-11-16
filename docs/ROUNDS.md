@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–111)
+# Журнал раундов паритета (1–112)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 373 root-теста (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **422**, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 375 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **424**, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1168,6 +1168,24 @@ streaming-прокси.
     своими CLI-операциями, а не порт pnpm-менеджера. Осталось: C5.6
     `settings`-движок (схема/слои/миграции вместо in-memory `configForms`) и
     C5.7 закрытие фазы.
+
+- 112: **C5.6a — settings store** (фаза C-full, [ADR-042](adr/042-c-full-phase.md)).
+  Конфигурационные формы получили серверный источник истины вместо
+  процесса-писателя:
+  - `GET /v1/config-forms/{entry}` и `POST` с `ops` (`set`/`unset`, путь
+    строкой через `.` или массивом), numeric `expected_revision`
+    (несовпадение → `409`), атомарная запись через `.json.tmp` + rename,
+    документ `<home>/cordis/config-forms/<entry>.json` в формате host-половин
+    (`{value, revision}`, легаси-объект читается как revision 0);
+  - доступ — `authorize_service` (пользовательский bearer или
+    `x-dshr-internal-token`), имя entry валидируется
+    (`[A-Za-z0-9._:-]{1,128}`, иначе `404`);
+  - проверки: server **23** (+2: round-trip с 409 на устаревшую ревизию,
+    unset, сохранение между запросами; bad entry и internal-token), smoke
+    **88/88**; итог root 375 (+3 ignored).
+  - Осталось: C5.6b — browser-`configForms` через host-relay на этот store
+    (сейчас форма в кадре по-прежнему in-memory, правки не переживают reload),
+    затем C5.7 — закрытие фазы.
 
 ## Что осталось
 

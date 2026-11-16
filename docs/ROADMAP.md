@@ -186,7 +186,8 @@
 | C5.4a | Mounted-model в шелле: публичный `GET /v1/sessions/events`, живой сайдбар без перезагрузки | 1 | ✅ раунд 109: `connect_session_feed` (SSE `session`, merge newest-first, `resync`→снимок), web 11 unit, server 20, smoke 88/88 |
 | C5.4b | Проекции: `sessionStats.llmMs` из латентности шага, история turn'ов | 1.5 | ✅ раунд 110: `latency_ms` в журнале (optional), `llm_ms` + `turns_detail` в записи, sidecar `llmMs`; thread-модели нет — записано в LIMITATIONS/PLUGINS |
 | C5.5 | Host-сервис `pluginManager`: реестр + enable/disable/install/remove через RPC | 1.5 | ✅ раунд 111: сервис в sidecar, internal-token на plugin-эндпоинтах, conformance-фикстура probe, server-тест, smoke 88/88 |
-| C5.6 | Host-сервис `settings`: конфигурационный движок (схема/слои/миграции/revision) вместо in-memory `configForms` | 2.5 | персистентность через reload; conformance settings-UI сохраняет |
+| C5.6a | Settings store: `/v1/config-forms/{entry}` (GET/POST, ops, revision-fence, atomic write, internal-token) | 1.5 | ✅ раунд 112: 2 server-теста (409 stale, unset, bad entry, internal-token), smoke 88/88 |
+| C5.6b | Browser-`configForms` через host-relay (persist через reload кадра) | 1.5 | smoke: Save переживает reload бандла |
 | C5.7 | Закрытие фазы: conformance n≥11, матрица, TLA+ `ClientAssets` при необходимости, отчёт | 1 | все гейты CI; документы обновлены |
 
 **Статус:** открыта 16.11.2026 (ADR-042); C5.1 — раунд 106, C5.2 — 107, C5.3 — 108, C5.4a — 109; следующий срез — C5.4b (проекции: `llmMs`, история turn'ов).

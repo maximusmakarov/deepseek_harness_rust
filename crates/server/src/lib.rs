@@ -390,6 +390,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/plugins/{name}/host", get(plugin_client_host))
         .route("/v1/runtime/{file}", get(shared_runtime))
         .route(
+            "/v1/config-forms/{entry}",
+            get(read_config_form).post(mutate_config_form),
+        )
+        .route(
             "/v1/internal/session-snapshot",
             get(internal_session_snapshot),
         )
@@ -1038,6 +1042,178 @@ async fn remove_plugin(
         return Err(StatusCode::BAD_REQUEST);
     }
     run_plugin_cli(&state, &["plugin", "npm", "remove", &body.name]).await
+}
+
+/// C5.6a: the settings store behind `configForms`.
+///
+/// One JSON document per entry under `<home>/cordis/config-forms/<entry>.json`
+/// (the directory plugin host halves already use), served with a numeric
+/// revision so a stale form cannot overwrite a newer one.
+fn config_form_entry(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "._:-".contains(ch))
+}
+
+fn config_form_path(state: &AppState, entry: &str) -> Option<std::path::PathBuf> {
+    if !config_form_entry(entry) {
+        return None;
+    }
+    Some(
+        state
+            .config
+            .home
+            .join("cordis")
+            .join("config-forms")
+            .join(format!("{entry}.json")),
+    )
+}
+
+fn read_config_form_document(path: &std::path::Path) -> (Value, u64) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (json!({}), 0);
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&text) else {
+        return (json!({}), 0);
+    };
+    // Host halves write `{value, revision}`; a bare object is a legacy form.
+    if value.get("value").is_some() {
+        let revision = value["revision"].as_u64().unwrap_or(0);
+        (value["value"].clone(), revision)
+    } else {
+        (value, 0)
+    }
+}
+
+fn config_form_snapshot(value: &Value, revision: u64) -> Value {
+    json!({
+        "status": "ready",
+        "value": value,
+        "base": {},
+        "user": value,
+        "revision": revision,
+        "writable": true,
+    })
+}
+
+fn write_config_form_document(
+    path: &std::path::Path,
+    value: &Value,
+    revision: u64,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let document = json!({"value": value, "revision": revision});
+    let temporary = path.with_extension("json.tmp");
+    std::fs::write(
+        &temporary,
+        serde_json::to_vec_pretty(&document).unwrap_or_default(),
+    )?;
+    std::fs::rename(temporary, path)
+}
+
+async fn read_config_form(
+    State(state): State<AppState>,
+    Path(entry): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize_service(&state, &headers)?;
+    let path = config_form_path(&state, &entry).ok_or(StatusCode::NOT_FOUND)?;
+    let (value, revision) = read_config_form_document(&path);
+    Ok(Json(config_form_snapshot(&value, revision)))
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfigFormMutate {
+    #[serde(default)]
+    ops: Vec<ConfigFormOp>,
+    #[serde(default)]
+    expected_revision: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConfigFormOp {
+    op: String,
+    path: Value,
+    #[serde(default)]
+    value: Value,
+}
+
+fn config_form_segments(path: &Value) -> Option<Vec<String>> {
+    let segments: Vec<String> = match path {
+        Value::String(path) => path
+            .split('.')
+            .filter(|segment| !segment.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| part.as_str().map(str::to_owned))
+            .collect(),
+        _ => return None,
+    };
+    (!segments.is_empty()).then_some(segments)
+}
+
+fn apply_config_form_ops(value: &mut Value, ops: &[ConfigFormOp]) -> bool {
+    for operation in ops {
+        let Some(segments) = config_form_segments(&operation.path) else {
+            return false;
+        };
+        let mut cursor = &mut *value;
+        for segment in &segments[..segments.len() - 1] {
+            if !cursor.is_object() {
+                *cursor = json!({});
+            }
+            let object = cursor.as_object_mut().expect("object");
+            cursor = object.entry(segment.clone()).or_insert_with(|| json!({}));
+        }
+        let last = segments.last().expect("segment");
+        match operation.op.as_str() {
+            "set" => {
+                if !cursor.is_object() {
+                    *cursor = json!({});
+                }
+                cursor
+                    .as_object_mut()
+                    .expect("object")
+                    .insert(last.clone(), operation.value.clone());
+            }
+            "unset" => {
+                if let Some(object) = cursor.as_object_mut() {
+                    object.remove(last);
+                }
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+async fn mutate_config_form(
+    State(state): State<AppState>,
+    Path(entry): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ConfigFormMutate>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize_service(&state, &headers)?;
+    let path = config_form_path(&state, &entry).ok_or(StatusCode::NOT_FOUND)?;
+    let (mut value, revision) = read_config_form_document(&path);
+    if let Some(expected) = body.expected_revision
+        && expected != revision
+    {
+        return Err(StatusCode::CONFLICT);
+    }
+    if !apply_config_form_ops(&mut value, &body.ops) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let next = revision.saturating_add(1);
+    write_config_form_document(&path, &value, next)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(config_form_snapshot(&value, next)))
 }
 
 /// Cordis plugin control: live status and hot reload.
