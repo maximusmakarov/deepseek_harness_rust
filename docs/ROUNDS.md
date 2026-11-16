@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–107)
+# Журнал раундов паритета (1–108)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 366 root-тестов (+3 ignored), 38 desktop-тестов и
-8 unit-тестов web-крейта = **412**, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 369 root-тестов (+3 ignored), 38 desktop-тестов и
+8 unit-тестов web-крейта = **415**, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1082,6 +1082,31 @@ streaming-прокси.
     отдельный стенд.
   - Открыто: C5.3 (живой поток сессий), C5.4 (mounted-model), C5.5
     (`pluginManager`), C5.6 (`settings`), C5.7 (закрытие).
+
+- 108: **C5.3 — живой поток сессий** (фаза C-full, [ADR-042](adr/042-c-full-phase.md)).
+  Плагинные host-половины больше не живут на 5-секундном опросе снимка:
+  - `crates/server/src/lib.rs`: `AppState.feed` (broadcast, 256) +
+    `publish_session` — после создания сессии, генерации заголовка и
+    завершения turn'а в поток уходит **та же запись, что в снимке**
+    (`session_summary_entry` вынесен и переиспользуется снимком), поэтому
+    sidecar применяет дельту без второй модели данных. Обработчик
+    `GET /v1/internal/session-events` (SSE, тот же `x-dshr-internal-token`,
+    404 без токена) отдаёт `event: session`; при отставании подписчика —
+    `event: resync`.
+  - `crates/cordis/src/bootstrap.mjs`: начальная гидратация снимком, затем
+    подписка на поток (fetch-stream, парсер SSE-кадров), `mergeHostSession`
+    (replace/prepend), `resync`/обрыв → перегидратация и reconnect с backoff
+    (0.5→10 с). Постоянного таймера 5 с больше нет; опрос снимка остаётся
+    только как восстановление. `runHostFeed` стартует после `readline` на
+    stdin, чтобы unref-timer не был единственным handle и sidecar не выходил.
+  - Проверки: server **+3** (`internal_session_events_require_the_bridge_token`,
+    `creating_a_session_pushes_it_to_the_internal_feed`,
+    `a_finished_turn_pushes_usage_to_the_internal_feed`), cordis 26+1+8+2,
+    client-half smoke **88/88** (включая C1.1: usage-маршрут реального
+    balance-плагина перечисляет сессии). Итог: root 369 (+3 ignored).
+  - Осталось в C5.4: live-проекции в шелле (`llmMs`, thread history, ≤ 1 с) и
+    замена упрощённых `sessionStats`; затем C5.5 `pluginManager`, C5.6
+    `settings`, C5.7 закрытие.
 
 ## Что осталось
 

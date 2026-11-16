@@ -80,6 +80,9 @@ pub struct AppState {
     rate_limit: Arc<RateLimit>,
     /// Capabilities that let one sandboxed frame read one plugin package.
     assets: Arc<std::sync::Mutex<HashMap<String, AssetGrant>>>,
+    /// C5.3 live session feed: every session summary update is broadcast here,
+    /// so plugin host halves keep `sessions` current without polling.
+    feed: broadcast::Sender<Value>,
 }
 
 /// Time-limited read capability over a plugin's package files.
@@ -105,6 +108,7 @@ impl AppState {
             runtimes: Arc::new(Mutex::new(HashMap::new())),
             rate_limit: Arc::new(RateLimit::new(rate_limit_per_min)),
             assets: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            feed: broadcast::channel(256).0,
         }
     }
 
@@ -389,6 +393,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/internal/session-snapshot",
             get(internal_session_snapshot),
         )
+        .route("/v1/internal/session-events", get(internal_session_events))
         .fallback(plugin_http_proxy)
         .route(
             "/v1/plugins/{name}/asset/{capability}/{*path}",
@@ -1343,6 +1348,78 @@ async fn internal_session_snapshot(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
+    internal_token_matches(&state, &headers)?;
+    let summaries = state
+        .store
+        .list()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let sessions: Vec<Value> = summaries
+        .iter()
+        .take(50)
+        .filter_map(|summary| session_summary_entry(&state.store, summary))
+        .collect();
+    Ok(Json(json!({ "sessions": sessions })))
+}
+
+/// C5.3: one session entry in the internal snapshot shape.
+fn session_summary_entry(
+    store: &SessionStore,
+    summary: &dshr_session::SessionSummary,
+) -> Option<Value> {
+    let session = store.open(summary.id.as_str()).ok()?;
+    let mut usage_events = Vec::new();
+    for event in &session.events {
+        if let dshr_session::SessionEvent::AssistantMessage {
+            seq,
+            at,
+            turn,
+            usage,
+            ..
+        } = event
+        {
+            usage_events.push(json!({
+                "seq": seq,
+                "at": at,
+                "turn": turn.as_str(),
+                "input_tokens": usage.input_tokens,
+                "output_tokens": usage.output_tokens,
+                "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                "cache_read_input_tokens": usage.cache_read_input_tokens,
+            }));
+        }
+    }
+    Some(json!({
+        "id": summary.id.as_str(),
+        "title": session.header.title,
+        "created_at": session.header.created_at,
+        "model": session.header.model,
+        "turns": session.turn_count(),
+        "steps": usage_events.len(),
+        "usage_events": usage_events,
+    }))
+}
+
+/// C5.3: pushes the current summary of one session to every listener.
+///
+/// Called after a session is created, renamed or finishes a turn, so the
+/// internal feed carries the same shape as the snapshot and the sidecar can
+/// apply it incrementally.
+fn publish_session(state: &AppState, id: &str) {
+    let Ok(summaries) = state.store.list() else {
+        return;
+    };
+    let Some(summary) = summaries.iter().find(|summary| summary.id.as_str() == id) else {
+        return;
+    };
+    let Some(entry) = session_summary_entry(&state.store, summary) else {
+        return;
+    };
+    let _ = state
+        .feed
+        .send(json!({"type": "session", "session": entry}));
+}
+
+fn internal_token_matches(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
     let Some(expected) = state.config.internal_token.as_deref() else {
         return Err(StatusCode::NOT_FOUND);
     };
@@ -1353,47 +1430,33 @@ async fn internal_session_snapshot(
     if presented.is_empty() || presented != expected {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    let summaries = state
-        .store
-        .list()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut sessions = Vec::new();
-    for summary in summaries.into_iter().take(50) {
-        let Ok(session) = state.store.open(summary.id.as_str()) else {
-            continue;
-        };
-        let mut usage_events = Vec::new();
-        for event in &session.events {
-            if let dshr_session::SessionEvent::AssistantMessage {
-                seq,
-                at,
-                turn,
-                usage,
-                ..
-            } = event
-            {
-                usage_events.push(json!({
-                    "seq": seq,
-                    "at": at,
-                    "turn": turn.as_str(),
-                    "input_tokens": usage.input_tokens,
-                    "output_tokens": usage.output_tokens,
-                    "cache_creation_input_tokens": usage.cache_creation_input_tokens,
-                    "cache_read_input_tokens": usage.cache_read_input_tokens,
-                }));
+    Ok(())
+}
+
+/// C5.3: live internal session feed (SSE).
+///
+/// Same token as the snapshot; `resync` is emitted when a listener fell behind,
+/// so it can hydrate again instead of losing updates silently.
+async fn internal_session_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    internal_token_matches(&state, &headers)?;
+    let mut receiver = state.feed.subscribe();
+    let stream = async_stream::stream! {
+        loop {
+            match receiver.recv().await {
+                Ok(value) => {
+                    yield Ok(Event::default().event("session").data(value.to_string()));
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    yield Ok(Event::default().event("resync").data("{\"reason\":\"lagged\"}"));
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
             }
         }
-        sessions.push(json!({
-            "id": summary.id.as_str(),
-            "title": session.header.title,
-            "created_at": session.header.created_at,
-            "model": session.header.model,
-            "turns": session.turn_count(),
-            "steps": usage_events.len(),
-            "usage_events": usage_events,
-        }));
-    }
-    Ok(Json(json!({ "sessions": sessions })))
+    };
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 /// Paths owned by the dshr HTTP API/embedded UI: a plugin route must never
@@ -2171,6 +2234,7 @@ async fn create_session(
             .map_err(not_found)?;
     }
     let _ = state.runtime(session.header.id.as_str()).await;
+    publish_session(&state, session.header.id.as_str());
     Ok(Json(json!({"session": session.header})))
 }
 
@@ -2280,6 +2344,7 @@ async fn start_turn(
     {
         let provider = Arc::clone(&state.provider);
         let store = Arc::clone(&state.store);
+        let title_state = state.clone();
         let title_session = id.clone();
         let title_prompt = body.prompt.clone();
         tokio::spawn(async move {
@@ -2287,6 +2352,7 @@ async fn start_turn(
                 dshr_agent::generate_title(provider.as_ref(), &title_prompt).await
             {
                 let _ = store.set_title(&title_session, &title);
+                publish_session(&title_state, &title_session);
             }
         });
     }
@@ -2322,6 +2388,7 @@ async fn start_turn(
 
     let session_id = id.clone();
     let tx = runtime.tx.clone();
+    let turn_state = state.clone();
     let runtime = Arc::clone(&runtime);
     tokio::spawn(async move {
         let observer = BroadcastObserver {
@@ -2341,7 +2408,9 @@ async fn start_turn(
                 });
             }
             Err(dshr_agent::AgentError::Cancelled) => {
-                let _ = tx.send(ServerEvent::Cancelled { session_id });
+                let _ = tx.send(ServerEvent::Cancelled {
+                    session_id: session_id.clone(),
+                });
             }
             Err(error) => {
                 let _ = tx.send(ServerEvent::Error {
@@ -2351,6 +2420,7 @@ async fn start_turn(
         }
         runtime.busy.store(false, Ordering::SeqCst);
         *runtime.cancel.lock().await = None;
+        publish_session(&turn_state, &session_id);
     });
 
     Ok(Json(json!({"accepted": true, "session_id": id})))

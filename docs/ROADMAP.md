@@ -182,13 +182,13 @@
 |---|---|---|---|
 | C5.1 | Renderer registry: builtin как запись с приоритетом 0, затенение core-узлов негативным `priority`, `renderer_winner()` вместо hard-coded ядра | 1.5 | ✅ раунд 106: `chat_node_replaced_by_plugin` (`CORE_RENDERER_PRIORITY = 0`), core-узлы больше не hard-coded; 6 unit-тестов web-крейта; e2e-probe — в C5.2 вместе с fallback |
 | C5.2 | Fallback рендерера: ошибка кадра-победителя → builtin + диагностика `data-renderer-state/token` | 1.5 | ✅ раунд 107: `renderer_errors` по токену, 8 unit-тестов, smoke 88/88; browser-probe с падающим chat-node — в C5.3 |
-| C5.3 | Живой поток сессий: `GET /v1/internal/session-events` (SSE, Last-Event-ID), подписка sidecar, кэш без опроса | 2 | server integration: события/reconnect/401/404; sidecar-тест кэша |
+| C5.3 | Живой поток сессий: `GET /v1/internal/session-events` (SSE), `resync`, подписка sidecar, кэш без опроса | 2 | ✅ раунд 108: feed + `publish_session` (create/title/turn), 3 server-теста (401/404/200, создание, usage после turn), sidecar гидрируется снимком и живёт на событиях, smoke 88/88 |
 | C5.4 | Mounted-model в шелле: live `sessions`/`sessionProjections`, thread history, `useSession` без задержки 5 с | 2 | bridge harness + e2e: заголовок/usage без перезагрузки, задержка ≤ 1 с |
 | C5.5 | Host-сервис `pluginManager`: install/remove/enable/disable и реестр через RPC | 2 | conformance studio/debugging без error-состояний |
 | C5.6 | Host-сервис `settings`: конфигурационный движок (схема/слои/миграции/revision) вместо in-memory `configForms` | 2.5 | персистентность через reload; conformance settings-UI сохраняет |
 | C5.7 | Закрытие фазы: conformance n≥11, матрица, TLA+ `ClientAssets` при необходимости, отчёт | 1 | все гейты CI; документы обновлены |
 
-**Статус:** открыта 16.11.2026 (ADR-042); C5.1 закрыт в раунде 106, C5.2 — в раунде 107 (код+unit; browser-probe объединён с C5.3), следующий срез — C5.3 (живой поток сессий).
+**Статус:** открыта 16.11.2026 (ADR-042); C5.1 — раунд 106, C5.2 — раунд 107, C5.3 — раунд 108; следующий срез — C5.4 (mounted-model в шелле: live-проекции и thread history).
 
 **Выход фазы:** renderer-семантика ядра воспроизводит shadowing reference (с записанным отличием: builtin-capture недоступен), сессии живут на событийной модели, `pluginManager`/`settings` существуют как host-сервисы; C-full снимается с повестки как неопределённость.
 

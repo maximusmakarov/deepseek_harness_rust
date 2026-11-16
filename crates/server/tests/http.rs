@@ -10,10 +10,15 @@ use dshr_llm_mock::ScriptedProvider;
 use dshr_server::{AppState, ServerConfig, router};
 use dshr_session_jsonl::SessionStore;
 use dshr_tools::ToolRegistry;
+use futures_util::StreamExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
 fn state(dir: &std::path::Path) -> AppState {
+    state_with_bridge(dir, None)
+}
+
+fn state_with_bridge(dir: &std::path::Path, internal_token: Option<&str>) -> AppState {
     let provider = Arc::new(ScriptedProvider::new(
         "test-model",
         vec![vec![
@@ -45,7 +50,7 @@ fn state(dir: &std::path::Path) -> AppState {
             cordis_plugins: vec![("demo".into(), true)],
             plugins: None,
             allow_plugin_routes_lan: false,
-            internal_token: None,
+            internal_token: internal_token.map(str::to_owned),
             wasm: None,
         },
         provider,
@@ -505,4 +510,145 @@ async fn lists_registered_tools() {
     assert!(names.contains(&"ask_user"), "{names:?}");
     assert!(names.contains(&"apply_patch"), "{names:?}");
     assert!(names.contains(&"read"), "{names:?}");
+}
+
+async fn read_until(body: axum::body::Body, deadline: Duration, needle: &str) -> String {
+    let mut stream = body.into_data_stream();
+    let mut text = String::new();
+    let end = tokio::time::Instant::now() + deadline;
+    loop {
+        let remaining = end.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, stream.next()).await {
+            Ok(Some(Ok(chunk))) => {
+                text.push_str(&String::from_utf8_lossy(&chunk));
+                if text.contains(needle) {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    text
+}
+
+fn events_request(token: Option<&str>) -> Request<Body> {
+    let mut request = Request::builder()
+        .uri("/v1/internal/session-events")
+        .header("accept", "text/event-stream");
+    if let Some(token) = token {
+        request = request.header("x-dshr-internal-token", token);
+    }
+    request.body(Body::empty()).expect("request")
+}
+
+#[tokio::test]
+async fn internal_session_events_require_the_bridge_token() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state_with_bridge(dir.path(), Some("bridge-secret")));
+
+    let response = app
+        .clone()
+        .oneshot(events_request(None))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(events_request(Some("wrong")))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(events_request(Some("bridge-secret")))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(content_type.contains("text/event-stream"), "{content_type}");
+
+    // Without a bridge token the endpoint is disabled entirely (404).
+    let no_bridge = router(state(dir.path()));
+    let response = no_bridge
+        .oneshot(events_request(Some("bridge-secret")))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn creating_a_session_pushes_it_to_the_internal_feed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state_with_bridge(dir.path(), Some("bridge-secret")));
+
+    let response = app
+        .clone()
+        .oneshot(events_request(Some("bridge-secret")))
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let stream = response.into_body();
+
+    let (status, created) = call(
+        &app,
+        "POST",
+        "/v1/sessions",
+        Some("test-token"),
+        Body::from("{}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let id = created["session"]["id"].as_str().expect("id").to_owned();
+
+    let text = read_until(stream, Duration::from_secs(5), "event: session").await;
+    assert!(text.contains("event: session"), "{text}");
+    assert!(text.contains(&id), "feed did not carry {id}: {text}");
+    assert!(text.contains("usage_events"), "{text}");
+}
+
+#[tokio::test]
+async fn a_finished_turn_pushes_usage_to_the_internal_feed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state_with_bridge(dir.path(), Some("bridge-secret")));
+
+    let (_, created) = call(
+        &app,
+        "POST",
+        "/v1/sessions",
+        Some("test-token"),
+        Body::from("{}"),
+    )
+    .await;
+    let id = created["session"]["id"].as_str().expect("id").to_owned();
+
+    let response = app
+        .clone()
+        .oneshot(events_request(Some("bridge-secret")))
+        .await
+        .expect("response");
+    let stream = response.into_body();
+
+    let (status, accepted) = call(
+        &app,
+        "POST",
+        &format!("/v1/sessions/{id}/turns"),
+        Some("test-token"),
+        Body::from(r#"{"prompt":"hi"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{accepted}");
+
+    let text = read_until(stream, Duration::from_secs(10), "\"usage_events\":[{").await;
+    assert!(text.contains("\"usage_events\":[{"), "{text}");
+    assert!(text.contains(&id), "{text}");
 }

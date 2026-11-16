@@ -366,12 +366,22 @@ function dshSessionFromSnapshot(raw) {
   };
 }
 
-async function refreshHostSessions() {
-  if (!hostBridgeFile) return;
+async function readHostBridge() {
+  if (!hostBridgeFile) return null;
   try {
     const text = await fs.readFile(hostBridgeFile, "utf8");
     const bridge = JSON.parse(text);
-    if (!bridge || typeof bridge.url !== "string" || typeof bridge.token !== "string") return;
+    if (!bridge || typeof bridge.url !== "string" || typeof bridge.token !== "string") return null;
+    return bridge;
+  } catch {
+    return null;
+  }
+}
+
+async function refreshHostSessions() {
+  const bridge = await readHostBridge();
+  if (!bridge) return;
+  try {
     const response = await fetch(bridge.url + "/v1/internal/session-snapshot", {
       headers: { "x-dshr-internal-token": bridge.token },
       signal: AbortSignal.timeout(5000),
@@ -382,7 +392,92 @@ async function refreshHostSessions() {
     hostSessions = payload.sessions.map(dshSessionFromSnapshot);
   } catch {
     // The server may not be listening yet (bridge file is absent/stale); the
-    // timer retries, and plugins see an empty session list until it succeeds.
+    // feed loop retries, and plugins see an empty session list until it succeeds.
+  }
+}
+
+/// C5.3: replaces or prepends one session from the live feed (same shape as the
+/// snapshot entry, so projections re-derive exactly as after a hydration).
+function mergeHostSession(raw) {
+  const entry = dshSessionFromSnapshot(raw);
+  const index = hostSessions.findIndex((item) => item.id === entry.id);
+  if (index >= 0) hostSessions[index] = entry;
+  else hostSessions.unshift(entry);
+}
+
+function parseSseFrame(frame) {
+  let event = "message";
+  const data = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trim());
+  }
+  return { event, data: data.join("\n") };
+}
+
+async function streamHostSessions(bridge) {
+  const response = await fetch(bridge.url + "/v1/internal/session-events", {
+    headers: {
+      "x-dshr-internal-token": bridge.token,
+      accept: "text/event-stream",
+    },
+  });
+  if (!response.ok || !response.body) throw new Error("session feed " + response.status);
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of response.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const { event, data } = parseSseFrame(frame);
+      if (event === "resync") {
+        await refreshHostSessions();
+      } else if (event === "session" && data !== "") {
+        try {
+          const payload = JSON.parse(data);
+          if (payload && payload.session) mergeHostSession(payload.session);
+        } catch {
+          // A malformed frame is skipped; the next event or a resync repairs it.
+        }
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+
+// Sleeps without keeping the sidecar process alive: an unref'd timer does not
+// hold the event loop, so stdin close still shuts the sidecar down.
+function hostFeedDelay(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (typeof timer.unref === "function") timer.unref();
+  });
+}
+
+/// Keeps the session list live: subscribe to the server feed, and on any failure
+/// re-hydrate from the snapshot before reconnecting (a 404 from an older server
+/// degrades to the snapshot with backoff instead of a fixed 5 s poll).
+async function runHostFeed() {
+  let backoff = 500;
+  for (;;) {
+    const bridge = await readHostBridge();
+    if (!bridge) {
+      await hostFeedDelay(1000);
+      continue;
+    }
+    // Hydrate before subscribing: the feed only carries updates, so a sidecar
+    // that starts after sessions exist must not serve an empty list meanwhile.
+    await refreshHostSessions();
+    try {
+      await streamHostSessions(bridge);
+      backoff = 500;
+    } catch {
+      backoff = Math.min(backoff * 2, 10000);
+    }
+    await refreshHostSessions();
+    await hostFeedDelay(backoff);
   }
 }
 
@@ -530,12 +625,6 @@ const serviceMap = {
   configForms: configFormsService,
 };
 
-if (hostBridgeFile) {
-  refreshHostSessions();
-  const hostBridgeTimer = setInterval(refreshHostSessions, 5000);
-  if (typeof hostBridgeTimer.unref === "function") hostBridgeTimer.unref();
-}
-
 const ctx = {
   // Reference loader context: the file URL the plugin package was loaded from.
   baseUrl: pathToFileURL(root + path.sep).href,
@@ -661,6 +750,12 @@ const respond = (id, result) => send({ jsonrpc: "2.0", id, result });
 const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
 const input = readline.createInterface({ input: process.stdin });
+// Start the live session feed once stdin (the MCP channel) holds the event loop:
+// an unref'd reconnect timer must never be the only pending handle.
+if (hostBridgeFile) {
+  refreshHostSessions();
+  runHostFeed();
+}
 for await (const line of input) {
   if (!line.trim()) continue;
   let request;
