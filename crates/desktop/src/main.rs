@@ -50,7 +50,9 @@ struct ServerSettings {
 }
 
 fn default_server_mode() -> String {
-    "attach".to_owned()
+    // Self-contained by default, like the official desktop: the app runs the
+    // harness itself. Attach mode stays available for a remote/other server.
+    "local".to_owned()
 }
 
 impl Default for ServerSettings {
@@ -160,79 +162,214 @@ fn validated_server_settings(mode: &str, url: &str, token: &str) -> Result<Serve
     Ok(settings)
 }
 
-/// In-app Server settings page (the desktop equivalent of the official app's
-/// Settings entry): attach URL + token, or the supervised local server.
-fn show_server_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window("server-settings") {
+/// In-app Settings window: account/model and the server choice, mirroring the
+/// official desktop's Settings surface instead of native dialogs.
+fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window("settings") {
         let _ = window.set_focus();
         return Ok(());
     }
     let home = home_dir();
-    let current = load_server_settings(&home);
-    let url = current.url.clone().unwrap_or_default();
-    let local_checked = if current.mode == "local" {
+    let server = load_server_settings(&home);
+    let provider = load_provider_settings(&home);
+    let server_url = escape_html(server.url.as_deref().unwrap_or(""));
+    let provider_route = provider
+        .as_ref()
+        .and_then(|settings| settings.provider.clone())
+        .unwrap_or_else(|| "deepseek-account".to_owned());
+    let model = escape_html(
+        provider
+            .as_ref()
+            .and_then(|settings| settings.model.clone())
+            .unwrap_or_else(|| "deepseek-flash".to_owned())
+            .as_str(),
+    );
+    let base_url = escape_html(
+        provider
+            .as_ref()
+            .and_then(|settings| settings.env.get("OPENAI_BASE_URL").cloned())
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_owned())
+            .as_str(),
+    );
+    let account_auth = provider
+        .as_ref()
+        .is_some_and(|settings| settings.env.contains_key("DSH_DEEPSEEK_TOKEN"));
+    let local_checked = if server.mode == "local" {
         " checked"
     } else {
         ""
     };
-    let attach_checked = if current.mode == "local" {
+    let attach_checked = if server.mode == "local" {
         ""
     } else {
         " checked"
     };
+    let deepseek_selected = if provider_route.starts_with("deepseek") {
+        " selected"
+    } else {
+        ""
+    };
+    let openai_selected = if provider_route.starts_with("deepseek") {
+        ""
+    } else {
+        " selected"
+    };
+    let account_selected = if account_auth { " selected" } else { "" };
+    let api_key_selected = if account_auth { "" } else { " selected" };
     let html = format!(
         "<!doctype html><meta charset=\"utf-8\">\
-         <style>body{{font:14px ui-sans-serif;margin:24px;background:#1b1b1b;color:#eee}}\
-         label{{display:block;margin:12px 0 4px}}input{{width:100%;padding:8px;border-radius:6px;\
+         <style>body{{font:13px ui-sans-serif;margin:22px;background:#1b1b1b;color:#eee}}\
+         h3{{margin:20px 0 6px;font-size:13px;color:#bbb;text-transform:uppercase;letter-spacing:.04em}}\
+         label{{display:block;margin:9px 0 3px}}input,select{{width:100%;padding:7px;border-radius:6px;\
          border:1px solid #555;background:#222;color:#eee}}button{{margin:16px 8px 0 0;padding:8px 14px;\
-         border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}p{{color:#aaa}}</style>\
-         <h2>dshr server</h2>\
-         <p>Attach to a running <code>dshr serve</code> (default), or let this app run its own local server.</p>\
-         <label><input type=\"radio\" name=\"mode\" value=\"attach\"{attach_checked}> Attach to a server</label>\
-         <label>Server URL<input id=\"url\" value=\"{url}\" placeholder=\"http://127.0.0.1:4317\"></label>\
-         <label>Bearer token (optional)<input id=\"token\" type=\"password\" placeholder=\"token printed by dshr serve\"></label>\
-         <label><input type=\"radio\" name=\"mode\" value=\"local\"{local_checked}> Run a local server (dev/CI)</label>\
+         border-radius:6px;border:1px solid #555;background:#222;color:#eee;cursor:pointer}}p{{color:#aaa}}\
+         a{{color:#8ab4ff}}</style>\
+         <h2>Settings</h2>\
+         <h3>Account</h3>\
+         <label>Provider<select id=\"provider\" onchange=\"toggleBase()\">\
+         <option value=\"deepseek-account\"{deepseek_selected}>DeepSeek</option>\
+         <option value=\"openai-compatible\"{openai_selected}>OpenAI-compatible</option></select></label>\
+         <label>Model<input id=\"model\" value=\"{model}\"></label>\
+         <label>Authentication<select id=\"auth\">\
+         <option value=\"account\"{account_selected}>DeepSeek account token</option>\
+         <option value=\"api_key\"{api_key_selected}>API key</option></select></label>\
+         <label>Token / API key<input id=\"secret\" type=\"password\" placeholder=\"leave empty to keep the saved value\"></label>\
+         <label id=\"base-row\">Base URL<input id=\"base_url\" value=\"{base_url}\"></label>\
+         <p>Account tokens and keys come from <a href=\"https://platform.deepseek.com/api_keys\">platform.deepseek.com</a>; they are stored in <code>~/.dshr/desktop.env</code> with mode 0600.</p>\
+         <h3>Server</h3>\
+         <label><input type=\"radio\" name=\"server_mode\" value=\"local\"{local_checked}> Run the embedded server (default, self-contained)</label>\
+         <label><input type=\"radio\" name=\"server_mode\" value=\"attach\"{attach_checked}> Attach to a running dshr serve</label>\
+         <label>Server URL<input id=\"server_url\" value=\"{server_url}\" placeholder=\"http://127.0.0.1:4317\"></label>\
+         <label>Server token<input id=\"server_token\" type=\"password\" placeholder=\"token printed by dshr serve\"></label>\
          <button onclick=\"save()\">Save and restart</button>\
          <button onclick=\"window.__TAURI__.window.getCurrentWindow().close()\">Cancel</button>\
          <p id=\"status\"></p>\
          <script>\
-         async function save() {{
-           const mode = document.querySelector('input[name=mode]:checked').value;
-           const url = document.getElementById('url').value;
-           const token = document.getElementById('token').value;
-           const status = document.getElementById('status');
-           status.textContent = 'saving…';
-           try {{
-             await window.__TAURI__.core.invoke('save_server_form', {{ mode, url, token }});
-           }} catch (error) {{
-             status.textContent = String(error);
-           }}
-         }}\n         </script>"
+         function toggleBase() {{\n           const openai = document.getElementById('provider').value !== 'deepseek-account';\n           document.getElementById('base-row').style.display = openai ? 'block' : 'none';\n         }}\n         toggleBase();\n         async function save() {{\n           const form = {{\n             provider: document.getElementById('provider').value,\n             model: document.getElementById('model').value,\n             auth: document.getElementById('auth').value,\n             secret: document.getElementById('secret').value,\n             baseUrl: document.getElementById('base_url').value,\n             serverMode: document.querySelector('input[name=server_mode]:checked').value,\n             serverUrl: document.getElementById('server_url').value,\n             serverToken: document.getElementById('server_token').value,\n           }};\n           const status = document.getElementById('status');\n           status.textContent = 'saving…';\n           try {{\n             await window.__TAURI__.core.invoke('save_settings_form', {{ form }});\n           }} catch (error) {{\n             status.textContent = String(error);\n           }}\n         }}\n         </script>"
     );
     let url = data_url(&html)
         .parse::<tauri::Url>()
         .map_err(tauri::Error::InvalidUrl)?;
-    WebviewWindowBuilder::new(app, "server-settings", WebviewUrl::External(url))
-        .title("dshr server")
-        .inner_size(560.0, 460.0)
+    WebviewWindowBuilder::new(app, "settings", WebviewUrl::External(url))
+        .title("dshr settings")
+        .inner_size(620.0, 760.0)
         .build()?;
     Ok(())
 }
 
+/// Settings window form: account/model plus the server choice, mirroring the
+/// official desktop's Settings sections.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsForm {
+    provider: String,
+    model: String,
+    auth: String,
+    secret: String,
+    base_url: String,
+    server_mode: String,
+    server_url: String,
+    server_token: String,
+}
+
+/// Validates the account/model part and builds the provider settings.
+fn validated_provider_form(
+    provider: &str,
+    model: &str,
+    auth: &str,
+    secret: &str,
+    base_url: &str,
+    existing: Option<&ProviderSettings>,
+) -> Result<ProviderSettings, String> {
+    let route = match provider {
+        "deepseek" | "deepseek-account" | "deepseek-official" => "deepseek-account",
+        "openai" | "openai-compatible" | "routerai" => "openai-compatible",
+        other => {
+            return Err(format!(
+                "unknown provider '{other}'; expected DeepSeek or OpenAI-compatible"
+            ));
+        }
+    };
+    let model = model.trim();
+    let model = if model.is_empty() {
+        if route == "deepseek-account" {
+            "deepseek-flash"
+        } else {
+            "gpt-4o-mini"
+        }
+    } else {
+        model
+    };
+    let mut env = BTreeMap::new();
+    let kept = |keys: &[&str]| -> Option<String> {
+        existing.and_then(|settings| {
+            keys.iter()
+                .find_map(|key| settings.env.get(*key).cloned())
+                .filter(|value| !value.trim().is_empty())
+        })
+    };
+    let secret = secret.trim();
+    if route == "deepseek-account" {
+        let key_kind = if auth == "api_key" {
+            "DEEPSEEK_API_KEY"
+        } else {
+            "DSH_DEEPSEEK_TOKEN"
+        };
+        let value = if secret.is_empty() {
+            kept(&[key_kind, "DEEPSEEK_API_KEY", "DSH_DEEPSEEK_TOKEN"])
+                .ok_or_else(|| "a DeepSeek account token or API key is required".to_owned())?
+        } else {
+            secret.to_owned()
+        };
+        env.insert(key_kind.to_owned(), value);
+    } else {
+        let value = if secret.is_empty() {
+            kept(&["OPENAI_API_KEY", "ROUTERAI_API_KEY"]).ok_or_else(|| {
+                "an API key is required for OpenAI-compatible providers".to_owned()
+            })?
+        } else {
+            secret.to_owned()
+        };
+        env.insert("OPENAI_API_KEY".to_owned(), value);
+        let base = base_url.trim();
+        let base = if base.is_empty() {
+            "https://api.openai.com/v1"
+        } else {
+            base
+        };
+        if !(base.starts_with("http://") || base.starts_with("https://")) {
+            return Err("the base URL must start with http:// or https://".to_owned());
+        }
+        env.insert("OPENAI_BASE_URL".to_owned(), base.to_owned());
+    }
+    Ok(ProviderSettings {
+        provider: Some(route.to_owned()),
+        model: Some(model.to_owned()),
+        env,
+    })
+}
+
 #[tauri::command]
-fn save_server_form(
-    app: AppHandle,
-    mode: String,
-    url: String,
-    token: String,
-) -> Result<(), String> {
-    let settings = validated_server_settings(&mode, &url, &token)?;
-    if settings.mode == "attach"
-        && let Some(url) = settings.url.as_deref()
+fn save_settings_form(app: AppHandle, form: SettingsForm) -> Result<(), String> {
+    let home = home_dir();
+    let existing_provider = load_provider_settings(&home);
+    let provider = validated_provider_form(
+        &form.provider,
+        &form.model,
+        &form.auth,
+        &form.secret,
+        &form.base_url,
+        existing_provider.as_ref(),
+    )?;
+    let server =
+        validated_server_settings(&form.server_mode, &form.server_url, &form.server_token)?;
+    if server.mode == "attach"
+        && let Some(url) = server.url.as_deref()
     {
         attach_health(url)?;
     }
-    save_server_settings(&home_dir(), &settings)?;
+    save_provider_settings(&home, &provider)?;
+    save_server_settings(&home, &server)?;
     app.restart();
 }
 
@@ -296,7 +433,10 @@ fn main() {
     };
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![recovery_action, save_server_form])
+        .invoke_handler(tauri::generate_handler![
+            recovery_action,
+            save_settings_form
+        ])
         .setup(move |app| {
             let home = home_dir();
             let profile = current_profile(&home);
@@ -308,11 +448,14 @@ fn main() {
             let local_mode =
                 settings.mode == "local" || std::env::args().any(|argument| argument == "--local");
             let (base_url, token, child) = if local_mode {
-                let provider = match ensure_provider(&home, true) {
+                // Self-contained first run: no credentials yet means the
+                // Settings window opens (official-style), not a native dialog.
+                let provider = match ensure_provider(&home) {
                     Ok(provider) => provider,
                     Err(error) => {
-                        show_error("Provider setup", &error);
-                        return Err(error.into());
+                        log_line(&home, &format!("{error}: opening settings"));
+                        show_settings(app.handle())?;
+                        return Ok(());
                     }
                 };
                 let (port, token, child) =
@@ -339,7 +482,7 @@ fn main() {
                         &home,
                         "attach mode without a server URL: opening server settings",
                     );
-                    show_server_settings(app.handle())?;
+                    show_settings(app.handle())?;
                     return Ok(());
                 };
                 let url = settings.url.clone().unwrap_or_default();
@@ -475,14 +618,7 @@ fn build_tray(
         None::<&str>,
     )?;
     let new_profile = MenuItem::with_id(app, "new-profile", "New profile…", true, None::<&str>)?;
-    let provider = MenuItem::with_id(app, "provider", "Provider setup…", true, None::<&str>)?;
-    let server_setup = MenuItem::with_id(
-        app,
-        "server-setup",
-        "Server setup… (attach)",
-        true,
-        None::<&str>,
-    )?;
+    let settings_item = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let config_folder = MenuItem::with_id(
         app,
         "config-folder",
@@ -660,8 +796,7 @@ fn build_tray(
             &browser,
             &terminal,
             &install_cli,
-            &server_setup,
-            &provider,
+            &settings_item,
             &config_folder,
             &updates,
             &download,
@@ -702,9 +837,9 @@ fn build_tray(
                 let home = home_dir();
                 open_terminal(&home, &current_profile(&home));
             }
-            "server-setup" => {
-                if let Err(error) = show_server_settings(app) {
-                    show_error("dshr server", &error.to_string());
+            "settings" => {
+                if let Err(error) = show_settings(app) {
+                    show_error("dshr settings", &error.to_string());
                 }
             }
             "install-cli" => {
@@ -751,19 +886,6 @@ fn build_tray(
                 let _ = std::fs::remove_file(home.join("desktop-safe-mode"));
                 stop_server(app);
                 app.restart();
-            }
-            "provider" => {
-                let home = home_dir();
-                match prompt_provider_setup() {
-                    Ok(settings) => match save_provider_settings(&home, &settings) {
-                        Ok(()) => {
-                            stop_server(app);
-                            app.restart();
-                        }
-                        Err(error) => show_error("Provider setup", &error),
-                    },
-                    Err(error) => show_error("Provider setup", &error),
-                }
             }
             "new-profile" => {
                 if let Some(name) = prompt_text("New profile", "Profile name", "") {
@@ -1542,7 +1664,7 @@ fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Err
         return Ok(window_url(url, settings.token.as_deref().unwrap_or("")));
     }
     let profile = current_profile(&home);
-    let provider = ensure_provider(&home, false)?;
+    let provider = ensure_provider(&home)?;
     let (port, _token, mut child) = start_server(&home, &profile, folder, provider.as_ref())?;
     let _ = child.kill();
     let _ = child.wait();
@@ -1705,55 +1827,14 @@ fn save_provider_settings(home: &Path, settings: &ProviderSettings) -> Result<()
     Ok(())
 }
 
-fn ensure_provider(home: &Path, interactive: bool) -> Result<Option<ProviderSettings>, String> {
+fn ensure_provider(home: &Path) -> Result<Option<ProviderSettings>, String> {
     if has_process_credentials() {
         return Ok(None);
     }
     if let Some(settings) = load_provider_settings(home) {
         return Ok(Some(settings));
     }
-    if !interactive {
-        return Err(
-            "provider is not configured: set DEEPSEEK_API_KEY/OPENAI_API_KEY or run the app once"
-                .to_owned(),
-        );
-    }
-    let settings = prompt_provider_setup()?;
-    save_provider_settings(home, &settings)?;
-    Ok(Some(settings))
-}
-
-fn prompt_provider_setup() -> Result<ProviderSettings, String> {
-    let choice = prompt_choice(
-        "Provider setup",
-        "Which provider should dshr use?",
-        &["DeepSeek", "OpenAI-compatible"],
-    )?
-    .ok_or_else(|| "provider setup cancelled".to_owned())?;
-    let (route, model_default, key_env) = if choice == 0 {
-        ("deepseek-account", "deepseek-flash", "DEEPSEEK_API_KEY")
-    } else {
-        ("openai-compatible", "gpt-4o-mini", "OPENAI_API_KEY")
-    };
-    let model = prompt_text("Provider setup", "Model", model_default)
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| model_default.to_owned());
-    let key = prompt_secret("Provider setup", "API key")?
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "API key is required".to_owned())?;
-    let mut env = BTreeMap::new();
-    env.insert(key_env.to_owned(), key.trim().to_owned());
-    if route == "openai-compatible" {
-        let base = prompt_text("Provider setup", "Base URL", "https://api.openai.com/v1")
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_owned());
-        env.insert("OPENAI_BASE_URL".to_owned(), base);
-    }
-    Ok(ProviderSettings {
-        provider: Some(route.to_owned()),
-        model: Some(model),
-        env,
-    })
+    Err("provider is not configured: open Settings and sign in".to_owned())
 }
 
 #[tauri::command]
@@ -1922,72 +2003,6 @@ fn escape_html(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn prompt_choice(title: &str, prompt: &str, options: &[&str]) -> Result<Option<usize>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let buttons = options
-            .iter()
-            .map(|option| format!("\"{}\"", escape_osascript(option)))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let script = format!(
-            "display dialog \"{}\" buttons {{{}, \"Cancel\"}} default button 1 with title \"{}\"",
-            escape_osascript(prompt),
-            buttons,
-            escape_osascript(title)
-        );
-        let output = Command::new("osascript")
-            .args(["-e", &script])
-            .output()
-            .map_err(|error| format!("osascript: {error}"))?;
-        if !output.status.success() {
-            return Ok(None);
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        Ok(options
-            .iter()
-            .position(|option| text.contains(&format!("button returned:{option}"))))
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let _ = (title, prompt, options);
-        Err("provider setup dialogs are implemented on macOS; set env variables".to_owned())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (title, prompt, options);
-        Err("provider setup dialogs are implemented on macOS; set env variables".to_owned())
-    }
-}
-
-fn prompt_secret(title: &str, prompt: &str) -> Result<Option<String>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let script = format!(
-            "display dialog \"{}\" default answer \"\" with hidden answer buttons {{\"Cancel\", \"OK\"}} default button \"OK\" with title \"{}\"",
-            escape_osascript(prompt),
-            escape_osascript(title)
-        );
-        let output = Command::new("osascript")
-            .args(["-e", &script])
-            .output()
-            .map_err(|error| format!("osascript: {error}"))?;
-        if !output.status.success() {
-            return Ok(None);
-        }
-        let text = String::from_utf8_lossy(&output.stdout);
-        Ok(text
-            .split("text returned:")
-            .nth(1)
-            .map(|value| value.trim().to_owned()))
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (title, prompt);
-        Err("provider setup dialogs are implemented on macOS; set env variables".to_owned())
-    }
-}
-
 fn ensure_home(home: &Path) -> bool {
     let fresh = !home.is_dir();
     if fresh {
@@ -2117,6 +2132,69 @@ mod server_settings_tests {
     use super::*;
 
     #[test]
+    fn provider_form_handles_deepseek_and_openai() {
+        let deepseek = validated_provider_form("deepseek-account", "", "account", "tok", "", None)
+            .expect("deepseek");
+        assert_eq!(deepseek.provider.as_deref(), Some("deepseek-account"));
+        assert_eq!(deepseek.model.as_deref(), Some("deepseek-flash"));
+        assert_eq!(
+            deepseek.env.get("DSH_DEEPSEEK_TOKEN").map(String::as_str),
+            Some("tok")
+        );
+
+        let api_key = validated_provider_form(
+            "deepseek-account",
+            "deepseek-reasoner",
+            "api_key",
+            "k",
+            "",
+            None,
+        )
+        .expect("api key");
+        assert_eq!(api_key.model.as_deref(), Some("deepseek-reasoner"));
+        assert_eq!(
+            api_key.env.get("DEEPSEEK_API_KEY").map(String::as_str),
+            Some("k")
+        );
+
+        let openai = validated_provider_form(
+            "openai-compatible",
+            "gpt-4o-mini",
+            "api_key",
+            "sk",
+            "",
+            None,
+        )
+        .expect("openai");
+        assert_eq!(
+            openai.env.get("OPENAI_BASE_URL").map(String::as_str),
+            Some("https://api.openai.com/v1")
+        );
+        assert!(
+            validated_provider_form("openai-compatible", "m", "api_key", "sk", "ftp://x", None)
+                .is_err()
+        );
+        assert!(validated_provider_form("nope", "m", "api_key", "sk", "", None).is_err());
+    }
+
+    #[test]
+    fn provider_form_keeps_a_saved_secret_when_the_field_is_empty() {
+        let existing = ProviderSettings {
+            provider: Some("deepseek-account".to_owned()),
+            model: Some("deepseek-flash".to_owned()),
+            env: BTreeMap::from([("DSH_DEEPSEEK_TOKEN".to_owned(), "saved".to_owned())]),
+        };
+        let settings =
+            validated_provider_form("deepseek-account", "", "account", "", "", Some(&existing))
+                .expect("kept");
+        assert_eq!(
+            settings.env.get("DSH_DEEPSEEK_TOKEN").map(String::as_str),
+            Some("saved")
+        );
+        assert!(validated_provider_form("deepseek-account", "", "account", "", "", None).is_err());
+    }
+
+    #[test]
     fn attach_requires_an_http_url() {
         assert!(validated_server_settings("attach", "", "").is_err());
         assert!(validated_server_settings("attach", "127.0.0.1:4317", "").is_err());
@@ -2137,10 +2215,10 @@ mod server_settings_tests {
     }
 
     #[test]
-    fn attach_is_the_default_mode() {
+    fn the_embedded_server_is_the_default() {
         let dir = tempfile::tempdir().expect("dir");
         let settings = load_server_settings(dir.path());
-        assert_eq!(settings.mode, "attach");
+        assert_eq!(settings.mode, "local");
         assert!(settings.url.is_none());
     }
 

@@ -16,6 +16,13 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Desktop: self-contained by default again, like the official app — the shell
+  runs its embedded `dshr serve` and opens the UI; attach to an external server
+  is an option. The native provider dialogs are gone: the in-app Settings window
+  covers Account (provider, model, DeepSeek account token / API key, base URL)
+  and Server (embedded or attach), validates the fields, probes `/v1/health`
+  for attach, writes `desktop.env`/`desktop-server.json` (0600) and restarts.
+  There is no OAuth sign-in: the token is entered in Settings.
 - Desktop: server settings moved in-app (the official app's Settings pattern): a
   "dshr server" window edits the attach URL/token or switches to the supervised
   local server, validates the URL, probes `/v1/health`, saves
