@@ -63,17 +63,62 @@ scripts/render-formula.sh 0.1.0 SHA256SUMS dshr.rb   # нужны все 4 та�
 Локально проверены: детерминированный tar.gz + sha256, bottle-layout,
 `bottle do` (ruby -c), установка через install.sh (file://) и `dshr --version`.
 
-## Bottles
+## Bottles и GHCR
 
-Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
-для macOS/Linux; job `bottles-ghcr` публикует их в GHCR как OCI-индекс
-(`ghcr.io/<owner>/<repo>/dshr:<ver>`), а `dist/dshr-ghcr.rb` содержит
-`root_url https://ghcr.io/v2/<owner>/<repo>`. Требуются `packages: write`
-и `GITHUB_TOKEN`; dry-run OCI-layout, mock-push и выбор манифеста Homebrew проверены локально; реальный push в GHCR и анонимный pull индекса подтверждены в Actions (run 43585903547). Полный pour с локального OCI невозможен — brew тянет blobs с ghcr.io.
+Джобы `build` собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`) для
+macOS/Linux, а job `bottles-ghcr` публикует **все платформы одной версии одним
+OCI-индексом** `ghcr.io/<owner>/<repo>/dshr:<version>`. Индекс адресуется тегом
+версии и перезаписывается при каждом push, поэтому бутылки отправляются одним
+вызовом `scripts/publish-bottle-ghcr.py`; пофайловый push оставлял в индексе
+только последнюю платформу, и `brew install` ломался на остальных. Индекс
+содержит по дочернему манифесту на платформу с аннотациями
+`sh.brew.bottle.digest`, `sh.brew.tab` и `org.opencontainers.image.ref.name`.
+Нужны `packages: write` и `GITHUB_TOKEN`.
 
-Release-джобы собирают Homebrew-бутылки (`dshr--<ver>.<tag>.bottle.tar.gz`)
-для macOS/Linux и добавляют `bottle do` в формулу. `root_url` указывает на
-GitHub Releases, не GHCR; pour проверяется при следующем теге.
+Что проверено:
+
+- mock-регистр: `scripts/test-publish-bottle-ghcr.py` в CI — две платформы
+  (`x86_64_linux`, `aarch64_linux`) попадают в один индекс, без потерь и дублей;
+- реальный push и анонимный pull в GHCR: run `43585903547` от 14.11.2026
+  (тестовый тег `0.0.1`, одна платформа `x86_64_linux`);
+- 16.11.2026 анонимный `GET /v2/<owner>/<repo>/dshr/manifests/0.0.1` и
+  `tags/list` повторно подтверждены (`{"tags":["0.0.1"]}`), то есть пакет
+  публичный и читается без учётных данных;
+- сгенерированная формула проходит `brew audit --strict` без замечаний
+  (Homebrew 7.0.13). Brew распознаёт `root_url "https://ghcr.io/v2/<owner>/<repo>"`
+  как GitHub Packages (`DownloadStrategyDetector` → `CurlGitHubPackagesDownloadStrategy`)
+  и запрашивает `…/<formula>/manifests/<version>` — ровно тот путь, куда пишет
+  публикатор. Поэтому формула не содержит строки `version`: brew сканирует её
+  из URL, а избыточная строка — замечание аудита. Блок `bottle do` сортируется
+  (ARM macOS → Intel macOS → ARM Linux → Intel Linux) и выравнивается по
+  самому длинному тегу, как требует тот же аудит.
+
+Что не проверено: релизный прогон на теге (тегов и релизов в репозитории ещё не
+было), multi-platform индекс на реальном GHCR и `brew install` из GHCR.
+
+### Tap
+
+Tap-репозитория нет — это единственный внешний блокер GHCR-трека. Порядок:
+
+1. Создать публичный репозиторий `maximusmakarov/homebrew-dshr` (имя
+   `homebrew-<tap>` даёт `brew install maximusmakarov/dshr/dshr`).
+2. После релиза: `scripts/sync-homebrew-tap.sh ../homebrew-dshr --formula dist/dshr-ghcr.rb --push`.
+   Скрипт проверяет `root_url`, наличие bottle-`sha256` и `ruby -c`, кладёт
+   формулу в `Formula/dshr.rb`, коммитит `dshr <version>` и (с `--push`)
+   отправляет в tap; `--dry-run` печатает план без записи.
+3. Проверка установки: `brew install maximusmakarov/dshr/dshr && brew test dshr`.
+
+Пакет GHCR должен оставаться публичным: анонимный pull — единственный способ,
+которым brew забирает блоб.
+
+## Dry-run релиза без тега
+
+`release.yml` запускается и по `workflow_dispatch` с обязательным входом
+`version`: собираются архивы, бутылки и desktop-артефакты (macOS `.app`/DMG,
+Linux tar+deb, Windows zip), но `bottles-ghcr` и `publish` пропускаются — пакет
+и GitHub Release не создаются. Это единственный способ прогнать desktop-джобы,
+не выпуская релиз. Версия нормализуется `scripts/release-version.sh`
+(`v0.1.0` и `0.1.0` → `0.1.0`, мусор отвергается).
 
 ## Bottle packaging
 
@@ -106,5 +151,9 @@ CI использует эти переменные; `cross`-сборка Linux 
 
 - Архивы детерминированы (одинаковый бинарь → одинаковый sha256), но сами бинари
   не воспроизводимы побайтово: зависят от toolchain и окружения раннера.
-- Нет ghcr-бутылок Homebrew: `dshr.rb` — бинарная формула, а не `brew bottle`.
+- `dshr.rb` (GitHub Releases) и `dshr-ghcr.rb` — бинарные формулы с блоками
+  `bottle do`, а не `brew bottle`-выгрузки: бутылки собирает
+  `scripts/package-bottle.sh`, поэтому они не сверяются с `brew bottle --merge`.
+- Релизный прогон на теге ещё не выполнялся: desktop-джобы и `publish`
+  проверяются только через `workflow_dispatch`-dry-run и локальные dry-run'ы.
 - Ключ подписи один; ротации и отзыва ключей нет.

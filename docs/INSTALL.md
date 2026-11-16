@@ -30,7 +30,9 @@ curl -fsSLO https://github.com/maximusmakarov/deepseek_harness_rust/releases/lat
 brew install ./dshr.rb
 ```
 
-Формула ставит готовый бинарь из архива с закреплённым `sha256`; ghcr-бутылок нет.
+Формула ставит готовый бинарь из архива с закреплённым `sha256`. Бутылки для
+macOS/Linux публикуются в GHCR (`dshr-ghcr.rb`), но установка из них требует
+tap-репозитория — см. [RELEASE §Tap](RELEASE.md#tap).
 HEAD-вариант собирает из `main`:
 
 ```sh

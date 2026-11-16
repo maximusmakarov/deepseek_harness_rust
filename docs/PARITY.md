@@ -372,8 +372,10 @@ DMG, Linux/Windows desktop-джобы, notarization-тулинг).
 
 ## Известные блокеры
 
-- **GHCR-бутылки:** нет tap-репозитория/учётных данных пакетов; бутылки публикуются
-  как GitHub release-ассеты.
+- **GHCR-бутылки:** публикация и анонимный pull индекса работают (тег `0.0.1`),
+  multi-platform индекс собирается одним push; нет tap-репозитория `homebrew-dshr`
+  (создаёт владелец) и не было релизного прогона на теге, поэтому `brew install`
+  из GHCR не проверялся. Бутылки также публикуются как release-ассеты.
 - **Windows sandbox:** нужен реальный Windows-хост; локально проверяется только
   компиляция, ignored-тест вынесен в Windows CI.
 - **Notarization:** нужны Apple Developer ID, сертификат и app-specific password.

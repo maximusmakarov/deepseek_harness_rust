@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Smoke-test the OCI publisher against a local in-memory registry."""
+"""Smoke-test the OCI publisher against a local in-memory registry.
+
+Usage: test-publish-bottle-ghcr.py <version> <tag> <bottle> [<tag> <bottle> ...]
+
+Every platform of one version must land in a single OCI index, otherwise brew
+can only install whichever platform was pushed last.
+"""
 
 import http.server
 import json
@@ -54,43 +60,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
+    version = sys.argv[1]
+    pairs = sys.argv[2:]
+    if len(pairs) % 2 != 0 or not pairs:
+        raise SystemExit(__doc__)
+    platforms = [(pairs[i], pairs[i + 1]) for i in range(0, len(pairs), 2)]
+
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     registry = f"http://127.0.0.1:{server.server_port}"
-    bottle = sys.argv[1]
-    version = sys.argv[2] if len(sys.argv) > 2 else "0.1.0"
-    tag = sys.argv[3] if len(sys.argv) > 3 else "arm64_sequoia"
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory():
         env = dict(os.environ, GITHUB_ACTOR="local", GITHUB_TOKEN="local")
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/publish-bottle-ghcr.py",
-                "--registry",
-                registry,
-                "--version",
-                version,
-                "--tag",
-                tag,
-                "--bottle",
-                bottle,
-                "--owner",
-                "local",
-                "--repo",
-                "repo",
-                "--push",
-            ],
-            check=True,
-            env=env,
-        )
+        command = [
+            sys.executable,
+            "scripts/publish-bottle-ghcr.py",
+            "--registry",
+            registry,
+            "--version",
+            version,
+        ]
+        for tag, bottle in platforms:
+            command += ["--bottle", bottle, "--tag", tag]
+        command += ["--owner", "local", "--repo", "repo", "--push"]
+        subprocess.run(command, check=True, env=env)
+
     index = json.loads(stored[version])
     assert index["mediaType"] == "application/vnd.oci.image.index.v1+json"
-    child = index["manifests"][0]
-    assert child["annotations"]["org.opencontainers.image.ref.name"] == f"{version}.{tag}"
-    assert len(child["annotations"]["sh.brew.bottle.digest"]) == 64
-    manifest = json.loads(stored[child["digest"]])
-    assert manifest["layers"][0]["digest"].startswith("sha256:")
-    print("ghcr publisher smoke ok")
+    expected = {
+        tag: None for tag, _ in platforms
+    }
+    for child in index["manifests"]:
+        ref_name = child["annotations"]["org.opencontainers.image.ref.name"]
+        assert ref_name.startswith(f"{version}."), ref_name
+        tag = ref_name.removeprefix(f"{version}.")
+        assert tag in expected, f"unexpected platform {tag} in the index"
+        assert expected[tag] is None, f"duplicate platform {tag} in the index"
+        expected[tag] = child
+        assert len(child["annotations"]["sh.brew.bottle.digest"]) == 64
+        manifest = json.loads(stored[child["digest"]])
+        assert manifest["layers"][0]["digest"].startswith("sha256:")
+        assert manifest["annotations"]["sh.brew.tab"].strip()
+        assert child["platform"]["os"] in {"darwin", "linux"}
+        assert child["platform"]["architecture"] in {"arm64", "amd64"}
+    missing = [tag for tag, child in expected.items() if child is None]
+    assert not missing, f"platforms missing from the index: {missing}"
+    print(f"ghcr publisher smoke ok ({len(index['manifests'])} platforms)")
     server.shutdown()
 
 

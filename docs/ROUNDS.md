@@ -1,4 +1,4 @@
-# Журнал раундов паритета (1–114)
+# Журнал раундов паритета (1–115)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
@@ -1555,9 +1555,67 @@ callback-моста), per-frame фильтрация цепочек (неско�
 - **Windows sandbox/сеть** — нужен реальный Windows-хост; CI-шаг есть, локально
   только компиляция.
 - **Notarization** — нужны Apple Developer ID, сертификат и app-specific password.
-- **GHCR-tap/brew на реальном GHCR** — нужны tap-репозиторий и учётные данные пакетов.
+- **GHCR-tap/brew** — нужен tap-репозиторий `homebrew-dshr` (создаёт владелец)
+  и релизный прогон на теге; публикация, анонимный pull и multi-platform
+  индекс готовы, tooling и dry-run — раунд 115.
 
 Подробная матрица и блокеры: [PARITY.md](PARITY.md), реестр долгов — [TECH-DEBT.md](TECH-DEBT.md).
+
+## Раунд 115 — внешние треки: GHCR-индекс и release-dry-run (16.11.2026)
+
+Внешние треки закрыты настолько, насколько это возможно без учётных данных;
+остаток — действия владельца (tap-репозиторий и push тега).
+
+Состояние внешней стороны, перепроверенное по публичному API GitHub 16.11.2026:
+
+- тегов и релизов в `maximusmakarov/deepseek_harness_rust` нет — workflow
+  `Release` ни разу не запускался на теге, то есть desktop-джобы тега ни разу
+  не выполнялись;
+- пакет `ghcr.io/maximusmakarov/deepseek_harness_rust/dshr` существует: тег
+  `0.0.1` (одна платформа `x86_64_linux`), push и анонимный pull подтверждены
+  run `43585903547`; 16.11.2026 `tags/list` (`{"tags":["0.0.1"]}`) и манифест
+  индекса читаются без токена, то есть пакет публичный;
+- все шесть попыток macOS-верификации GHCR 14.11.2026 (`ghcr-mac-verify`)
+  упали, поэтому «push macOS-бутылки» в Actions не подтверждён;
+- tap-репозитория `homebrew-dshr` нет (404) — единственный настоящий блокер
+  `brew install`;
+- `gh`, `GITHUB_TOKEN` и SSH-ключ в локальном окружении отсутствуют
+  (`git@github.com` → `Permission denied (publickey)`), поэтому ни тег, ни tap
+  отсюда создать нельзя.
+
+Исправлено в релизном пути:
+
+- `scripts/publish-bottle-ghcr.py`: индекс версии собирается из всех бутылок
+  одним push. Прежний цикл в `release.yml` пушил бутылки по одной, а каждый push
+  перезаписывает тег `<version>` индексом с единственной платформой — на реальном
+  релизе 3 из 4 платформ остались бы неустановимыми;
+- `release.yml`, `desktop-linux`: выгружались только `dist/*.tar.gz*`, поэтому
+  обещанный `dshr_<version>_amd64.deb` не попадал ни в релиз, ни в `SHA256SUMS`;
+  теперь выгружается и `dist/*.deb*`;
+- `publish` больше не зависит молча от GHCR: job ждёт `bottles-ghcr`, но бинарные
+  артефакты публикует и при его падении, а GHCR-формула рендерится только при
+  успешном push (`needs.bottles-ghcr.result == 'success'`);
+- `Release` получил `workflow_dispatch` с входом `version`: собираются
+  build/desktop/бутылочные джобы, `bottles-ghcr` и `publish` пропускаются —
+  desktop-трек проверяется без тега и без релиза;
+- `scripts/release-version.sh` — единая нормализация версии (`v0.1.0` → `0.1.0`,
+  мусор отвергается);
+- `scripts/sync-homebrew-tap.sh` + `packaging/homebrew-tap/README.md` — установка
+  GHCR-формулы в tap (`root_url`, bottle-`sha256`, `ruby -c`, коммит
+  `dshr <version>`, `--push`, `--dry-run`) и порядок одноразовой настройки;
+- формула приведена к требованиям `brew audit --strict` (Homebrew 7.0.13,
+  проверено на локальном tap): блок `bottle do` сортируется
+  (ARM macOS → Intel macOS → ARM Linux → Intel Linux), digests выравниваются по
+  самому длинному тегу, лишняя пустая строка убрана, строка `version` удалена
+  (brew сканирует её из URL) — версия в `sync-homebrew-tap.sh` читается из URL
+  релиза. Заодно подтверждено, что brew выводит из
+  `root_url "https://ghcr.io/v2/<owner>/<repo>"` стратегию
+  `CurlGitHubPackagesDownloadStrategy` и путь `…/<formula>/manifests/<version>`,
+  совпадающий с публикатором.
+
+Тесты: `scripts/test-publish-bottle-ghcr.py` проверяет две платформы в одном
+индексе (CI), `scripts/test-sync-homebrew-tap.sh` — tap-синхронизацию и
+`release-version.sh` (CI и `scripts/check.sh`).
 
 ## Формализация и каталог тестов (14.11.2026)
 

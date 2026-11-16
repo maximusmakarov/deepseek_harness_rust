@@ -30,6 +30,17 @@ def sha_for(target):
         raise SystemExit(f"render-formula: no checksum for {target} in {sums_path}")
     return sums[name]
 
+def bottle_order(tag):
+    """Homebrew audits bottles as ARM macOS, Intel macOS, ARM Linux, Intel Linux."""
+    if tag.startswith("arm64") and not tag.endswith("_linux"):
+        return 0
+    if not tag.endswith("_linux"):
+        return 1
+    if tag == "arm64_linux":
+        return 2
+    return 3
+
+
 bottle_block = ""
 if bottles_path:
     try:
@@ -38,17 +49,19 @@ if bottles_path:
     except FileNotFoundError:
         entries = []
     if entries:
+        entries.sort(key=lambda entry: bottle_order(entry[0]))
         root_url = os.environ.get(
             "BOTTLE_ROOT_URL",
             f"https://github.com/maximusmakarov/deepseek_harness_rust/releases/download/v{version}",
         )
-        bottle_block = (
-            "  bottle do\n"
-            f'    root_url "{root_url}"\n'
-        )
+        # `brew audit --strict` wants the digest literals of one block aligned,
+        # so pad the "<tag>:" column to the widest tag.
+        tag_width = max(len(entry[0]) for entry in entries) + 1
+        bottle_block = "  bottle do\n"
+        bottle_block += f'    root_url "{root_url}"\n'
         for entry in entries:
-            bottle_block += f'    sha256 {entry[0]}: "{entry[1]}"\n'
-        bottle_block += "  end\n"
+            bottle_block += f'    sha256 {(entry[0] + ":"):<{tag_width}} "{entry[1]}"\n'
+        bottle_block += "  end\n\n"
 
 template = open(template_path).read()
 replacements = {

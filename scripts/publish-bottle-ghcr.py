@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Publish a Homebrew bottle to GHCR using the OCI layout brew expects.
+"""Publish Homebrew bottles to GHCR using the OCI layout brew expects.
 
-The image path is <owner>/<repo>/<formula>; each version is an OCI index
-tagged <version>. Child manifests carry sh.brew.bottle.digest,
-sh.brew.tab and org.opencontainers.image.ref.name annotations.
+The image path is <owner>/<repo>/<formula>. One OCI index per version is tagged
+<version>; it holds one child manifest per bottle platform. Child manifests
+carry sh.brew.bottle.digest, sh.brew.tab and
+org.opencontainers.image.ref.name annotations.
+
+All bottles of a version are pushed together on purpose: the tag points at the
+index, so publishing platform by platform would replace the index each time and
+leave only the last platform installable.
 """
 
 import argparse
 import base64
 import hashlib
-import io
 import json
 import os
+import re
 import tarfile
 import urllib.error
 import urllib.parse
@@ -45,8 +50,25 @@ def receipt_from_bottle(path: str, version: str) -> str:
         return member.read().decode()
 
 
-def manifests(version: str, tag: str, bottle: bytes, receipt: str):
-    config_digest = sha256(EMPTY)
+def tag_from_filename(path: str, version: str) -> str:
+    """Derive the bottle tag from dshr--<version>.<tag>.bottle.tar.gz."""
+    base = os.path.basename(path)
+    match = re.fullmatch(
+        rf"dshr--{re.escape(version)}\.(?P<tag>[A-Za-z0-9_]+)\.bottle\.tar\.gz", base
+    )
+    if match is None:
+        raise SystemExit(
+            f"cannot derive a bottle tag from {base!r}; pass --tag explicitly"
+        )
+    return match.group("tag")
+
+
+def manifest(version: str, tag: str, bottle: bytes, receipt: str):
+    """Return (raw child manifest, index descriptor) for one platform."""
+    if tag not in PLATFORMS:
+        raise SystemExit(
+            f"unknown bottle tag {tag!r}; expected one of {', '.join(sorted(PLATFORMS))}"
+        )
     layer_digest = sha256(bottle)
     ref = f"{version}.{tag}"
     annotations = {
@@ -54,12 +76,12 @@ def manifests(version: str, tag: str, bottle: bytes, receipt: str):
         "sh.brew.bottle.digest": layer_digest.removeprefix("sha256:"),
         "sh.brew.tab": receipt,
     }
-    manifest = {
+    child = {
         "schemaVersion": 2,
         "mediaType": MANIFEST_MEDIA,
         "config": {
             "mediaType": EMPTY_MEDIA,
-            "digest": config_digest,
+            "digest": sha256(EMPTY),
             "size": len(EMPTY),
         },
         "layers": [
@@ -71,24 +93,46 @@ def manifests(version: str, tag: str, bottle: bytes, receipt: str):
         ],
         "annotations": annotations,
     }
-    raw_manifest = json.dumps(manifest, separators=(",", ":")).encode()
+    raw_child = json.dumps(child, separators=(",", ":")).encode()
     os_name, arch, os_version = PLATFORMS[tag]
     platform = {"architecture": arch, "os": os_name}
     if os_version:
         platform["os.version"] = os_version
     descriptor = {
         "mediaType": MANIFEST_MEDIA,
-        "digest": sha256(raw_manifest),
-        "size": len(raw_manifest),
+        "digest": sha256(raw_child),
+        "size": len(raw_child),
         "platform": platform,
         "annotations": annotations,
     }
-    index = {
+    return raw_child, descriptor
+
+
+def index(descriptors) -> bytes:
+    """Return the OCI index that lists every platform of one version."""
+    ordered = sorted(descriptors, key=lambda d: d["annotations"]["org.opencontainers.image.ref.name"])
+    body = {
         "schemaVersion": 2,
         "mediaType": INDEX_MEDIA,
-        "manifests": [descriptor],
+        "manifests": ordered,
     }
-    return raw_manifest, json.dumps(index, separators=(",", ":")).encode()
+    return json.dumps(body, separators=(",", ":")).encode()
+
+
+def collect(version: str, bottles, tags):
+    """Read the bottles and return [(tag, bottle bytes, raw child, descriptor)]."""
+    if tags is None:
+        tags = [tag_from_filename(path, version) for path in bottles]
+    seen = set()
+    entries = []
+    for tag, path in zip(tags, bottles, strict=True):
+        if tag in seen:
+            raise SystemExit(f"duplicate bottle tag {tag!r}")
+        seen.add(tag)
+        bottle = open(path, "rb").read()
+        raw_child, descriptor = manifest(version, tag, bottle, receipt_from_bottle(path, version))
+        entries.append((tag, bottle, raw_child, descriptor))
+    return entries
 
 
 def auth_token(registry: str, owner: str, repo: str, actor: str, token: str) -> str:
@@ -137,24 +181,22 @@ def ensure_blob(registry, base, token, data, digest):
     )
 
 
-def push(registry, owner, repo, version, tag, bottle_path, actor, token):
-    bottle = open(bottle_path, "rb").read()
-    receipt = receipt_from_bottle(bottle_path, version)
-    raw_manifest, raw_index = manifests(version, tag, bottle, receipt)
+def push(registry, owner, repo, version, entries, actor, token):
     base = f"{registry}/v2/{owner}/{repo}/dshr"
     bearer = auth_token(registry, owner, repo, actor, token)
     ensure_blob(registry, base, bearer, EMPTY, sha256(EMPTY))
-    ensure_blob(registry, base, bearer, bottle, sha256(bottle))
-    manifest_digest = sha256(raw_manifest)
-    status, _, _ = request(
-        "PUT",
-        f"{base}/manifests/{manifest_digest}",
-        bearer,
-        data=raw_manifest,
-        content_type=MANIFEST_MEDIA,
-    )
-    if status not in (200, 201):
-        raise SystemExit(f"manifest push failed: {status}")
+    for tag, bottle, raw_child, _ in entries:
+        ensure_blob(registry, base, bearer, bottle, sha256(bottle))
+        status, _, _ = request(
+            "PUT",
+            f"{base}/manifests/{sha256(raw_child)}",
+            bearer,
+            data=raw_child,
+            content_type=MANIFEST_MEDIA,
+        )
+        if status not in (200, 201):
+            raise SystemExit(f"manifest push failed for {tag}: {status}")
+    raw_index = index([descriptor for _, _, _, descriptor in entries])
     status, _, _ = request(
         "PUT",
         f"{base}/manifests/{version}",
@@ -164,14 +206,24 @@ def push(registry, owner, repo, version, tag, bottle_path, actor, token):
     )
     if status not in (200, 201):
         raise SystemExit(f"index push failed: {status}")
-    print(f"ghcr.io/{owner}/{repo}/dshr:{version} ({tag})")
+    platforms = ",".join(sorted(tag for tag, *_ in entries))
+    print(f"ghcr.io/{owner}/{repo}/dshr:{version} ({platforms})")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", required=True)
-    parser.add_argument("--tag", required=True)
-    parser.add_argument("--bottle", required=True)
+    parser.add_argument(
+        "--bottle",
+        required=True,
+        action="append",
+        help="bottle tarball; repeat for every platform of the version",
+    )
+    parser.add_argument(
+        "--tag",
+        action="append",
+        help="bottle tag per --bottle in order; inferred from the file name when omitted",
+    )
     parser.add_argument("--registry", default="https://ghcr.io")
     parser.add_argument("--owner", required=True)
     parser.add_argument("--repo", required=True)
@@ -181,16 +233,19 @@ def main():
     parser.add_argument("--push", action="store_true")
     args = parser.parse_args()
 
-    bottle = open(args.bottle, "rb").read()
-    receipt = receipt_from_bottle(args.bottle, args.version)
-    raw_manifest, raw_index = manifests(args.version, args.tag, bottle, receipt)
+    if args.tag is not None and len(args.tag) != len(args.bottle):
+        parser.error("--tag must be repeated once per --bottle, or omitted")
+    entries = collect(args.version, args.bottle, args.tag)
+    raw_index = index([descriptor for _, _, _, descriptor in entries])
     if args.dry_run:
         os.makedirs(args.dry_run, exist_ok=True)
-        with open(os.path.join(args.dry_run, "manifest.json"), "wb") as handle:
-            handle.write(raw_manifest)
-        with open(os.path.join(args.dry_run, "index.json"), "wb") as handle:
+        for tag, _, raw_child, _ in entries:
+            with open(os.path.join(args.dry_run, f"manifest-{tag}.json"), "wb") as handle:
+                handle.write(raw_child)
+        path = os.path.join(args.dry_run, "index.json")
+        with open(path, "wb") as handle:
             handle.write(raw_index)
-        print(os.path.join(args.dry_run, "index.json"))
+        print(path)
         return
     if not args.push:
         parser.error("pass --push or --dry-run")
@@ -201,8 +256,7 @@ def main():
         args.owner,
         args.repo,
         args.version,
-        args.tag,
-        args.bottle,
+        entries,
         args.actor,
         args.token,
     )

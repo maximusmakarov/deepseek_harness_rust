@@ -86,7 +86,11 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/bottles
           scripts/package-bottle.sh 0.0.0 x86_64_linux target/debug/dshr /tmp/bottles
-          python3 scripts/test-publish-bottle-ghcr.py /tmp/bottles/*.bottle.tar.gz 0.0.0 x86_64_linux
+          scripts/package-bottle.sh 0.0.0 aarch64_linux target/debug/dshr /tmp/bottles
+          python3 scripts/test-publish-bottle-ghcr.py 0.0.0 \
+            x86_64_linux /tmp/bottles/dshr--0.0.0.x86_64_linux.bottle.tar.gz \
+            aarch64_linux /tmp/bottles/dshr--0.0.0.aarch64_linux.bottle.tar.gz
+          scripts/test-sync-homebrew-tap.sh
 
       # AppContainer is opt-in and deferred by decision (docs/TECH-DEBT.md): it
       # needs a real Windows host and its setup is known to hang on hosted

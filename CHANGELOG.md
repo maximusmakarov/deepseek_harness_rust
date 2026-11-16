@@ -10,6 +10,24 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Release path: the GHCR bottle publisher now writes one OCI index per version
+  containing every platform; per-bottle pushes replaced the index and left only
+  the last platform installable. `bottles-ghcr` pushes all bottles in one call.
+- Release path: the Linux desktop job uploaded only `dist/*.tar.gz*`, so the
+  promised `.deb` never reached the release or `SHA256SUMS`; it is uploaded now.
+- Release path: `publish` waits for `bottles-ghcr` but still ships the binaries
+  when the package push fails, and only renders `dshr-ghcr.rb` after a successful
+  push.
+- Release path: `workflow_dispatch` with a `version` input runs build, desktop
+  and bottle jobs without publishing (no tag, no release), so the desktop-release
+  path can be verified before the first tag.
+- Release path: the rendered Homebrew formulas pass `brew audit --strict` (brew
+  7.0.13): bottles are ordered ARM-macOS/Intel-macOS/ARM-Linux/Intel-Linux,
+  digests are aligned, and the redundant `version` line is gone (brew scans it
+  from the URL).
+- Release path: `scripts/release-version.sh` normalises the version, and
+  `scripts/sync-homebrew-tap.sh` installs the GHCR formula into a tap checkout
+  with `root_url`/bottle-`sha256`/`ruby -c` validation.
 - Plugins: experimental `dsh.client.runtime` — a package-relative classic script
   embedded into the sandboxed host page and executed before the client bundle; the
   half may publish `window.__DSHR_MODULES__`, and module-table bundles

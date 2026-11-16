@@ -3,6 +3,15 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Dry run of the build/desktop/bottle jobs without creating a release: the
+  # publish job stays gated on a tag push. Used to exercise the desktop-release
+  # path when no tag can be pushed yet.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.1.0). No GitHub release is published."
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -11,6 +20,8 @@ env:
   SOURCE_DATE_EPOCH: "0"
   CARGO_INCREMENTAL: "0"
   RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=/dshr --remap-path-prefix=${{ github.workspace }}/target=/target -C debuginfo=0"
+  # Set by workflow_dispatch only; a tag push falls back to the tag name.
+  DSHR_VERSION: ${{ inputs.version }}
 
 jobs:
   build:
@@ -66,7 +77,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           scripts/package-release.sh "$version" "${{ matrix.target }}" \
             "target/${{ matrix.target }}/release/${{ matrix.bin }}"
           if [ -n "${{ matrix.bottle }}" ]; then
@@ -116,7 +127,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           scripts/package-desktop.sh "$version"
       - name: notarize
         if: env.APPLE_ID != '' && env.DSHR_CODESIGN_IDENTITY != ''
@@ -126,7 +137,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           ditto -c -k --keepParent dist/dshr.app "dist/dshr-$version-macos.zip"
           shasum -a 256 "dist/dshr-$version-macos.zip" > "dist/dshr-$version-macos.zip.sha256"
           scripts/package-dmg.sh "$version"
@@ -159,7 +170,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           name="dshr-$version-linux-desktop"
           mkdir -p "dist/stage/$name"
           cp target/release/dshr target/release/dshr-desktop "dist/stage/$name/"
@@ -171,7 +182,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dist-desktop-linux
-          path: dist/*.tar.gz*
+          path: |
+            dist/*.tar.gz*
+            dist/*.deb*
           if-no-files-found: error
 
   desktop-windows:
@@ -193,7 +206,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           name="dshr-$version-windows-desktop"
           mkdir -p "dist/stage/$name"
           cp target/release/dshr.exe target/release/dshr-desktop.exe "dist/stage/$name/"
@@ -208,6 +221,8 @@ jobs:
   bottles-ghcr:
     name: bottles (ghcr)
     needs: [build]
+    # A dry run builds the bottles but does not touch the package registry.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -225,21 +240,31 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           repo="${GITHUB_REPOSITORY#*/}"
           shopt -s nullglob
-          for bottle in dist/*.bottle.tar.gz; do
-            name="$(basename "$bottle")"
-            tag="${name#dshr--$version.}"
-            tag="${tag%.bottle.tar.gz}"
-            python3 scripts/publish-bottle-ghcr.py --version "$version" --tag "$tag" \
-              --bottle "$bottle" --owner "$owner" --repo "$repo" --push
+          bottles=(dist/*.bottle.tar.gz)
+          if [ "${#bottles[@]}" -eq 0 ]; then
+            echo "::error::no bottles were produced; refusing to publish an empty index"
+            exit 1
+          fi
+          args=()
+          for bottle in "${bottles[@]}"; do
+            args+=(--bottle "$bottle")
           done
+          # One index per version, with every platform in it. Pushing bottle by
+          # bottle would replace the tag each time and leave only the last
+          # platform installable.
+          python3 scripts/publish-bottle-ghcr.py --version "$version" \
+            "${args[@]}" --owner "$owner" --repo "$repo" --push
 
   publish:
     name: publish release
-    needs: [build, desktop, desktop-linux, desktop-windows]
+    needs: [build, desktop, desktop-linux, desktop-windows, bottles-ghcr]
+    # Binaries ship even when the GHCR push failed; the GHCR formula is rendered
+    # only when the bottles really landed (see "render ghcr formula").
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.build.result == 'success' && needs.desktop.result == 'success' && needs.desktop-linux.result == 'success' && needs.desktop-windows.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -266,7 +291,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           name="dshr-$version-x86_64-unknown-linux-gnu"
           mkdir -p bootstrap
           tar -xzf "dist/$name.tar.gz" -C bootstrap
@@ -278,15 +303,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          version="$(scripts/release-version.sh)"
           if [ -s dist/BOTTLES ]; then
-            BOTTLES_FILE=dist/BOTTLES scripts/render-formula.sh \
-              "$version" dist/SHA256SUMS dist/dshr.rb
-            BOTTLES_FILE=dist/BOTTLES BOTTLE_ROOT_URL="https://ghcr.io/v2/${GITHUB_REPOSITORY_OWNER,,}/${GITHUB_REPOSITORY#*/}" \
-              scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr-ghcr.rb
-          else
-            scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr.rb
+            export BOTTLES_FILE=dist/BOTTLES
           fi
+          scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr.rb
+      - name: render ghcr formula
+        if: needs.bottles-ghcr.result == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(scripts/release-version.sh)"
+          BOTTLES_FILE=dist/BOTTLES \
+            BOTTLE_ROOT_URL="https://ghcr.io/v2/${GITHUB_REPOSITORY_OWNER,,}/${GITHUB_REPOSITORY#*/}" \
+            scripts/render-formula.sh "$version" dist/SHA256SUMS dist/dshr-ghcr.rb
       - uses: softprops/action-gh-release@v2
         with:
           files: |
