@@ -16,6 +16,9 @@
   spawn or stop a server, and skips provider setup. Local supervision stays
   available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
   `--local`.
+- Settings: the web UI settings screen is now a sidebar (Account / Models /
+  Web search / Plugins) instead of one long page, matching the official app;
+  `#settings` opens it directly.
 - Settings: the web UI owns Models, Web search and Plugins (a `#settings` deep
   link opens them); a new `search` config section and `/v1/config/search`
   endpoint store the Brave key and re-register `web_search` live. The desktop

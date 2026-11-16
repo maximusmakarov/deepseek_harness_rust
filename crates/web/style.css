@@ -87,3 +87,39 @@ dialog:has(.plugin-frame) { max-width: 760px; width: 760px; }
 dialog.inspector { position: fixed; inset: 8vh auto auto 50%; transform: translateX(-50%); width: min(760px, 92vw); max-height: 76vh; overflow: auto; z-index: 45; background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
 .file-content, .call-json { white-space: pre-wrap; max-height: 56vh; overflow: auto; font-family: ui-monospace, monospace; font-size: 12px; }
 [data-region="composer.chain"], [data-region="chat.node"], [data-region="chat.user.before"] { display: block; }
+
+.settings {
+    display: flex;
+    gap: 16px;
+    min-width: 540px;
+    min-height: 260px;
+}
+.settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 130px;
+    border-right: 1px solid var(--border, #333);
+    padding-right: 12px;
+}
+.settings-nav button {
+    text-align: left;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: inherit;
+    cursor: pointer;
+}
+.settings-nav button:hover {
+    border-color: var(--border, #333);
+}
+.settings-nav button.active {
+    background: var(--accent-soft, #2a2a2a);
+    border-color: var(--border, #333);
+    font-weight: 600;
+}
+.settings-body {
+    flex: 1;
+    min-width: 320px;
+}

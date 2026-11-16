@@ -2511,6 +2511,7 @@ fn App() -> impl IntoView {
         })
         .unwrap_or_else(|| "dark".to_owned());
     let settings_open = RwSignal::new(false);
+    let settings_tab = RwSignal::new("account".to_owned());
     let settings_provider = RwSignal::new(String::new());
     let settings_model = RwSignal::new(String::new());
     let settings_base_url = RwSignal::new(String::new());
@@ -3461,6 +3462,7 @@ fn App() -> impl IntoView {
             <button on:click=move |_| plugins_open.set(true)>"Plugins"</button>
             <button on:click=move |_| {
                 settings_open.set(true);
+                settings_tab.set("account".into());
                 load_settings();
                 load_search();
             }>"Settings"</button>
@@ -3571,69 +3573,104 @@ fn App() -> impl IntoView {
         <SlotRegion region="shell.overlay" />
         <RegistryFrames registry_frames=registry_frames clients=clients />
         {move || settings_open.get().then(|| view! {
-            <dialog open>
+            <dialog open class="settings-dialog">
                 <SlotRegion region="settings.icon" />
                 <h3>"Settings"</h3>
-                <h4>"Account"</h4>
-                <p class="tool">"Ключи и вход в аккаунт DeepSeek — в Settings десктопа (там есть Sign in with DeepSeek и desktop.env). В браузере сервер читает ключи из окружения."</p>
-                <h4>"Models"</h4>
-                <div class="row">
-                    <label>"Route"</label>
-                    <select
-                        prop:value=move || settings_provider.get()
-                        on:change=move |event| settings_provider.set(event_target_value(&event))
-                    >
-                        {move || settings_routes.get().into_iter().map(|route| {
-                            let label = route.clone();
-                            view! { <option value=route>{label}</option> }
-                        }).collect_view()}
-                    </select>
-                </div>
-                <div class="row">
-                    <label>"Model"</label>
-                    <input
-                        prop:value=move || settings_model.get()
-                        on:input=move |event| settings_model.set(event_target_value(&event))
-                    />
-                </div>
-                <div class="row">
-                    <label>"Base URL"</label>
-                    <input
-                        placeholder="optional, https://…"
-                        prop:value=move || settings_base_url.get()
-                        on:input=move |event| settings_base_url.set(event_target_value(&event))
-                    />
-                </div>
-                <SlotRegion
-                    region="settings.section"
-                    owner_props="{\"close\":{\"$callback\":\"settings.section.close\"}}".to_string()
-                />
-                <h4>"Web search"</h4>
-                <div class="row">
-                    <label>"Brave Search API key"</label>
-                    <input
-                        placeholder="leave empty to keep the saved key"
-                        prop:value=move || settings_brave.get()
-                        on:input=move |event| settings_brave.set(event_target_value(&event))
-                    />
-                </div>
-                <p class="tool">{move || settings_search.get()}</p>
-                <div class="row">
-                    <button on:click=move |_| save_search()>"Save key"</button>
-                    <button on:click=move |_| load_search()>"Refresh"</button>
-                </div>
-                <h4>"Plugins"</h4>
-                <p class="tool">"Установка, включение и оценки Cordis-плагинов — в разделе Plugins."</p>
-                <div class="row">
-                    <button on:click=move |_| { settings_open.set(false); plugins_open.set(true); }>"Open Plugins"</button>
+                <div class="settings">
+                    <nav class="settings-nav">
+                        <button
+                            class:active=move || settings_tab.get() == "account"
+                            on:click=move |_| settings_tab.set("account".into())
+                        >"Account"</button>
+                        <button
+                            class:active=move || settings_tab.get() == "models"
+                            on:click=move |_| { settings_tab.set("models".into()); load_settings(); }
+                        >"Models"</button>
+                        <button
+                            class:active=move || settings_tab.get() == "search"
+                            on:click=move |_| { settings_tab.set("search".into()); load_search(); }
+                        >"Web search"</button>
+                        <button
+                            class:active=move || settings_tab.get() == "plugins"
+                            on:click=move |_| settings_tab.set("plugins".into())
+                        >"Plugins"</button>
+                    </nav>
+                    <div class="settings-body">
+                        {move || (settings_tab.get() == "account").then(|| view! {
+                            <div>
+                                <p class="tool">"Ключи и вход в аккаунт DeepSeek — в Settings десктопа (Sign in with DeepSeek, desktop.env). В браузере сервер читает ключи из окружения."</p>
+                            </div>
+                        })}
+                        {move || (settings_tab.get() == "models").then(|| view! {
+                            <div>
+                                <div class="row">
+                                    <label>"Route"</label>
+                                    <select
+                                        prop:value=move || settings_provider.get()
+                                        on:change=move |event| settings_provider.set(event_target_value(&event))
+                                    >
+                                        {move || settings_routes.get().into_iter().map(|route| {
+                                            let label = route.clone();
+                                            view! { <option value=route>{label}</option> }
+                                        }).collect_view()}
+                                    </select>
+                                </div>
+                                <div class="row">
+                                    <label>"Model"</label>
+                                    <input
+                                        prop:value=move || settings_model.get()
+                                        on:input=move |event| settings_model.set(event_target_value(&event))
+                                    />
+                                </div>
+                                <div class="row">
+                                    <label>"Base URL"</label>
+                                    <input
+                                        placeholder="optional, https://…"
+                                        prop:value=move || settings_base_url.get()
+                                        on:input=move |event| settings_base_url.set(event_target_value(&event))
+                                    />
+                                </div>
+                                <div class="row">
+                                    <button on:click=move |_| save_settings()>"Save"</button>
+                                </div>
+                            </div>
+                        })}
+                        {move || (settings_tab.get() == "search").then(|| view! {
+                            <div>
+                                <div class="row">
+                                    <label>"Brave Search API key"</label>
+                                    <input
+                                        placeholder="leave empty to keep the saved key"
+                                        prop:value=move || settings_brave.get()
+                                        on:input=move |event| settings_brave.set(event_target_value(&event))
+                                    />
+                                </div>
+                                <p class="tool">{move || settings_search.get()}</p>
+                                <div class="row">
+                                    <button on:click=move |_| save_search()>"Save key"</button>
+                                    <button on:click=move |_| load_search()>"Refresh"</button>
+                                </div>
+                            </div>
+                        })}
+                        {move || (settings_tab.get() == "plugins").then(|| view! {
+                            <div>
+                                <p class="tool">"Установка, включение и оценки Cordis-плагинов — в разделе Plugins."</p>
+                                <div class="row">
+                                    <button on:click=move |_| { settings_open.set(false); plugins_open.set(true); }>"Open Plugins"</button>
+                                </div>
+                            </div>
+                        })}
+                        <SlotRegion
+                            region="settings.section"
+                            owner_props="{\"close\":{\"$callback\":\"settings.section.close\"}}".to_string()
+                        />
+                        <SlotRegion region="settings.action" />
+                    </div>
                 </div>
                 <p class="tool">{move || settings_status.get()}</p>
                 <div class="row">
-                    <button on:click=move |_| save_settings()>"Save"</button>
                     <button on:click=move |_| settings_open.set(false)>"Close"</button>
                 </div>
-                <SlotRegion region="settings.action" />
-                <p>"Ключи не вводятся в UI: они читаются из окружения (DEEPSEEK_API_KEY / OPENAI_API_KEY) или desktop.env."</p>
             </dialog>
         })}
         {move || file_preview.get().map(|preview| view! {
