@@ -10,6 +10,12 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Cordis compat: the sidecar answers the service probes real plugins make —
+  `loader`, `profileContext`, `workspaceRegistry`, `agentPresets`,
+  `credentials`, `jobs`, `sessionPersistence`, `sessionQuery`, `pluginPackages`,
+  `agentDefaultModel` and a fail-closed `approval` — with honest empty or
+  denial results instead of `undefined`. docs/PLUGINS.md now carries the
+  service-by-service support matrix.
 - TUI: `/help` lists built-in and plugin commands and `/name args` runs a
   `cmd__<plugin>__<name>` tool in the current session; plugin commands are now
   reachable from the agent, over HTTP and from the terminal. A nightly workflow

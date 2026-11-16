@@ -612,3 +612,88 @@ export default {
         "ok"
     );
 }
+
+/// Compatibility services answer honestly instead of leaving plugins with
+/// `undefined` (empty lists, fail-closed approval, ready loader).
+#[tokio::test]
+async fn compatibility_services_answer_honestly() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "services",
+      description: "compat services",
+      handler: async () => {
+        const loader = ctx.get("loader");
+        await loader.await();
+        const approval = await ctx.get("approval").request({ tool: "bash" });
+        return JSON.stringify({
+          loader: loader.loaded === true,
+          profile: ctx.get("profileContext").profile,
+          workspaces: ctx.get("workspaceRegistry").list().length,
+          presets: ctx.get("agentPresets").list(),
+          credentials: await ctx.get("credentials").list(),
+          jobs: ctx.get("jobs").list(),
+          search: await ctx.get("sessionQuery").search("x"),
+          packages: ctx.get("pluginPackages").list(),
+          approved: approval.approved,
+          decision: approval.decision,
+          defaultModel: ctx.get("agentDefaultModel").model,
+        });
+      },
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "compat".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect");
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cordis__compat__services")
+        .expect("services tool");
+    let ctx = ToolCtx {
+        cwd: dir.path().to_path_buf(),
+        session_id: SessionId::new(),
+        output_limit: 10_000,
+        spill_dir: dir.path().join("spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    let content = tool.execute(&ctx, json!({})).await.expect("call").content;
+    let value: serde_json::Value = serde_json::from_str(&content).expect("json");
+    assert_eq!(value["loader"], json!(true));
+    assert_eq!(value["workspaces"], json!(1));
+    assert_eq!(value["presets"], json!([]));
+    assert_eq!(value["credentials"], json!([]));
+    assert_eq!(value["jobs"], json!([]));
+    assert_eq!(value["search"], json!([]));
+    assert_eq!(value["packages"], json!([]));
+    assert_eq!(value["approved"], json!(false));
+    assert_eq!(value["decision"], json!("deny"));
+    assert_eq!(value["defaultModel"], json!(null));
+}

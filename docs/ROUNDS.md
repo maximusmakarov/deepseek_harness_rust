@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–125)
+# Журнал раундов паритета (1–126)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 421 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **470**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 422 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **471**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1893,6 +1893,28 @@ link-safety) и +5 интеграционных на локальном registry
 - Тесты: unit на разбор `/name args` и сопоставление `cmd__*` имён; expectrl-
   сценарий `tui_lists_commands_for_a_slash_input` проверяет `/help` в реальном
   терминале.
+
+## Раунд 126 — матрица сервисов и честные заглушки (16.11.2026)
+
+- Инвентаризация: по всем 11 плагинам набора собрано, какие сервисы они
+  запрашивают (`ctx.get(...)`/`ctx.<name>`) — `sessions`, `loader`,
+  `agentPresets`, `attachments`, `sessionPersistence`, `credentials`,
+  `approval`, `profileContext`, `llm`, `agents`, `jobs`, `sessionQuery`,
+  `pluginPackages`, `agentDefaultModel`, `workspaceRegistry` и другие.
+- Добавлены честные реализации/заглушки: `loader` (`loaded: true`, `await()`
+  — no-op), `profileContext`, `workspaceRegistry` (один workspace — cwd сессии),
+  `agentPresets`/`pluginPackages`/`jobs`/`sessionPersistence`/`sessionQuery`
+  (пустые результаты), `credentials` (пусто: keyring живёт в хосте),
+  `approval` (fail-closed `deny`), `agentDefaultModel` (`null`). Это убирает
+  `TypeError`-падения у плагинов, которые читают свойства сервиса сразу.
+- Матрица «сервис → статус → что отдаёт» записана в
+  [PLUGINS.md §Матрица сервисов](PLUGINS.md#матрица-сервисов); отсутствующие
+  сервисы (`llm`, `conversation`, `attachments`, `inputTriggers`, `spillStore`,
+  `sandboxPolicy`, `directoryPicker`, `configEditor`, `connection`) перечислены
+  явно, чтобы не создавать иллюзию поддержки.
+- Регрессия не появилась: `dsh-remote` — 21 инструмент, `dsh-mnemon` — 3,
+  `dsh-plugin-debugging` — 8, `dsh-plugin-notify` — 2; предупреждений нет.
+- Тест `compatibility_services_answer_honestly` проверяет формы всех заглушек.
 
 ## Формализация и каталог тестов (14.11.2026)
 

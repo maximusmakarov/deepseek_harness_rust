@@ -249,6 +249,34 @@ rw_connect…»). Граница на 119: `dsh-mnemon@0.5.46` ставится 
 падает на отсутствующем сервисе `subagents` и на своём обращении к
 `configForms.get(...).writable` — это следующие инкременты шима, а не резолвера.
 
+## Матрица сервисов
+
+Что sidecar отдаёт плагинам через `ctx.get('<name>')` / `ctx.<name>`. «Честная
+заглушка» означает: сервис существует, возвращает пустой/отказной результат и не
+притворяется, что данные есть.
+
+| Сервис | Статус | Что отдаёт |
+|---|---|---|
+| `sessions`, `sessionProjections` | работает | снимок сессий сервера + живой фид (C1.1/C5.3) |
+| `configForms` | работает | ленивые формы, relay на серверный store (C1.2/C5.6) |
+| `pluginManager` | работает | фасад над `/v1/plugins/*` (C5.5) |
+| `webServer` | работает | loopback-маршруты плагина, прокси сервера (C1) |
+| `slots`, `locale` | работает | реестр слотов/локаль моста (C-lite) |
+| `agents` | работает | мост к дереву агентов хоста (`/v1/internal/agents`) |
+| `settings` | работает | послойное разрешение + персист (`<home>/cordis/settings.json`) |
+| `commands` | работает | реестр + инструменты `cmd__*` + `/v1/commands` + TUI `/name` |
+| `subagents` | работает (реестр) | провайдеры + события; `start`/`startActivation` нет по построению |
+| `loader` | честная заглушка | `loaded: true`, `await()` — no-op |
+| `profileContext` | честная заглушка | профиль, `cwd`, home |
+| `workspaceRegistry` | честная заглушка | один workspace — cwd сессии |
+| `agentPresets`, `pluginPackages`, `jobs`, `sessionPersistence`, `sessionQuery` | честная заглушка | пустые списки/поиск |
+| `credentials` | честная заглушка | пусто: в sidecar нет keyring (секреты живут в хосте) |
+| `approval` | честная заглушка | fail-closed `deny`: в sidecar некому спрашивать |
+| `agentDefaultModel` | честная заглушка | `null` — модель выбирает хост |
+| `fs` | работает (гранты) | чтение/запись/`readdir` в пределах workspace + grants |
+| `exec`, `net` | отказ | capability-шина бросает ошибку |
+| `llm`, `conversation`, `attachments`, `inputTriggers`, `spillStore`, `sandboxPolicy`, `directoryPicker`, `configEditor`, `connection` | нет | `undefined`; плагины деградируют по своим проверкам |
+
 ## Cordis hot reload
 
 Набор плагинов — это живое множество, а не снимок на старте. `dshr serve`

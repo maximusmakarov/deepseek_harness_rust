@@ -896,6 +896,86 @@ const agentsService = {
   getProvider: (name) => subagentProviders.get(String(name)),
 };
 
+// --- Compatibility services ------------------------------------------------
+// Plugins probe `ctx.get(<name>)` and degrade when it is undefined, but many
+// read properties immediately. These services answer honestly: an empty list or
+// a fail-closed denial instead of a `TypeError`, and each one is documented in
+// docs/PLUGINS.md §"Матрица сервисов".
+const profileHome = hostBridgeFile ? path.dirname(hostBridgeFile) : root;
+
+const loaderService = {
+  loaded: true,
+  pending: false,
+  await: async () => {},
+  whenReady: async () => {},
+};
+
+const profileContextService = {
+  profile: process.env.DSHR_PROFILE ?? "default",
+  cwd: root,
+  home: profileHome,
+  workspace: root,
+};
+
+const workspaceRegistryService = {
+  current: () => root,
+  list: () => [root],
+  get: (value) => (String(value) === root || value === undefined ? root : undefined),
+  roots: () => [root],
+};
+
+// No presets, credentials, jobs or persistence are reachable from the sidecar:
+// empty results keep plugins loadable without pretending to have data.
+const agentPresetsService = {
+  list: () => [],
+  get: () => undefined,
+};
+
+const credentialsServiceStub = {
+  get: async () => undefined,
+  list: async () => [],
+  has: async () => false,
+};
+
+const jobsService = {
+  list: () => [],
+  get: () => undefined,
+  output: async () => undefined,
+};
+
+const sessionPersistenceService = {
+  list: async () => [],
+  read: async () => undefined,
+  save: async () => undefined,
+};
+
+const sessionQueryService = {
+  search: async () => [],
+  list: () => [],
+};
+
+const pluginPackagesService = {
+  list: () => [],
+  get: () => undefined,
+};
+
+// Approval is fail-closed in the sidecar: there is no human to ask here.
+const approvalService = {
+  request: async (request) => ({
+    approved: false,
+    decision: "deny",
+    reason: "the dshr sidecar cannot prompt for approval",
+    request,
+  }),
+  interactive: false,
+};
+
+const agentDefaultModelService = {
+  provider: null,
+  model: null,
+  get: () => ({ provider: null, model: null }),
+};
+
 // `commands` service: plugin slash-commands. The sidecar keeps the registry and
 // runs handlers on demand; wiring them into the host UI is a later increment.
 const commandsRegistry = new Map();
@@ -1032,6 +1112,17 @@ const serviceMap = {
   agents: agentsService,
   commands: commandsService,
   settings: settingsService,
+  loader: loaderService,
+  profileContext: profileContextService,
+  workspaceRegistry: workspaceRegistryService,
+  agentPresets: agentPresetsService,
+  credentials: credentialsServiceStub,
+  jobs: jobsService,
+  sessionPersistence: sessionPersistenceService,
+  sessionQuery: sessionQueryService,
+  pluginPackages: pluginPackagesService,
+  approval: approvalService,
+  agentDefaultModel: agentDefaultModelService,
 };
 
 const ctx = {
@@ -1046,6 +1137,17 @@ const ctx = {
   agents: agentsService,
   commands: commandsService,
   settings: settingsService,
+  loader: loaderService,
+  profileContext: profileContextService,
+  workspaceRegistry: workspaceRegistryService,
+  agentPresets: agentPresetsService,
+  credentials: credentialsServiceStub,
+  jobs: jobsService,
+  sessionPersistence: sessionPersistenceService,
+  sessionQuery: sessionQueryService,
+  pluginPackages: pluginPackagesService,
+  approval: approvalService,
+  agentDefaultModel: agentDefaultModelService,
   webServer,
   configForms: configFormsService,
   // Reference fiber helper: run the callback only when every dependency exists.
