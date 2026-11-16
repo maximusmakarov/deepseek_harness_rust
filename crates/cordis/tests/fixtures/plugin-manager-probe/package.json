@@ -1,0 +1,7 @@
+{
+  "name": "@dshr-fixtures/plugin-manager-probe",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "plugin.mjs"
+}

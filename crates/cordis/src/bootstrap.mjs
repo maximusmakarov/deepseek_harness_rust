@@ -622,12 +622,50 @@ const sessionProjectionsService = {
     },
 };
 
+// ---------------------------------------------------------------------------
+// C5.5 `pluginManager` host service: a thin facade over the server's plugin
+// endpoints, authenticated with the per-run internal token from the host bridge.
+// The upstream manager is pnpm-backed; dshr reuses the CLI it already ships
+// (install/remove/enable/disable run in the server process), so a plugin sees one
+// asynchronous contract instead of driving package managers itself.
+// ---------------------------------------------------------------------------
+async function pluginManagerCall(method, path, body) {
+  const bridge = await readHostBridge();
+  if (!bridge) return { ok: false, error: "no-host-bridge" };
+  try {
+    const response = await fetch(bridge.url + path, {
+      method,
+      headers: {
+        "x-dshr-internal-token": bridge.token,
+        "content-type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return { ok: false, error: "status " + response.status };
+    return await response.json();
+  } catch (error) {
+    return { ok: false, error: String(error) };
+  }
+}
+
+const pluginManagerService = {
+  list: () => pluginManagerCall("GET", "/v1/plugins/installed"),
+  listBundles: () => pluginManagerCall("GET", "/v1/plugins/installed"),
+  status: () => pluginManagerCall("GET", "/v1/plugins/status"),
+  setPluginEnabled: (name, enabled) =>
+    pluginManagerCall("POST", "/v1/plugins/toggle", { name, enabled: Boolean(enabled) }),
+  installBundle: (spec) => pluginManagerCall("POST", "/v1/plugins/install", { name: String(spec) }),
+  removeBundle: (name) => pluginManagerCall("POST", "/v1/plugins/remove", { name: String(name) }),
+};
+
 const serviceMap = {
   webServer,
   credentials: credentialsService,
   sessions: sessionsService,
   sessionProjections: sessionProjectionsService,
   configForms: configFormsService,
+  pluginManager: pluginManagerService,
 };
 
 const ctx = {

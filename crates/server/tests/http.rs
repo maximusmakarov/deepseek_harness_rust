@@ -699,3 +699,38 @@ async fn the_public_session_feed_requires_the_token_and_pushes_sessions() {
     assert!(text.contains("event: session"), "{text}");
     assert!(text.contains(&id), "{text}");
 }
+
+#[tokio::test]
+async fn plugin_endpoints_accept_the_internal_bridge_token() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state_with_bridge(dir.path(), Some("service-secret")));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/plugins/installed")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/v1/plugins/installed")
+                .header("x-dshr-internal-token", "service-secret")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .expect("body");
+    let value: Value = serde_json::from_slice(&bytes).expect("json");
+    assert!(value["plugins"].is_array(), "{value}");
+}

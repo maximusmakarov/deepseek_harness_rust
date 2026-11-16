@@ -409,3 +409,86 @@ async fn reload_recovers_after_the_sidecar_crashes() {
     assert_eq!(call(&registry, &echo).await, "alive");
     assert!(manager.statuses()[0].generation > generation);
 }
+
+/// Minimal HTTP stub: the sidecar's `pluginManager` service talks to the same
+/// endpoints the Web UI uses, so the test only needs the routing answers.
+fn stub_http_server() -> (String, std::thread::JoinHandle<()>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("addr");
+    let handle = std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut buffer = [0_u8; 4096];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
+            let (content_type, body) = if path.starts_with("/v1/plugins/installed") {
+                (
+                    "application/json",
+                    r#"{"plugins":[{"name":"probe","enabled":true}]}"#.to_owned(),
+                )
+            } else if path.starts_with("/v1/plugins/toggle") {
+                (
+                    "application/json",
+                    r#"{"ok":true,"output":"toggled"}"#.to_owned(),
+                )
+            } else if path.starts_with("/v1/internal/session-snapshot") {
+                ("application/json", r#"{"sessions":[]}"#.to_owned())
+            } else if path.starts_with("/v1/internal/session-events") {
+                ("text/event-stream", String::new())
+            } else {
+                ("application/json", "{}".to_owned())
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    (format!("http://{address}"), handle)
+}
+
+#[tokio::test]
+async fn the_plugin_manager_service_reaches_the_server_endpoints() {
+    if !node_available() {
+        eprintln!("node is not installed; skipping Cordis manager test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (url, _server) = stub_http_server();
+    // The manager points DSHR_HOST_BRIDGE at `<home>/cordis/host.json`.
+    std::fs::create_dir_all(dir.path().join("cordis")).expect("cordis dir");
+    let host = dir.path().join("cordis").join("host.json");
+    std::fs::write(
+        &host,
+        json!({"url": url, "token": "internal-test"}).to_string(),
+    )
+    .expect("host bridge");
+
+    let registry = Arc::new(ToolRegistry::new());
+    let manager = CordisManager::new(
+        Arc::clone(&registry),
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        ToolFilter::default(),
+    );
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugin-manager-probe");
+    let probe = CordisPluginSpec {
+        name: "probe".to_owned(),
+        entry: fixture.join("plugin.mjs"),
+        root: fixture,
+        env: Default::default(),
+        grants: CordisGrants::default(),
+    };
+    manager.start(probe).await.expect("start");
+    let list = format!("{TOOL_PREFIX}probe__plugin_manager_probe");
+    let output = call(&registry, &list).await;
+    assert!(output.contains("probe"), "{output}");
+
+    let toggle = format!("{TOOL_PREFIX}probe__plugin_manager_toggle");
+    let output = call(&registry, &toggle).await;
+    assert!(output.contains("toggled"), "{output}");
+    manager.stop("probe").await;
+}

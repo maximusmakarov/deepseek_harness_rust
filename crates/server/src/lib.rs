@@ -952,7 +952,7 @@ async fn install_plugin(
     headers: HeaderMap,
     Json(body): Json<InstallPlugin>,
 ) -> Result<Json<Value>, StatusCode> {
-    authorize(&state, &headers, None)?;
+    authorize_service(&state, &headers)?;
     if !valid_package_name(&body.name) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -985,7 +985,7 @@ async fn installed_plugins(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, StatusCode> {
-    authorize(&state, &headers, None)?;
+    authorize_service(&state, &headers)?;
     // Prefer the live supervisor: it also knows plugins added or toggled while
     // the server was running (the config watcher reconciles them).
     let plugins: Vec<Value> = match state.config.plugins.as_ref() {
@@ -1015,7 +1015,7 @@ async fn toggle_plugin(
     headers: HeaderMap,
     Json(body): Json<TogglePlugin>,
 ) -> Result<Json<Value>, StatusCode> {
-    authorize(&state, &headers, None)?;
+    authorize_service(&state, &headers)?;
     if !valid_plugin_name(&body.name) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1033,7 +1033,7 @@ async fn remove_plugin(
     headers: HeaderMap,
     Json(body): Json<RemovePlugin>,
 ) -> Result<Json<Value>, StatusCode> {
-    authorize(&state, &headers, None)?;
+    authorize_service(&state, &headers)?;
     if !valid_plugin_name(&body.name) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1449,6 +1449,15 @@ fn publish_session(state: &AppState, id: &str) {
     let _ = state
         .feed
         .send(json!({"type": "session", "session": entry}));
+}
+
+/// C5.5: service calls from a plugin host half carry the per-run internal token
+/// instead of the user's bearer token.
+fn authorize_service(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
+    if state.config.internal_token.is_some() && internal_token_matches(state, headers).is_ok() {
+        return Ok(());
+    }
+    authorize(state, headers, None)
 }
 
 fn internal_token_matches(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {

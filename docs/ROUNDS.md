@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–110)
+# Журнал раундов паритета (1–111)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 371 root-тест (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **420**, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 373 root-теста (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **422**, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1145,6 +1145,29 @@ streaming-прокси.
   - Проверки: session 6 (+1 backward-compat/round-trip), server 20 (+поля в
     фиде), agent/session-jsonl/acp зелёные, smoke **88/88**; итог root 371
     (+3 ignored). Дальше C5.5 `pluginManager`, C5.6 `settings`, C5.7 закрытие.
+
+- 111: **C5.5 — host-сервис `pluginManager`** (фаза C-full,
+  [ADR-042](adr/042-c-full-phase.md)). Плагин больше не обязан знать про CLI:
+  - `crates/cordis/src/bootstrap.mjs`: сервис `pluginManager` —
+    `list()`/`listBundles()`/`status()` (GET) и
+    `setPluginEnabled(name, enabled)`/`installBundle(spec)`/`removeBundle(name)`
+    (POST) через `http://<host>/v1/plugins/*` с per-run внутренним токеном из
+    `host.json` (таймаут 10 с, ошибки возвращаются как `{ok:false,error}`);
+  - `crates/server/src/lib.rs`: plugin-эндпоинты принимают
+    `x-dshr-internal-token` наравне с bearer
+    (`authorize_service`), поэтому host-половина не нуждается в
+    пользовательском токене;
+  - conformance-фикстура `crates/cordis/tests/fixtures/plugin-manager-probe`:
+    host-половина с инструментами `plugin_manager_probe` (list) и
+    `plugin_manager_toggle` (setPluginEnabled); тест `manager.rs` поднимает
+    stub-сервер, проверяет GET/POST и возвращаемые данные.
+  - Проверки: cordis **26+1+9+2** (manager +1), server **21** (+1 internal-token
+    на `/v1/plugins/installed`), smoke **88/88**; итог root 373 (+3 ignored).
+  - Границы (записаны): upstream `PluginManager` — pnpm-движок (bundle-патчи,
+    registry-планы, `allowBuilds`, version exemptions); dshr отдаёт фасад над
+    своими CLI-операциями, а не порт pnpm-менеджера. Осталось: C5.6
+    `settings`-движок (схема/слои/миграции вместо in-memory `configForms`) и
+    C5.7 закрытие фазы.
 
 ## Что осталось
 

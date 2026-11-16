@@ -569,6 +569,18 @@ conversation-слоты на узел. Оставшееся reference-расхо
 `select(ownerProps)` и реальные owner shares (`wide`, `message.action`,
 `ComposerChainProps`) реализованы в C4.1; store-seats — в C3.1.
 
+### Host-сервис `pluginManager` (C5.5)
+
+Host-половина получает `ctx.get('pluginManager')`: `list()`/`listBundles()` и
+`status()` читают реестр, `setPluginEnabled(name, enabled)`,
+`installBundle(spec)` и `removeBundle(name)` меняют его. Вызовы идут на
+серверные `/v1/plugins/*` с per-run `x-dshr-internal-token` из
+`<home>/cordis/host.json`; пользовательский bearer-токен плагину не выдаётся.
+Возвращается JSON сервера, ошибки — `{ok:false, error}`. Это **фасад** над
+CLI-операциями dshr (`plugin npm add/remove/enable/disable`), а не порт
+upstream `PluginManager`: bundle-патчи, registry-планы, `allowBuilds` и
+version-exemptions pnpm-движка не воспроизведены.
+
 ### Затенение встроенного рендера ядра (C5.1)
 
 Встроенный рендер `conversation.chat.node` — такая же запись keyed-ячейки, как
