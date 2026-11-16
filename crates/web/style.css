@@ -123,3 +123,149 @@ dialog.inspector { position: fixed; inset: 8vh auto auto 50%; transform: transla
     flex: 1;
     min-width: 320px;
 }
+
+/* ---- Models settings (port of the React ui-settings-models section) ------- */
+dialog.settings-dialog {
+    width: min(1040px, 96vw);
+    max-width: none;
+    max-height: 88vh;
+    overflow: auto;
+}
+.models-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 620px;
+    color: var(--fg);
+}
+.models-rows {
+    list-style: none;
+    margin: 6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.models-row {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.models-row-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.models-name {
+    font-weight: 600;
+}
+.models-tag {
+    font-size: 11px;
+    line-height: 16px;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+}
+.models-tag.active {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.models-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex: none;
+}
+.models-dot.ok { background: #2f9e44; }
+.models-dot.missing { background: #c92a2a; }
+.models-dot.unknown { background: var(--muted); }
+.models-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+.models-actions button,
+.models-editor button,
+.models-confirm button {
+    padding: 3px 9px;
+}
+.models-error {
+    color: #ff6b6b;
+    margin: 0;
+    font-size: 12px;
+}
+.models-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+}
+.models-editor {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.models-field {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+}
+.models-field label {
+    color: var(--muted);
+    font-size: 12px;
+}
+.models-field input {
+    min-width: 0;
+}
+.models-models-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+.models-model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.models-model-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1.4fr) minmax(100px, 1fr) 82px 82px auto auto auto auto;
+    gap: 6px;
+    align-items: center;
+}
+.models-model-row input {
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+}
+.models-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+}
+.models-check input {
+    width: auto;
+}
+.models-add {
+    align-items: center;
+    flex-wrap: wrap;
+}
+.models-add select {
+    min-width: 280px;
+}

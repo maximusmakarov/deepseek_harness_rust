@@ -1608,6 +1608,7 @@ dependencies = [
  "chrono",
  "dshr-agent",
  "dshr-compaction",
+ "dshr-config",
  "dshr-cordis",
  "dshr-core",
  "dshr-llm",

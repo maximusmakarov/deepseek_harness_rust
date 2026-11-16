@@ -1,5 +1,9 @@
 use std::cell::RefCell;
 
+mod models;
+
+use models::ModelsSettings;
+
 use gloo_net::http::Request;
 use std::collections::BTreeMap;
 use leptos::prelude::*;
@@ -78,16 +82,8 @@ struct SearchConfigResponse {
 #[derive(Clone, Debug, Deserialize)]
 struct ModelConfigResponse {
     #[serde(default)]
-    provider: String,
-    #[serde(default)]
     active_provider: String,
     model: String,
-    #[serde(default)]
-    base_url: Option<String>,
-    #[serde(default)]
-    routes: Vec<String>,
-    #[serde(default)]
-    note: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -2512,59 +2508,6 @@ fn App() -> impl IntoView {
         .unwrap_or_else(|| "dark".to_owned());
     let settings_open = RwSignal::new(false);
     let settings_tab = RwSignal::new("connection".to_owned());
-    let settings_provider = RwSignal::new(String::new());
-    let settings_model = RwSignal::new(String::new());
-    let settings_base_url = RwSignal::new(String::new());
-    let settings_routes = RwSignal::new(Vec::<String>::new());
-    let settings_status = RwSignal::new(String::new());
-    let load_settings = move || {
-        let value = token.get_untracked();
-        settings_status.set("loading…".into());
-        spawn_local(async move {
-            match get_json::<ModelConfigResponse>("/v1/config/model", &value).await {
-                Ok(config) => {
-                    // The editable route is the one from the config layer; fall
-                    // back to the first known route when the live process runs
-                    // something else (for example the replay provider).
-                    let provider = if config.provider.is_empty() {
-                        config.routes.first().cloned().unwrap_or_default()
-                    } else {
-                        config.provider
-                    };
-                    settings_provider.set(provider);
-                    settings_model.set(config.model);
-                    settings_base_url.set(config.base_url.unwrap_or_default());
-                    settings_routes.set(config.routes);
-                    settings_status.set(format!(
-                        "active: {} · {}",
-                        config.active_provider, config.note
-                    ));
-                }
-                Err(error) => settings_status.set(format!("error: {error}")),
-            }
-        });
-    };
-    let save_settings = move || {
-        let value = token.get_untracked();
-        let body = serde_json::json!({
-            "provider": settings_provider.get_untracked(),
-            "model": settings_model.get_untracked(),
-            "base_url": settings_base_url.get_untracked(),
-        });
-        spawn_local(async move {
-            match post_json::<Value>("/v1/config/model", &value, &body).await {
-                Ok(answer) => {
-                    let restart = answer["restart_required"].as_bool().unwrap_or(false);
-                    settings_status.set(if restart {
-                        "saved · restart `dshr serve` (или desktop), чтобы применить".into()
-                    } else {
-                        "saved".into()
-                    });
-                }
-                Err(error) => settings_status.set(format!("error: {error}")),
-            }
-        });
-    };
     let settings_brave = RwSignal::new(String::new());
     let settings_search = RwSignal::new(String::new());
     let load_search = move || {
@@ -2636,7 +2579,6 @@ fn App() -> impl IntoView {
     // Deep link used by the desktop shell: `#settings` opens this surface.
     {
         let open_settings = settings_open;
-        let load = load_settings;
         let load_s = load_search;
         let load_srv = load_server;
         Effect::new(move |_| {
@@ -2648,7 +2590,6 @@ fn App() -> impl IntoView {
                 .unwrap_or_default();
             if hash == "#settings" || search.contains("settings=1") {
                 open_settings.set(true);
-                load();
                 load_s();
                 load_srv();
             }
@@ -3489,7 +3430,6 @@ fn App() -> impl IntoView {
             <button on:click=move |_| {
                 settings_open.set(true);
                 settings_tab.set("connection".into());
-                load_settings();
                 load_search();
             }>"Settings"</button>
             <button on:click=move |_| {
@@ -3610,7 +3550,7 @@ fn App() -> impl IntoView {
                         >"Connection"</button>
                         <button
                             class:active=move || settings_tab.get() == "models"
-                            on:click=move |_| { settings_tab.set("models".into()); load_settings(); }
+                            on:click=move |_| settings_tab.set("models".into())
                         >"Models"</button>
                         <button
                             class:active=move || settings_tab.get() == "search"
@@ -3633,38 +3573,7 @@ fn App() -> impl IntoView {
                             </div>
                         })}
                         {move || (settings_tab.get() == "models").then(|| view! {
-                            <div>
-                                <div class="row">
-                                    <label>"Route"</label>
-                                    <select
-                                        prop:value=move || settings_provider.get()
-                                        on:change=move |event| settings_provider.set(event_target_value(&event))
-                                    >
-                                        {move || settings_routes.get().into_iter().map(|route| {
-                                            let label = route.clone();
-                                            view! { <option value=route>{label}</option> }
-                                        }).collect_view()}
-                                    </select>
-                                </div>
-                                <div class="row">
-                                    <label>"Model"</label>
-                                    <input
-                                        prop:value=move || settings_model.get()
-                                        on:input=move |event| settings_model.set(event_target_value(&event))
-                                    />
-                                </div>
-                                <div class="row">
-                                    <label>"Base URL"</label>
-                                    <input
-                                        placeholder="optional, https://…"
-                                        prop:value=move || settings_base_url.get()
-                                        on:input=move |event| settings_base_url.set(event_target_value(&event))
-                                    />
-                                </div>
-                                <div class="row">
-                                    <button on:click=move |_| save_settings()>"Save"</button>
-                                </div>
-                            </div>
+                            <ModelsSettings token=token />
                         })}
                         {move || (settings_tab.get() == "search").then(|| view! {
                             <div>
@@ -3699,7 +3608,6 @@ fn App() -> impl IntoView {
                         <SlotRegion region="settings.action" />
                     </div>
                 </div>
-                <p class="tool">{move || settings_status.get()}</p>
                 <div class="row">
                     <button on:click=move |_| settings_open.set(false)>"Close"</button>
                 </div>

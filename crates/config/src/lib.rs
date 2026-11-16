@@ -19,6 +19,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod models;
+
+pub use models::{
+    CATALOG, CatalogProvider, MODELS_VERSION, ModelEntry, ModelsDocument, ModelsError, Protocol,
+    ProviderProfile, ReasoningEfforts, ResolvedProvider, catalog_entry, known_route,
+};
+
 pub const CONFIG_VERSION: u32 = 1;
 
 /// Fully resolved configuration.

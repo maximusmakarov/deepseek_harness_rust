@@ -184,6 +184,9 @@ def run(args: argparse.Namespace) -> int:
             failures.append(label)
 
     try:
+        (home / "config.yaml").write_text(
+            "version: 1\nmodel:\n  provider: deepseek-account\n  name: deepseek-flash\n"
+        )
         smoke_server = start_serve(binary, home, workspace, serve_port, cassette)
         smoke_chrome = smoke.start_chrome(chrome, chrome_port, profile)
         dt = smoke.DevTools(smoke.page_target(chrome_port))
@@ -295,7 +298,8 @@ def run(args: argparse.Namespace) -> int:
         messages = evaluate(smoke, dt, "document.querySelector('#messages')?.textContent || ''")
         check("tool card is rendered for bash", "bash" in messages, messages)
 
-        # Provider settings: open the dialog, see the active model, save a new one.
+        # Models settings: provider rows, the editor, a saved profile and a
+        # provider added from the catalog, all persisted in models.yaml.
         evaluate(
             smoke,
             dt,
@@ -311,65 +315,144 @@ def run(args: argparse.Namespace) -> int:
             lambda: evaluate(
                 smoke,
                 dt,
-                "!!document.querySelector('dialog h3') && document.querySelector('dialog h3').textContent.includes('Provider settings')",
+                "!!document.querySelector('dialog h3') && document.querySelector('dialog h3').textContent.trim() === 'Settings'",
             ),
             timeout=STEP_TIMEOUT,
             label="settings dialog",
         )
-        # The model row fills from `/v1/config/model`; a busy host can resolve the
-        # dialog before that request lands, so wait for the value.
-        smoke.wait_until(
-            lambda: bool(
-                evaluate(
-                    smoke,
-                    dt,
-                    """(() => {
-                        const rows = [...document.querySelectorAll('dialog .row')];
-                        const row = rows.find(r => /Model/.test(r.textContent));
-                        return row ? row.querySelector('input').value : '';
-                    })()""",
-                )
-            ),
-            timeout=STEP_TIMEOUT,
-            label="settings model value",
-        )
-        settings_model = evaluate(
-            smoke,
-            dt,
-            """(() => {
-                const rows = [...document.querySelectorAll('dialog .row')];
-                const row = rows.find(r => /Model/.test(r.textContent));
-                return row ? row.querySelector('input').value : '';
-            })()""",
-        )
-        check("settings shows the active model", settings_model == "deepseek-flash", settings_model)
-        settings_route = evaluate(
-            smoke,
-            dt,
-            """(() => {
-                const row = [...document.querySelectorAll('dialog .row')]
-                    .find(r => /Route/.test(r.textContent));
-                return row ? row.querySelector('select').value : '';
-            })()""",
-        )
-        check(
-            "settings offers a persisted route",
-            settings_route in ("deepseek", "deepseek-account", "openai-compatible"),
-            settings_route,
-        )
-
         evaluate(
             smoke,
             dt,
             """(() => {
-                const row = [...document.querySelectorAll('dialog .row')]
-                    .find(r => /Model/.test(r.textContent));
-                const input = row.querySelector('input');
-                const setter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value').set;
-                setter.call(input, 'deepseek-v4-pro');
-                input.dispatchEvent(new Event('input', {bubbles: true}));
-                [...document.querySelectorAll('dialog button')]
+                const tab = [...document.querySelectorAll('.settings-nav button')]
+                    .find(b => b.textContent.trim() === 'Models');
+                if (!tab) return false;
+                tab.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-section')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="models section",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-row[data-provider=\"deepseek-account\"]')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="catalog provider row",
+        )
+        check(
+            "models lists the active provider with its catalog models",
+            evaluate(
+                smoke,
+                dt,
+                """(() => {
+                    const row = document.querySelector('.models-row[data-provider="deepseek-account"]');
+                    return row ? row.textContent : '';
+                })()""",
+            ).find("2 model(s)") >= 0,
+            evaluate(smoke, dt, "document.querySelector('.models-section')?.textContent || ''"),
+        )
+
+        # Edit the active provider: endpoint override and a renamed model.
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const row = document.querySelector('.models-row[data-provider="deepseek-account"]');
+                const edit = row && [...row.querySelectorAll('button')]
+                    .find(b => b.textContent.trim() === 'Edit');
+                if (!edit) return false;
+                edit.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                """!!document.querySelector('.models-row[data-provider="deepseek-account"] .models-editor')""",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="provider editor",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const editor = document.querySelector('.models-row[data-provider="deepseek-account"] .models-editor');
+                const fields = editor.querySelectorAll('.models-field input');
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(fields[0], 'https://gateway.example/anthropic');
+                fields[0].dispatchEvent(new Event('input', {bubbles: true}));
+                const nameInput = editor.querySelectorAll('.models-model-row > input')[1];
+                setter.call(nameInput, 'E2E Flash');
+                nameInput.dispatchEvent(new Event('input', {bubbles: true}));
+                const save = [...editor.querySelectorAll('button')]
+                    .find(b => b.textContent.trim() === 'Save');
+                save.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "document.querySelector('.models-status')?.textContent.includes('saved')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="models profile saved",
+        )
+        models_file = home / "models.yaml"
+        check(
+            "the Models profile is written to models.yaml",
+            models_file.exists() and "gateway.example" in models_file.read_text() and "E2E Flash" in models_file.read_text(),
+            models_file.read_text() if models_file.exists() else "missing",
+        )
+
+        # Add a catalog provider and give it a key reference.
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const select = document.querySelector('.models-add select');
+                select.value = 'openai';
+                select.dispatchEvent(new Event('change', {bubbles: true}));
+                const add = [...document.querySelectorAll('.models-add button')]
+                    .find(b => b.textContent.trim() === 'Add');
+                add.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-row[data-provider=\"openai\"] .models-editor')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="openai draft editor",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const editor = document.querySelector('.models-row[data-provider="openai"] .models-editor');
+                const fields = editor.querySelectorAll('.models-field input');
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(fields[0], 'https://openai.example/v1');
+                fields[0].dispatchEvent(new Event('input', {bubbles: true}));
+                setter.call(fields[1], 'E2E_OPENAI_KEY');
+                fields[1].dispatchEvent(new Event('input', {bubbles: true}));
+                [...editor.querySelectorAll('button')]
                     .find(b => b.textContent.trim() === 'Save').click();
                 return true;
             })()""",
@@ -378,19 +461,66 @@ def run(args: argparse.Namespace) -> int:
             lambda: evaluate(
                 smoke,
                 dt,
-                "document.querySelector('dialog .tool')?.textContent.includes('saved')",
+                "document.querySelector('.models-status')?.textContent.includes('openai')",
             ),
             timeout=STEP_TIMEOUT,
-            label="settings saved",
+            label="openai profile saved",
         )
-        settings_note = evaluate(smoke, dt, "document.querySelector('dialog .tool')?.textContent || ''")
-        check("saving asks for a restart", "restart" in settings_note, settings_note)
-        saved_config = home / "config.yaml"
+        written = models_file.read_text()
         check(
-            "the user config layer is written",
-            saved_config.exists() and "deepseek-v4-pro" in saved_config.read_text(),
-            saved_config.read_text() if saved_config.exists() else "missing",
+            "the added provider is persisted next to the active one",
+            "openai:" in written and "E2E_OPENAI_KEY" in written,
+            written,
         )
+
+        # The row offers a deletion confirmation and the write removes the
+        # stored profile, restoring the catalog defaults.
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const row = document.querySelector('.models-row[data-provider="openai"]');
+                const remove = row && [...row.querySelectorAll('.models-row-head button')]
+                    .find(b => b.textContent.trim() === 'Delete');
+                if (!remove) return false;
+                remove.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-row[data-provider=\"openai\"] .models-confirm')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="delete confirmation",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const confirm = document.querySelector('.models-row[data-provider="openai"] .models-confirm');
+                [...confirm.querySelectorAll('button')]
+                    .find(b => b.textContent.trim() === 'Delete').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-status') && document.querySelector('.models-status').textContent.includes('removed')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="provider removed",
+        )
+        check(
+            "deleting a provider restores the catalog defaults",
+            "openai:" not in models_file.read_text(),
+            models_file.read_text(),
+        )
+
         evaluate(
             smoke,
             dt,

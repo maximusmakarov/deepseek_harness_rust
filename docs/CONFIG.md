@@ -36,3 +36,47 @@ logging:
 `ui.language` влияет на подсказки, статусы и approval-диалог TUI. Для CLI язык задаётся `--lang en|ru` или `DSHR_LANG`; локализованы верхнеуровневая справка, аргументы `run`/`sessions`, вывод `sessions`, `doctor`, `plugin`, `schedule`, `run`-сводка и `serve`. Часть справки по остальным командам и ошибки остаются английскими.
 
 `plugins.trusted_keys` включает режим подписи WASM-плагинов. Пустой список — подписи не проверяются (подписанный плагин без ключей отклоняется); непустой список — каждый WASM-плагин обязан иметь `signature` в манифесте, которая проверяется по одному из ключей. Отсутствие подписи или чужой ключ означает отказ загрузки. Ключи и подписи создаются командами `dshr plugin keygen` и `dshr plugin sign` — см. [PLUGINS.md](PLUGINS.md).
+
+## Models: провайдеры и списки моделей
+
+Вкладка **Models** веб-UI (порт React-секции `ui-settings-models`) хранит
+профили провайдеров в отдельном документе `<home>/models.yaml` (0600,
+атомарная запись). Активный маршрут и модель остаются в `config.yaml`
+(секция `model`), поэтому правка профиля не переписывает остальную
+конфигурацию.
+
+```yaml
+version: 1
+revision: 3
+providers:
+  deepseek-official:
+    protocol: anthropic-messages   # anthropic-messages | openai-chat
+    base_url: https://gateway.example/anthropic   # null = каталог/env
+    api_key_env: MY_DEEPSEEK_KEY                   # null = каталог
+    models:
+      - id: deepseek-flash
+        name: DeepSeek Flash
+        context_window: 1000000
+        max_tokens: 64000
+        input: [text, image]
+        reasoning_efforts:          # false | карта уровень → значение
+          off: off
+          high: high
+```
+
+- Маршрут без профиля использует встроенный каталог: `deepseek-account`,
+  `deepseek-official`, `openai`, `openai-compatible`, `routerai` (алиас
+  `deepseek`). Профиль может переопределить endpoint и имя переменной ключа.
+- Пустой список `models` означает «каталог по умолчанию»; непустой — контракт:
+  активную модель нельзя выбрать вне списка (`POST /v1/config/model` → 400).
+- Маршрут вне каталога (кастомный провайдер) должен объявить `protocol` и
+  `base_url`; `dshr serve` собирает его тем же адаптером.
+- Приоритет endpoint'а: `providers.<route>.base_url` → `model.base_url` →
+  `base_url_env` окружения (`DEEPSEEK_BASE_URL`/`OPENAI_BASE_URL`) → каталог.
+- Ключи в файл не пишутся: профиль хранит **имя** переменной, а значение
+  читается из окружения (`desktop.env` у десктопа). Веб-UI показывает только
+  состояние «ключ найден/нет».
+- `revision` — монотонная ревизия; каждая запись через API присылает
+  прочитанную ревизию, устаревшая получает `409`.
+- Изменения профиля/списка применяются `dshr serve` при следующем запуске
+  (адаптер и модель фиксируются на старте).

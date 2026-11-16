@@ -2,6 +2,15 @@
 
 ## 0.1.0 — current
 
+- Models settings is now a real provider section, not a single route pair:
+  a five-provider catalog (DeepSeek Account / DeepSeek API / OpenAI /
+  OpenAI-compatible / RouterAI), per-provider profiles in `<home>/models.yaml`
+  (0600, atomic writes, monotonic revision with a `409` fence), a model list
+  editor (id, name, context window, max output, input types), active-route
+  switching checked against the list, and profile deletion with an inline
+  confirmation. `dshr serve` resolves the profile's endpoint, API-key variable
+  and custom routes at start-up; `model.base_url` is finally honoured. API keys
+  stay in the environment (the document stores only the variable name).
 - M0–M2: workspace, config, LLM adapters, JSONL sessions, tools, agent loop, TUI.
 - M3: prompt/AGENTS, skills, compaction, fork/rewind/title/search.
 - M4: MCP stdio, web tools, jobs, subagents.

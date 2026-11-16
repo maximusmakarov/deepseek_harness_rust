@@ -11,6 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+mod models_api;
+
 use async_trait::async_trait;
 use axum::body::Body;
 use axum::extract::{Path, Query, Request, State};
@@ -18,7 +20,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use dshr_agent::{
     Agent, AgentConfig, AgentObserver, ApprovalPolicy, ApprovalRequest, Approver, PermissionMode,
@@ -402,6 +404,11 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/config/search",
             get(get_search_config).post(set_search_config),
+        )
+        .route("/v1/config/providers", get(models_api::get_providers))
+        .route(
+            "/v1/config/providers/{id}",
+            put(models_api::put_provider).delete(models_api::delete_provider),
         )
         .route("/v1/plugins/search", get(search_plugins))
         .route("/v1/plugins/info", get(plugin_info))
@@ -893,7 +900,7 @@ fn user_config_path(home: &std::path::Path) -> PathBuf {
     home.join("config.yaml")
 }
 
-fn read_user_config(home: &std::path::Path) -> Value {
+pub(crate) fn read_user_config(home: &std::path::Path) -> Value {
     std::fs::read_to_string(user_config_path(home))
         .ok()
         .and_then(|text| serde_saphyr::from_str::<Value>(&text).ok())
@@ -971,7 +978,22 @@ async fn set_model_config(
     Json(body): Json<ModelConfigRequest>,
 ) -> Result<Json<Value>, StatusCode> {
     authorize(&state, &headers, None)?;
-    if !PROVIDER_ROUTES.contains(&body.provider.as_str()) || !valid_model(&body.model) {
+    let document = dshr_config::ModelsDocument::load(&state.config.home)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // A catalog route is always selectable; a hand-declared one (or any route
+    // with a stored profile) is selectable because the runtime can resolve it.
+    if (!PROVIDER_ROUTES.contains(&body.provider.as_str())
+        && !document.providers.contains_key(&body.provider))
+        || !valid_model(&body.model)
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    // A non-empty model list is the provider's contract: the active model must
+    // be one of its rows, so a removed model cannot be activated by a stale page.
+    if let Some(profile) = document.providers.get(&body.provider)
+        && !profile.models.is_empty()
+        && !profile.models.iter().any(|model| model.id == body.model)
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
     if let Some(url) = body.base_url.as_deref()
@@ -3103,7 +3125,7 @@ async fn session_events(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
-fn authorize(
+pub(crate) fn authorize(
     state: &AppState,
     headers: &HeaderMap,
     query_token: Option<&str>,
