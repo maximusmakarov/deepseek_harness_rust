@@ -8,6 +8,8 @@
 
 use gloo_net::http::Request;
 use leptos::prelude::*;
+
+use crate::SlotRegion;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use wasm_bindgen_futures::spawn_local;
@@ -999,6 +1001,24 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             };
                             let delete_id = row.id.clone();
                             let error_text = row.error.clone().unwrap_or_default();
+                            let slot_key = row.id.clone();
+                            let slot_occurrence = row.id.clone();
+                            let slot_context = json!({"provider": row.id.clone()}).to_string();
+                            let slot_owner = json!({
+                                "provider": {
+                                    "id": row.id,
+                                    "displayName": row.display_name,
+                                    "protocol": row.protocol,
+                                    "settingsNs": "",
+                                    "settingsPath": [],
+                                    "active": row.active,
+                                    "declared": false,
+                                    "defaultBaseURL": row.effective_base_url,
+                                },
+                                "configured": row.configured,
+                                "keyConfigured": row.credential_configured.unwrap_or(false),
+                            })
+                            .to_string();
                             view! {
                                 <li class="models-row" data-provider=card_id.clone()>
                                     <div class="models-row-head">
@@ -1046,6 +1066,13 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         {row.effective_base_url.as_ref().map(|url| format!(" · {url}"))}
                                         {format!(" · {models_count} model(s)")}
                                     </p>
+                                    <SlotRegion
+                                        region="settings.models.card"
+                                        occurrence=slot_occurrence
+                                        entry_key=slot_key
+                                        context=slot_context
+                                        owner_props=slot_owner
+                                    />
                                 </li>
                             }
                         })
@@ -1789,6 +1816,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                     </div>
                 }
             })}
+            <SlotRegion region="settings.models.footer" />
             <p class="tool models-status">{move || status.get()}</p>
         </div>
     }

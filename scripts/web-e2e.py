@@ -412,6 +412,17 @@ def run(args: argparse.Namespace) -> int:
             else False,
         )
         check(
+            "models mounts its child slot regions",
+            bool(
+                evaluate(
+                    smoke,
+                    dt,
+                    """!!document.querySelector('[data-region="settings.models.card"]')
+                        && !!document.querySelector('[data-region="settings.models.footer"]')""",
+                )
+            ),
+        )
+        check(
             "models lists the active provider with its catalog models",
             evaluate(
                 smoke,

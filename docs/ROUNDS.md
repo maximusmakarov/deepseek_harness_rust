@@ -2266,6 +2266,24 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   среды.
 - Осталось: слоты секции, i18n, хранение ключей, отправка reasoning effort.
 
+## Раунд 145 — Models: дочерние слоты секции (17.11.2026)
+
+- Секция Models объявила два extension-места из upstream-контракта:
+  `settings.models.provider-card` (keyed по route, рендерится внутри каждой
+  карточки провайдера) и `settings.models.footer` (после списка и Add).
+  Владельцу карточки уходят `provider` (id/displayName/protocol/settingsPath/
+  active/defaultBaseURL), `configured` и `keyConfigured`; context — `{provider}`.
+- Регионы: bridge-таблица получила `settings.models.card` (provider-card) и
+  `settings.models.footer` (footer) вместо плоских `settings.section`/
+  `settings.action`, поэтому вкладка больше не смешивает карточки с общими
+  панелями Settings. Harness каталога слотов обновлён (31 регион), shell CSS,
+  PLUGINS-таблица регионов и счётчики в PARITY/LIMITATIONS/ROADMAP — тоже.
+- Проверки: `dshr-cordis` 9 (bridge harness с новыми регионами), web-e2e
+  **22/23** (+«models mounts its child slot regions»; единственный FAIL —
+  прежний bash timeout среды). Web-сборка/бинарник пересобраны.
+- Осталось: i18n ru/en, DeepSeek-онбординг с ключом (нужно хранилище
+  секретов), отправка reasoning effort.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

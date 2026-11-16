@@ -2,6 +2,10 @@
 
 ## 0.1.0 — current
 
+- The Models section mounts the upstream child slots
+  `settings.models.provider-card` (per provider card, keyed by route with the
+  row in owner props) and `settings.models.footer`, each in its own shell region
+  instead of the flat Settings region.
 - Models deletions are confirmed in a modal that names the provider or model,
   and a versioned first-run notice (durably acknowledged in `models.yaml`)
   explains where profiles and environment keys live.

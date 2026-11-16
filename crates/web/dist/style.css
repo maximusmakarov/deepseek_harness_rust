@@ -62,7 +62,8 @@ dialog:has(.plugin-frame) { max-width: 760px; width: 760px; }
 [data-region="conversation.header"] { flex-direction: row; align-items: center; padding: 6px 16px 0; }
 [data-region="plugins.add"], [data-region="plugins.detail"],
 [data-region="settings.section"], [data-region="settings.action"],
-[data-region="settings.icon"], [data-region="approval.detail"] { margin: 6px 0; }
+[data-region="settings.icon"], [data-region="approval.detail"],
+[data-region="settings.models.card"], [data-region="settings.models.footer"] { margin: 6px 0; }
 [data-region="settings.icon"] { flex-direction: row; }
 #plugin-stage .slot-region[data-region="panel"] { display: block; }
 

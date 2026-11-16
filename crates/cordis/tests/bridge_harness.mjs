@@ -33,6 +33,8 @@ const REGION_IDS = new Set([
   "settings.section",
   "settings.icon",
   "settings.action",
+  "settings.models.card",
+  "settings.models.footer",
   "message.action",
   "chat.node",
   "chat.assistant-actions",

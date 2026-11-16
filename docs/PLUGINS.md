@@ -383,9 +383,11 @@ export default function activate(ctx) {
 | `sidebar.top` | верх левой колонки | `sidebar.workspaces`, `sidebar.brand.mark`, `sidebar.brand.name`, `sidebar.toggle.badge` |
 | `sidebar.footer` | низ левой колонки | `sidebar.footer.action`, `sidebar.settings`, `sidebar.panellist*`, `sidebar.workspaces.session.menu.item` |
 | `sidebar.session.action` | строка сессии | `sidebar.session.action`, `sidebar.session.row.trailing/leading/hover`, `sidebar.workspaces.session.row.action` |
-| `settings.section` | тело диалога Settings | `settings.section`, `settings.general.item`, `settings.header`, `settings.models.*`, `settings.plugins.tab` |
+| `settings.section` | тело диалога Settings | `settings.section`, `settings.general.item`, `settings.header`, `settings.models.sign-in`, `settings.plugins.tab` |
+| `settings.models.card` | карточка провайдера на вкладке Models (keyed по route) | `settings.models.provider-card` |
+| `settings.models.footer` | низ вкладки Models, после списка и Add | `settings.models.footer` |
 | `settings.icon` | навигация Settings | `settings.section.icon` |
-| `settings.action` | футер Settings | `settings.action`, `settings.close`, `settings.models.footer` |
+| `settings.action` | футер Settings | `settings.action`, `settings.close` |
 | `message.action` | под сообщением | `message.action`, `conversation.chat.assistant-actions`, `conversation.chat.turnTail`, `conversation.chat.user.before`, `conversation.user.text.node` |
 | `tool.card` | под карточкой инструмента | `tool.call.toolview`, `tool.call.images`, `tool.view.cordis` |
 | `conversation.header` | шапка чата | `conversation.header`, `conversation.session.header.actions`, `.lineage`, `.utilities`, `.corner`, `.views.actions` |
@@ -1031,5 +1033,5 @@ dshr plugin add remote --url https://mcp.example.com/mcp
 
 - Два ABI: legacy JSON core-модуль на wasmi и component model/WIT на wasmtime (оба — JSON через строку).
 - WASM: нет hot reload (перезагрузка только рестартом), нет кэша грантов; memory cap, sha256 и Ed25519-подпись есть, но нет отзыва ключей и прозрачного журнала (CT-подобного).
-- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 29 регионов, неизвестное имя → панель), capability-ассетами, host-действиями, `dsh.client.runtime` (свой UI-стек), общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера) и C-lite-совместимостью: React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим, один реальный DSH-плагин в conformance; полный design-system, React-контекст шелла и SlotMap-семантика (`ownerProps`/framework-hooks) остаются тиром C-full по [ADR-040](adr/040-react-client-half.md).
+- Cordis: hot reload есть (watcher + endpoint), capability-гранты есть; клиентская половина — iframe-мост с eager registry, региональным монтажом слотов (полный словарь DSH → 31 регион, неизвестное имя → панель), capability-ассетами, host-действиями, `dsh.client.runtime` (свой UI-стек), общим рантаймом `dsh.client.host_modules` (React 18.3.1 с сервера) и C-lite-совместимостью: React-компоненты слотов с host-hooks/`ctx.get('sessions')`, частичный design-system шим, один реальный DSH-плагин в conformance; полный design-system, React-контекст шелла и SlotMap-семантика (`ownerProps`/framework-hooks) остаются тиром C-full по [ADR-040](adr/040-react-client-half.md).
 - Sidecar не имеет отдельного manifest-формата — конфиг MCP.
