@@ -652,3 +652,50 @@ async fn a_finished_turn_pushes_usage_to_the_internal_feed() {
     assert!(text.contains("\"usage_events\":[{"), "{text}");
     assert!(text.contains(&id), "{text}");
 }
+
+#[tokio::test]
+async fn the_public_session_feed_requires_the_token_and_pushes_sessions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/sessions/events")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/v1/sessions/events?token=test-token")
+                .header("accept", "text/event-stream")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let stream = response.into_body();
+
+    let (status, created) = call(
+        &app,
+        "POST",
+        "/v1/sessions",
+        Some("test-token"),
+        Body::from("{}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let id = created["session"]["id"].as_str().expect("id").to_owned();
+
+    let text = read_until(stream, Duration::from_secs(5), "event: session").await;
+    assert!(text.contains("event: session"), "{text}");
+    assert!(text.contains(&id), "{text}");
+}

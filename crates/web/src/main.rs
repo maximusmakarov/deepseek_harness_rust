@@ -191,6 +191,15 @@ thread_local! {
     /// Kept alive for the whole page, because the frame is recreated per panel.
     static PANEL_LISTENER: RefCell<Option<Closure<dyn FnMut(MessageEvent)>>> =
         const { RefCell::new(None) };
+    /// Sidebar session feed (C5.4): one SSE connection per page, with its
+    /// listeners kept alive next to the `EventSource`.
+    static SESSION_FEED: RefCell<
+        Option<(
+            EventSource,
+            Closure<dyn FnMut(MessageEvent)>,
+            Closure<dyn FnMut(MessageEvent)>,
+        )>,
+    > = const { RefCell::new(None) };
 }
 
 fn main() {
@@ -219,6 +228,65 @@ fn initial_token() -> String {
         return token;
     }
     stored_token()
+}
+
+/// Merges one live session summary into the sidebar list.
+///
+/// A known id is replaced in place (title/turns/usage change over time); a new
+/// one is inserted newest-first so the list follows the journal, not the poll.
+fn merge_session_summary(sessions: &mut Vec<SessionSummary>, incoming: SessionSummary) {
+    if let Some(existing) = sessions.iter_mut().find(|session| session.id == incoming.id) {
+        *existing = incoming;
+        return;
+    }
+    let index = sessions
+        .iter()
+        .position(|session| session.created_at < incoming.created_at)
+        .unwrap_or(sessions.len());
+    sessions.insert(index, incoming);
+}
+
+/// One `session` feed frame (`{"type":"session","session":{...}}`).
+fn parse_session_feed(data: &str) -> Option<SessionSummary> {
+    let value: Value = serde_json::from_str(data).ok()?;
+    if value["type"].as_str() != Some("session") {
+        return None;
+    }
+    serde_json::from_value(value["session"].clone()).ok()
+}
+
+/// Live sidebar: the server pushes one `session` frame per created, renamed or
+/// finished session, and `resync` when the shell fell behind.
+fn connect_session_feed(token: String, sessions: RwSignal<Vec<SessionSummary>>) {
+    let url = format!(
+        "/v1/sessions/events?token={}",
+        js_sys::encode_uri_component(&token)
+    );
+    let Ok(source) = EventSource::new(&url) else {
+        return;
+    };
+    let on_session = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
+        let Some(data) = event.data().as_string() else {
+            return;
+        };
+        if let Some(summary) = parse_session_feed(&data) {
+            sessions.update(|list| merge_session_summary(list, summary));
+        }
+    });
+    let token_resync = token.clone();
+    let on_resync = Closure::<dyn FnMut(MessageEvent)>::new(move |_event: MessageEvent| {
+        let token = token_resync.clone();
+        spawn_local(async move {
+            if let Ok(data) = get_json::<SessionsResponse>("/v1/sessions", &token).await {
+                sessions.set(data.sessions);
+            }
+        });
+    });
+    let _ = source.add_event_listener_with_callback("session", on_session.as_ref().unchecked_ref());
+    let _ = source.add_event_listener_with_callback("resync", on_resync.as_ref().unchecked_ref());
+    SESSION_FEED.with(|slot| {
+        *slot.borrow_mut() = Some((source, on_session, on_resync));
+    });
 }
 
 fn stored_token() -> String {
@@ -2574,6 +2642,7 @@ fn App() -> impl IntoView {
     // before the first paint.
     if !token.get_untracked().trim().is_empty() {
         Effect::new(move |_| refresh_sessions());
+        connect_session_feed(token.get_untracked(), sessions);
     }
 
     let open_session = move |id: String| {
@@ -3741,5 +3810,56 @@ mod renderer_tests {
             "1:0",
             &errors(&["slot:chat.node:other:1"])
         )));
+    }
+}
+
+#[cfg(test)]
+mod session_feed_tests {
+    use super::*;
+
+    fn summary(id: &str, created_at: &str, turns: usize) -> SessionSummary {
+        SessionSummary {
+            id: id.to_owned(),
+            created_at: created_at.to_owned(),
+            model: "test-model".to_owned(),
+            turns,
+        }
+    }
+
+    #[test]
+    fn a_new_session_is_inserted_newest_first() {
+        let mut sessions = vec![summary("ses_a", "2026-11-16T10:00:00Z", 1)];
+        merge_session_summary(&mut sessions, summary("ses_b", "2026-11-16T11:00:00Z", 0));
+        assert_eq!(
+            sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["ses_b", "ses_a"]
+        );
+        merge_session_summary(&mut sessions, summary("ses_c", "2026-11-16T09:00:00Z", 0));
+        assert_eq!(
+            sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec!["ses_b", "ses_a", "ses_c"]
+        );
+    }
+
+    #[test]
+    fn a_known_session_is_replaced_in_place() {
+        let mut sessions = vec![
+            summary("ses_b", "2026-11-16T11:00:00Z", 0),
+            summary("ses_a", "2026-11-16T10:00:00Z", 1),
+        ];
+        merge_session_summary(&mut sessions, summary("ses_a", "2026-11-16T10:00:00Z", 3));
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[1].id, "ses_a");
+        assert_eq!(sessions[1].turns, 3);
+    }
+
+    #[test]
+    fn feed_frames_parse_and_other_types_are_ignored() {
+        let frame = r#"{"type":"session","session":{"id":"ses_1","created_at":"2026-11-16T10:00:00Z","model":"m","turns":2}}"#;
+        let parsed = parse_session_feed(frame).expect("summary");
+        assert_eq!(parsed.id, "ses_1");
+        assert_eq!(parsed.turns, 2);
+        assert!(parse_session_feed(r#"{"type":"resync"}"#).is_none());
+        assert!(parse_session_feed("not json").is_none());
     }
 }

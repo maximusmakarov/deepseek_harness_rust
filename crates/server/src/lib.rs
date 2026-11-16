@@ -405,6 +405,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sessions", get(list_sessions).post(create_session))
         .route("/v1/sessions/{id}", get(get_session))
         .route("/v1/sessions/{id}/turns", post(start_turn))
+        .route("/v1/sessions/events", get(session_feed))
         .route("/v1/sessions/{id}/events", get(session_events))
         .route("/v1/sessions/{id}/cancel", post(cancel_turn))
         .route(
@@ -1442,8 +1443,25 @@ async fn internal_session_events(
     headers: HeaderMap,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
     internal_token_matches(&state, &headers)?;
-    let mut receiver = state.feed.subscribe();
-    let stream = async_stream::stream! {
+    Ok(Sse::new(session_feed_stream(state.feed.subscribe())).keep_alive(KeepAlive::default()))
+}
+
+/// C5.4: the same feed for the shell, under the ordinary bearer token.
+async fn session_feed(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    authorize(&state, &headers, query.get("token").map(String::as_str))?;
+    Ok(Sse::new(session_feed_stream(state.feed.subscribe())).keep_alive(KeepAlive::default()))
+}
+
+/// One stream shape for both feeds: `session` frames plus a `resync` marker when
+/// a slow listener missed events, so it can hydrate again.
+fn session_feed_stream(
+    mut receiver: broadcast::Receiver<Value>,
+) -> impl futures_util::Stream<Item = Result<Event, Infallible>> {
+    async_stream::stream! {
         loop {
             match receiver.recv().await {
                 Ok(value) => {
@@ -1455,8 +1473,7 @@ async fn internal_session_events(
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
-    };
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    }
 }
 
 /// Paths owned by the dshr HTTP API/embedded UI: a plugin route must never
