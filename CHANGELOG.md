@@ -2,6 +2,11 @@
 
 ## 0.1.0 — current
 
+- Models providers carry a retry policy (`normal`/`always`, max retries,
+  retryable codes, exponential backoff with jitter). It is edited in Settings,
+  persisted in `models.yaml`, resolved into `dshr-llm`'s `RetryPlan`, and
+  executed by both the DeepSeek and OpenAI-compatible adapters, replacing their
+  hard-coded three-attempt loops.
 - Models settings gained a hand-declared provider flow (Custom model API: id,
   protocol, endpoint, key variable, at least one model) and per-model reasoning
   levels (off/on, level -> API value rows, validated and persisted in

@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use async_stream::stream;
 use dshr_llm::{
-    Capabilities, ChunkStream, ContentBlock, LlmError, LlmProvider, Request, Role, SseDecoder,
-    SseEvent, StopReason, StreamChunk, Usage,
+    Capabilities, ChunkStream, ContentBlock, LlmError, LlmProvider, Request, RetryCode, RetryPlan,
+    Role, SseDecoder, SseEvent, StopReason, StreamChunk, Usage,
 };
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -43,6 +43,7 @@ pub struct DeepSeekConfig {
     pub model: String,
     pub max_tokens: u32,
     pub auth: Auth,
+    pub retry: RetryPlan,
 }
 
 impl fmt::Debug for DeepSeekConfigDebug<'_> {
@@ -53,6 +54,7 @@ impl fmt::Debug for DeepSeekConfigDebug<'_> {
             .field("model", &self.0.model)
             .field("max_tokens", &self.0.max_tokens)
             .field("auth", &self.0.auth)
+            .field("retry", &self.0.retry)
             .finish()
     }
 }
@@ -109,6 +111,7 @@ impl DeepSeekProvider {
             model,
             max_tokens,
             auth,
+            retry: RetryPlan::default(),
         })
     }
 
@@ -169,8 +172,8 @@ impl DeepSeekProvider {
         body: &Value,
         cancel: &CancellationToken,
     ) -> Result<reqwest::Response, LlmError> {
-        const MAX_ATTEMPTS: u32 = 3;
-        let mut attempt = 1;
+        let plan = &self.config.retry;
+        let mut attempt = 1u32;
         loop {
             let result = self
                 .authorize(self.client.post(url).json(body))
@@ -181,32 +184,28 @@ impl DeepSeekProvider {
                 Ok(response) if response.status().is_success() => return Ok(response),
                 Ok(response) => {
                     let status = response.status();
-                    let retryable = status.as_u16() == 429 || status.is_server_error();
-                    if retryable && attempt < MAX_ATTEMPTS {
-                        let delay = retry_delay(attempt, response.headers());
-                        drop(response);
-                        tokio::select! {
-                            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                            _ = tokio::time::sleep(delay) => {}
-                        }
-                        attempt += 1;
-                        continue;
+                    let code = RetryCode::from_status(status.as_u16());
+                    if !plan.should_retry(code) || !plan.has_attempts_left(attempt) {
+                        let body = response.text().await.unwrap_or_default();
+                        return Err(LlmError::Http {
+                            status: status.as_u16(),
+                            body: truncate(&body, 2000),
+                        });
                     }
-                    let body = response.text().await.unwrap_or_default();
-                    return Err(LlmError::Http {
-                        status: status.as_u16(),
-                        body: truncate(&body, 2000),
-                    });
+                    let delay = plan.delay(attempt, retry_after(response.headers()));
+                    drop(response);
+                    sleep_or_cancel(cancel, delay).await?;
+                    attempt = attempt.saturating_add(1);
                 }
-                Err(err) if attempt < MAX_ATTEMPTS && (err.is_timeout() || err.is_connect()) => {
-                    let delay = retry_delay(attempt, &reqwest::header::HeaderMap::new());
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                        _ = tokio::time::sleep(delay) => {}
+                Err(err) => {
+                    let code = failure_code(&err);
+                    if !plan.should_retry(code) || !plan.has_attempts_left(attempt) {
+                        return Err(LlmError::Transport(err.to_string()));
                     }
-                    attempt += 1;
+                    let delay = plan.delay(attempt, None);
+                    sleep_or_cancel(cancel, delay).await?;
+                    attempt = attempt.saturating_add(1);
                 }
-                Err(err) => return Err(LlmError::Transport(err.to_string())),
             }
         }
     }
@@ -290,13 +289,27 @@ impl LlmProvider for DeepSeekProvider {
     }
 }
 
-fn retry_delay(attempt: u32, headers: &reqwest::header::HeaderMap) -> Duration {
-    let retry_after = headers
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
-    let millis = retry_after.map_or(250 * 2u64.pow(attempt - 1), |seconds| seconds * 1000);
-    Duration::from_millis(millis.min(5000))
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+fn failure_code(error: &reqwest::Error) -> RetryCode {
+    if error.is_timeout() {
+        RetryCode::Timeout
+    } else {
+        RetryCode::Transport
+    }
+}
+
+async fn sleep_or_cancel(cancel: &CancellationToken, delay: Duration) -> Result<(), LlmError> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(LlmError::Cancelled),
+        _ = tokio::time::sleep(delay) => Ok(()),
+    }
 }
 
 fn models_url(base_url: &str) -> String {
@@ -514,6 +527,7 @@ mod tests {
             model: DEFAULT_MODEL.into(),
             max_tokens: 64,
             auth: Auth::ApiKey("test".into()),
+            retry: RetryPlan::default(),
         }
     }
 
@@ -714,6 +728,7 @@ mod tests {
             model: "deepseek-flash".into(),
             max_tokens: 32,
             auth: Auth::ApiKey("test".into()),
+            retry: RetryPlan::default(),
         })
         .expect("provider");
 

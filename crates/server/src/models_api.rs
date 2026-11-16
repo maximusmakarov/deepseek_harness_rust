@@ -9,7 +9,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use dshr_config::models::{CATALOG, ModelsDocument, ModelsError, Protocol, catalog_entry};
-use dshr_config::{ModelEntry, ProviderProfile};
+use dshr_config::{ModelEntry, ProviderProfile, RetryPolicy};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -140,6 +140,7 @@ fn provider_row(
             "summary": "This adapter is not part of the configurable provider catalog.",
             "models": [],
             "models_from_profile": false,
+            "retry": Value::Null,
             "editable": false,
             "error": Value::Null,
         });
@@ -160,6 +161,10 @@ fn provider_row(
         "summary": resolved.summary,
         "models": resolved.models.iter().map(model_json).collect::<Vec<_>>(),
         "models_from_profile": resolved.models_from_profile,
+        "retry": document
+            .providers
+            .get(route)
+            .and_then(|profile| profile.retry.as_ref()),
         "editable": true,
         "error": Value::Null,
     })
@@ -205,6 +210,9 @@ pub struct ProviderWrite {
     pub api_key_env: Option<String>,
     /// Full model list; an empty list restores the catalog defaults.
     pub models: Vec<ModelEntry>,
+    /// Retry policy; `null` inherits the adapter defaults.
+    #[serde(default)]
+    pub retry: Option<RetryPolicy>,
 }
 
 fn validated_profile(route: &str, body: ProviderWrite) -> Result<ProviderProfile, ApiError> {
@@ -267,6 +275,7 @@ fn validated_profile(route: &str, body: ProviderWrite) -> Result<ProviderProfile
         base_url,
         api_key_env,
         models: body.models,
+        retry: body.retry,
     })
 }
 

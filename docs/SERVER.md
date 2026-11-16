@@ -21,6 +21,6 @@ dshr serve --bind 127.0.0.1 --port 4317 --rate-limit 60
 `/v1/config/providers` (GET) — каталог провайдеров, сохранённые профили и
 активный выбор из `<home>/models.yaml` (см. [CONFIG](CONFIG.md#models-провайдеры-и-списки-моделей)).
 `PUT /v1/config/providers/{id}` заменяет профиль (`expected_revision`,
-`protocol`, `base_url`, `api_key_env`, `models`), `DELETE` с
+`protocol`, `base_url`, `api_key_env`, `models`, `retry`), `DELETE` с
 `?expected_revision=N` возвращает каталог по умолчанию; устаревшая ревизия —
 `409`, неизвестный маршрут — `404`/`400`.

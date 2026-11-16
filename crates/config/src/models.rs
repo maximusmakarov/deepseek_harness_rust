@@ -93,7 +93,7 @@ pub enum ReasoningEfforts {
 pub const REASONING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /// One provider profile stored in `models.yaml`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProviderProfile {
     /// Protocol override; required for a route outside the catalog.
@@ -105,10 +105,112 @@ pub struct ProviderProfile {
     pub api_key_env: Option<String>,
     /// Model list; empty means the catalog defaults apply.
     pub models: Vec<ModelEntry>,
+    /// Request-retry policy; `None` inherits the adapter defaults.
+    pub retry: Option<RetryPolicy>,
+}
+
+/// Retry modes, mirroring DSH's `resolveRetryPolicy`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RetryMode {
+    /// Retry only the configured failure codes, at most `max_retries` times.
+    #[default]
+    Normal,
+    /// Retry every model-request failure until success or cancellation.
+    Always,
+}
+
+/// Bounded exponential backoff and symmetric jitter.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RetryBackoff {
+    /// First local delay in milliseconds (default 500).
+    pub initial_delay_ms: Option<u64>,
+    /// Delay ceiling in milliseconds (default 10000).
+    pub max_delay_ms: Option<u64>,
+    /// Symmetric random multiplier range around one (default 0.1).
+    pub jitter_ratio: Option<f32>,
+}
+
+/// A provider's stored retry policy. Empty fields keep the adapter default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RetryPolicy {
+    pub mode: RetryMode,
+    /// Maximum eligible retries after the first request (default 5).
+    pub max_retries: Option<u32>,
+    /// Stable failure codes eligible under normal mode (default: the five
+    /// transient codes).
+    pub retryable_codes: Option<Vec<String>>,
+    pub backoff: Option<RetryBackoff>,
+}
+
+/// A policy with every default applied, ready for the runtime.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedRetryPolicy {
+    pub mode: RetryMode,
+    pub max_retries: u32,
+    pub retryable_codes: Vec<String>,
+    pub initial_delay_ms: u64,
+    pub max_delay_ms: u64,
+    pub jitter_ratio: f32,
+}
+
+/// Adapter defaults, mirrored from `dshr_llm::retry`.
+pub const DEFAULT_RETRY_MAX: u32 = 5;
+pub const DEFAULT_RETRY_INITIAL_DELAY_MS: u64 = 500;
+pub const DEFAULT_RETRY_MAX_DELAY_MS: u64 = 10_000;
+pub const DEFAULT_RETRY_JITTER_RATIO: f32 = 0.1;
+pub const MAX_RETRY_DELAY_MS: u64 = 2_147_483_647;
+pub const DEFAULT_RETRYABLE_CODES: [&str; 5] = [
+    "EMPTY_RESPONSE",
+    "RATE_LIMIT",
+    "SERVER",
+    "TIMEOUT",
+    "TRANSPORT",
+];
+
+impl Default for ResolvedRetryPolicy {
+    fn default() -> Self {
+        Self {
+            mode: RetryMode::Normal,
+            max_retries: DEFAULT_RETRY_MAX,
+            retryable_codes: DEFAULT_RETRYABLE_CODES
+                .iter()
+                .map(|code| (*code).to_owned())
+                .collect(),
+            initial_delay_ms: DEFAULT_RETRY_INITIAL_DELAY_MS,
+            max_delay_ms: DEFAULT_RETRY_MAX_DELAY_MS,
+            jitter_ratio: DEFAULT_RETRY_JITTER_RATIO,
+        }
+    }
+}
+
+impl RetryPolicy {
+    /// Applies defaults without validating; callers validate first.
+    #[must_use]
+    pub fn resolved(&self) -> ResolvedRetryPolicy {
+        let backoff = self.backoff.clone().unwrap_or_default();
+        ResolvedRetryPolicy {
+            mode: self.mode,
+            max_retries: self.max_retries.unwrap_or(DEFAULT_RETRY_MAX),
+            retryable_codes: self.retryable_codes.clone().unwrap_or_else(|| {
+                DEFAULT_RETRYABLE_CODES
+                    .iter()
+                    .map(|code| (*code).to_owned())
+                    .collect()
+            }),
+            initial_delay_ms: backoff
+                .initial_delay_ms
+                .unwrap_or(DEFAULT_RETRY_INITIAL_DELAY_MS),
+            max_delay_ms: backoff.max_delay_ms.unwrap_or(DEFAULT_RETRY_MAX_DELAY_MS),
+            jitter_ratio: backoff.jitter_ratio.unwrap_or(DEFAULT_RETRY_JITTER_RATIO),
+        }
+    }
 }
 
 /// The Models settings document.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ModelsDocument {
     /// Schema version.
@@ -277,7 +379,7 @@ pub fn catalog_models(route: &str) -> Vec<ModelEntry> {
 }
 
 /// A provider as resolved for the API and the runtime.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedProvider {
     pub route: String,
     pub display_name: String,
@@ -293,6 +395,8 @@ pub struct ResolvedProvider {
     pub models_from_profile: bool,
     pub account: bool,
     pub summary: String,
+    /// The provider's retry policy with defaults applied.
+    pub retry: ResolvedRetryPolicy,
 }
 
 impl ModelsDocument {
@@ -401,6 +505,9 @@ impl ModelsDocument {
                     "provider '{route}' has an invalid API key variable name"
                 )));
             }
+            if let Some(retry) = &profile.retry {
+                validate_retry(route, retry)?;
+            }
             if profile.models.len() > 200 {
                 return Err(ModelsError::Invalid(format!(
                     "provider '{route}' lists more than 200 models"
@@ -469,6 +576,9 @@ impl ModelsDocument {
             summary: entry
                 .map(|entry| entry.summary.to_owned())
                 .unwrap_or_default(),
+            retry: profile
+                .and_then(|profile| profile.retry.as_ref())
+                .map_or_else(ResolvedRetryPolicy::default, RetryPolicy::resolved),
         })
     }
 
@@ -496,6 +606,54 @@ fn validate_route(route: &str) -> Result<(), ModelsError> {
     {
         return Err(ModelsError::Invalid(format!(
             "invalid provider route '{route}'"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_retry(route: &str, retry: &RetryPolicy) -> Result<(), ModelsError> {
+    if let Some(codes) = &retry.retryable_codes {
+        if codes.is_empty() {
+            return Err(ModelsError::Invalid(format!(
+                "provider '{route}' retry policy lists no retryable codes"
+            )));
+        }
+        let mut seen = BTreeSet::new();
+        for code in codes {
+            if code.is_empty()
+                || code.len() > 64
+                || code.chars().any(|ch| ch.is_control() || ch.is_whitespace())
+            {
+                return Err(ModelsError::Invalid(format!(
+                    "provider '{route}' has an invalid retry code '{code}'"
+                )));
+            }
+            if !seen.insert(code.as_str()) {
+                return Err(ModelsError::Invalid(format!(
+                    "provider '{route}' repeats retry code '{code}'"
+                )));
+            }
+        }
+    }
+    let resolved = retry.resolved();
+    if resolved.initial_delay_ms == 0 || resolved.initial_delay_ms > MAX_RETRY_DELAY_MS {
+        return Err(ModelsError::Invalid(format!(
+            "provider '{route}' has an invalid retry initial delay"
+        )));
+    }
+    if resolved.max_delay_ms == 0 || resolved.max_delay_ms > MAX_RETRY_DELAY_MS {
+        return Err(ModelsError::Invalid(format!(
+            "provider '{route}' has an invalid retry maximum delay"
+        )));
+    }
+    if resolved.initial_delay_ms > resolved.max_delay_ms {
+        return Err(ModelsError::Invalid(format!(
+            "provider '{route}' retry initial delay exceeds the maximum delay"
+        )));
+    }
+    if !resolved.jitter_ratio.is_finite() || !(0.0..=1.0).contains(&resolved.jitter_ratio) {
+        return Err(ModelsError::Invalid(format!(
+            "provider '{route}' retry jitter must be between 0 and 1"
         )));
     }
     Ok(())
@@ -744,6 +902,73 @@ mod tests {
         assert!(matches!(
             document.validate(),
             Err(ModelsError::Invalid(message)) if message.contains("declares no protocol")
+        ));
+    }
+
+    #[test]
+    fn retry_policies_resolve_and_validate() {
+        let profile = RetryPolicy {
+            mode: RetryMode::Normal,
+            max_retries: Some(7),
+            retryable_codes: Some(vec!["RATE_LIMIT".into(), "MY_CODE".into()]),
+            backoff: Some(RetryBackoff {
+                initial_delay_ms: Some(250),
+                max_delay_ms: Some(2_000),
+                jitter_ratio: Some(0.25),
+            }),
+        };
+        let resolved = profile.resolved();
+        assert_eq!(resolved.max_retries, 7);
+        assert_eq!(resolved.initial_delay_ms, 250);
+        assert_eq!(resolved.jitter_ratio, 0.25);
+        assert_eq!(resolved.retryable_codes.len(), 2);
+
+        let defaults = RetryPolicy::default().resolved();
+        assert_eq!(defaults.mode, RetryMode::Normal);
+        assert_eq!(defaults.max_retries, 5);
+        assert_eq!(defaults.initial_delay_ms, 500);
+        assert_eq!(defaults.max_delay_ms, 10_000);
+        assert_eq!(defaults.retryable_codes.len(), 5);
+
+        let mut document = ModelsDocument::default();
+        let mut provider = ProviderProfile {
+            retry: Some(profile),
+            ..ProviderProfile::default()
+        };
+        document
+            .providers
+            .insert("deepseek-official".into(), provider.clone());
+        document.validate().expect("valid retry policy");
+
+        provider.retry = Some(RetryPolicy {
+            retryable_codes: Some(Vec::new()),
+            ..RetryPolicy::default()
+        });
+        document
+            .providers
+            .insert("deepseek-official".into(), provider);
+        assert!(matches!(
+            document.validate(),
+            Err(ModelsError::Invalid(message)) if message.contains("no retryable codes")
+        ));
+
+        let reversed = ProviderProfile {
+            retry: Some(RetryPolicy {
+                backoff: Some(RetryBackoff {
+                    initial_delay_ms: Some(5_000),
+                    max_delay_ms: Some(1_000),
+                    jitter_ratio: None,
+                }),
+                ..RetryPolicy::default()
+            }),
+            ..ProviderProfile::default()
+        };
+        document
+            .providers
+            .insert("deepseek-official".into(), reversed);
+        assert!(matches!(
+            document.validate(),
+            Err(ModelsError::Invalid(message)) if message.contains("exceeds the maximum")
         ));
     }
 

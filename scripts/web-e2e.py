@@ -581,6 +581,12 @@ def run(args: argparse.Namespace) -> int:
                 input.dispatchEvent(new Event('input', {bubbles: true}));
                 // The reasoning switch starts from off/low/medium/high.
                 card.querySelector('.models-reasoning input[type=checkbox]').click();
+                // Choose the explicit normal retry policy; the draft starts
+                // from the upstream defaults.
+                card.querySelector('.models-retry summary').click();
+                const mode = card.querySelector('.models-retry select');
+                mode.value = 'normal';
+                mode.dispatchEvent(new Event('change', {bubbles: true}));
                 [...card.querySelectorAll('button')]
                     .find(b => b.textContent.trim() === 'Save').click();
                 return true;
@@ -597,12 +603,15 @@ def run(args: argparse.Namespace) -> int:
         )
         written = models_file.read_text()
         check(
-            "a custom provider is persisted with its protocol, model and reasoning levels",
+            "a custom provider is persisted with its protocol, model, reasoning levels and retry policy",
             "acme-gateway:" in written
             and "ACME_GATEWAY_KEY" in written
             and "acme-one" in written
             and "reasoning_efforts" in written
-            and "high" in written,
+            and "high" in written
+            and "retry:" in written
+            and "max_retries: 5" in written
+            and "RATE_LIMIT" in written,
             written,
         )
 

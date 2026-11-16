@@ -4,9 +4,11 @@ use std::sync::Arc;
 
 use clap::Args;
 use dshr_agent::PermissionMode;
-use dshr_config::{Config, ConfigLoader, ModelsDocument, Protocol, ResolvedProvider};
+use dshr_config::{
+    Config, ConfigLoader, ModelsDocument, Protocol, ResolvedProvider, RetryMode as ConfigRetryMode,
+};
 use dshr_core::{DshrError, Result};
-use dshr_llm::{LlmError, LlmProvider};
+use dshr_llm::{LlmError, LlmProvider, RetryMode as LlmRetryMode, RetryPlan};
 use dshr_llm_deepseek::{Auth, DeepSeekConfig, DeepSeekProvider};
 use dshr_llm_mock::ReplayProvider;
 use dshr_llm_openai::{OpenAiConfig, OpenAiProvider};
@@ -263,6 +265,7 @@ fn build_provider(
         .api_key_env
         .clone()
         .unwrap_or_else(|| default_key_reference(&route).to_owned());
+    let retry = retry_plan(&resolved);
     let (secret, account_token) = read_secret(&reference, &resolved)
         .ok_or_else(|| {
             LlmError::MissingCredentials(format!(
@@ -283,6 +286,7 @@ fn build_provider(
                     model,
                     max_tokens: args.max_tokens.max(1),
                     auth,
+                    retry: retry.clone(),
                 })
                 .map_err(llm_error)?,
             ))
@@ -293,10 +297,26 @@ fn build_provider(
                 model,
                 max_tokens: args.max_tokens.max(1),
                 api_key: secret,
+                retry,
             })
             .map_err(llm_error)?,
         )),
     }
+}
+
+fn retry_plan(resolved: &ResolvedProvider) -> RetryPlan {
+    let retry = &resolved.retry;
+    RetryPlan::new(
+        match retry.mode {
+            ConfigRetryMode::Normal => LlmRetryMode::Normal,
+            ConfigRetryMode::Always => LlmRetryMode::Always,
+        },
+        retry.max_retries,
+        retry.retryable_codes.clone(),
+        retry.initial_delay_ms,
+        retry.max_delay_ms,
+        retry.jitter_ratio,
+    )
 }
 
 fn default_base_url(protocol: Protocol) -> &'static str {

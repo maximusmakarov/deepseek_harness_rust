@@ -136,6 +136,16 @@ async fn writes_a_profile_and_fences_the_revision() {
         "protocol": "anthropic-messages",
         "base_url": "https://gateway.example/anthropic",
         "api_key_env": "MY_DEEPSEEK_KEY",
+        "retry": {
+            "mode": "normal",
+            "max_retries": 7,
+            "retryable_codes": ["RATE_LIMIT", "SERVER"],
+            "backoff": {
+                "initial_delay_ms": 250,
+                "max_delay_ms": 2000,
+                "jitter_ratio": 0.25
+            }
+        },
         "models": [
             {
                 "id": "deepseek-flash",
@@ -187,6 +197,13 @@ async fn writes_a_profile_and_fences_the_revision() {
     assert_eq!(row["models"][0]["name"], "Flash via gateway");
     assert_eq!(row["models"][0]["context_window"], 1_000_000);
     assert_eq!(row["models"][0]["reasoning_efforts"]["high"], "high");
+    assert_eq!(row["retry"]["mode"], "normal");
+    assert_eq!(row["retry"]["max_retries"], 7);
+    assert_eq!(
+        row["retry"]["retryable_codes"],
+        json!(["RATE_LIMIT", "SERVER"])
+    );
+    assert_eq!(row["retry"]["backoff"]["jitter_ratio"], 0.25);
 
     // The active selection lives in config.yaml and this write leaves it alone.
     let config: Value = serde_saphyr::from_str(
@@ -317,6 +334,25 @@ async fn rejects_invalid_profiles() {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
     }
+
+    // A retry policy whose initial delay exceeds its ceiling is refused.
+    let (status, answer) = call(
+        &app,
+        "PUT",
+        "/v1/config/providers/deepseek-official",
+        Some(json!({
+            "expected_revision": 0,
+            "base_url": null,
+            "api_key_env": null,
+            "models": [],
+            "retry": {
+                "mode": "normal",
+                "backoff": {"initial_delay_ms": 5000, "max_delay_ms": 1000}
+            }
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{answer}");
 
     // A route outside the catalog needs an explicit protocol.
     let (status, _) = call(

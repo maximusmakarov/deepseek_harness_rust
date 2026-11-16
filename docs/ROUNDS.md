@@ -2196,6 +2196,32 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Осталось: discovery моделей endpoint'а и пикер, retry-policy, модальные
   диалоги, онбординг, слоты секции, хранение ключей.
 
+## Раунд 142 — Models: retry-policy (17.11.2026)
+
+- Новая политика повторов запроса в `models.yaml` (per-provider):
+  `mode: normal|always`, `max_retries`, `retryable_codes`, `backoff`
+  (`initial_delay_ms`/`max_delay_ms`/`jitter_ratio`). Дефолты как у upstream:
+  normal, 5 попыток, пять транзиентных кодов, 500 мс / 10 000 мс / 0.1;
+  `always` повторяет любую ошибку до успеха/отмены. Валидация: непустые
+  уникальные коды, положительные задержки, `initial <= max`, jitter `0..1`.
+- `dshr-llm` получил `RetryPlan` (чистые типы и тайминги): классификация
+  `RetryCode` (429 → RATE_LIMIT, 5xx → SERVER, timeout/transport), лимит
+  попыток, экспонента с потолком, детерминированный джиттер и учёт
+  `Retry-After`. `llm-deepseek` и `llm-openai` больше не используют локальный
+  `MAX_ATTEMPTS = 3`: оба исполняют план, поэтому `normal/always`, коды и
+  backoff применяются на реальных запросах. `serve` собирает план из профиля.
+- API: `retry` в строке провайдера и в `PUT /v1/config/providers/{id}`;
+  серверные интеграционные тесты проверяют round-trip и отказ на
+  `initial > max`. Web-UI: раскрывающийся блок **Retry policy** в карточке
+  (inherit / transient / always, maxRetries, чекбоксы кодов с подписями,
+  backoff-поля), клиентская валидация, сохранение в `models.yaml`.
+- Проверки: `dshr-llm` 4 новых теста плана, `llm-openai` интеграционный тест
+  «500 → повтор → успешный стрим», config +1, server round-trip; web 17
+  тестов; web-e2e 18/19 (custom-провайдер теперь сохраняет и retry-policy;
+  единственный FAIL — прежний bash timeout среды).
+- Осталось: discovery `/v1/models` и пикер, модальные диалоги, онбординг,
+  слоты секции, ключи, отправка reasoning effort.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

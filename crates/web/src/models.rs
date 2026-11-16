@@ -95,6 +95,8 @@ struct ProviderRow {
     #[serde(default)]
     models_from_profile: bool,
     #[serde(default)]
+    retry: Option<Value>,
+    #[serde(default)]
     editable: bool,
     #[serde(default)]
     error: Option<String>,
@@ -135,6 +137,7 @@ struct ProviderDraft {
     base_url: String,
     api_key_env: String,
     models: Vec<ModelDraft>,
+    retry: Option<RetryDraft>,
     configured: bool,
     custom: bool,
     account: bool,
@@ -151,6 +154,7 @@ impl ProviderDraft {
             base_url: row.base_url.clone().unwrap_or_default(),
             api_key_env: row.api_key_env.clone().unwrap_or_default(),
             models: row.models.iter().map(model_draft).collect(),
+            retry: row.retry.as_ref().and_then(RetryDraft::from_value),
             configured: row.configured,
             custom: false,
             account: row.account,
@@ -170,6 +174,7 @@ impl ProviderDraft {
             protocol: entry.protocol.clone(),
             base_url: String::new(),
             api_key_env: entry.api_key_env.clone().unwrap_or_default(),
+            retry: None,
             models: entry
                 .models
                 .iter()
@@ -199,6 +204,7 @@ impl ProviderDraft {
             base_url: String::new(),
             api_key_env: String::new(),
             models: Vec::new(),
+            retry: None,
             configured: false,
             custom: true,
             account: false,
@@ -247,6 +253,149 @@ fn reasoning_default() -> Value {
         ("medium".into(), "medium".into()),
         ("high".into(), "high".into()),
     ])
+}
+
+/// Failure-code choices, in DSH's order and with its labels.
+const RETRY_CODE_CHOICES: [(&str, &str); 8] = [
+    ("EMPTY_RESPONSE", "Empty response"),
+    ("RATE_LIMIT", "Rate limited"),
+    ("SERVER", "Server error"),
+    ("TIMEOUT", "Timeout"),
+    ("TRANSPORT", "Transport"),
+    ("STREAM_CLOSED", "Stream closed"),
+    ("MALFORMED_RESPONSE", "Malformed response"),
+    ("QUOTA", "Quota"),
+];
+
+const RETRY_DEFAULT_CODES: [&str; 5] = [
+    "EMPTY_RESPONSE",
+    "RATE_LIMIT",
+    "SERVER",
+    "TIMEOUT",
+    "TRANSPORT",
+];
+
+/// The editor's retry draft; every numeric field is text so an empty field can
+/// keep the inherited default.
+#[derive(Clone, Debug, PartialEq)]
+struct RetryDraft {
+    mode: String,
+    max_retries: String,
+    codes: Vec<String>,
+    initial_delay: String,
+    max_delay: String,
+    jitter: String,
+}
+
+impl RetryDraft {
+    fn defaults() -> Self {
+        Self {
+            mode: "normal".into(),
+            max_retries: "5".into(),
+            codes: RETRY_DEFAULT_CODES
+                .iter()
+                .map(|code| (*code).to_owned())
+                .collect(),
+            initial_delay: "500".into(),
+            max_delay: "10000".into(),
+            jitter: "0.1".into(),
+        }
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let mode = value["mode"].as_str()?;
+        if mode != "normal" && mode != "always" {
+            return None;
+        }
+        let backoff = &value["backoff"];
+        let codes = value["retryable_codes"]
+            .as_array()
+            .map(|codes| {
+                codes
+                    .iter()
+                    .filter_map(|code| code.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                RETRY_DEFAULT_CODES
+                    .iter()
+                    .map(|code| (*code).to_owned())
+                    .collect()
+            });
+        Some(Self {
+            mode: mode.to_owned(),
+            max_retries: number_text(&value["max_retries"], 5),
+            codes,
+            initial_delay: number_text(&backoff["initial_delay_ms"], 500),
+            max_delay: number_text(&backoff["max_delay_ms"], 10_000),
+            jitter: backoff["jitter_ratio"]
+                .as_f64()
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "0.1".to_owned()),
+        })
+    }
+}
+
+fn number_text(value: &Value, fallback: u64) -> String {
+    value
+        .as_u64()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn retry_body(draft: &RetryDraft) -> Result<Value, String> {
+    if draft.mode != "normal" && draft.mode != "always" {
+        return Err("choose a retry mode".into());
+    }
+    let initial = parse_number(&draft.initial_delay, "retry initial delay")?;
+    let max = parse_number(&draft.max_delay, "retry maximum delay")?;
+    if initial == 0 || max == 0 {
+        return Err("retry delays must be greater than zero".into());
+    }
+    if initial > max {
+        return Err("the retry initial delay must not exceed the maximum delay".into());
+    }
+    let jitter: f64 = draft
+        .jitter
+        .trim()
+        .parse()
+        .map_err(|_| "retry jitter must be a number between 0 and 1".to_owned())?;
+    if !(0.0..=1.0).contains(&jitter) {
+        return Err("retry jitter must be between 0 and 1".into());
+    }
+    let backoff = json!({
+        "initial_delay_ms": initial,
+        "max_delay_ms": max,
+        "jitter_ratio": jitter,
+    });
+    if draft.mode == "always" {
+        return Ok(json!({
+            "mode": "always",
+            "max_retries": Value::Null,
+            "retryable_codes": Value::Null,
+            "backoff": backoff,
+        }));
+    }
+    if draft.codes.is_empty() {
+        return Err("select at least one retryable error code".into());
+    }
+    let max_retries = parse_number(&draft.max_retries, "maximum retries")?;
+    Ok(json!({
+        "mode": "normal",
+        "max_retries": max_retries,
+        "retryable_codes": draft.codes,
+        "backoff": backoff,
+    }))
+}
+
+fn parse_number(value: &str, label: &str) -> Result<u64, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(format!("{label} must be a whole number"));
+    }
+    value
+        .parse()
+        .map_err(|_| format!("{label} must be a whole number"))
 }
 
 fn model_draft(model: &ModelInfo) -> ModelDraft {
@@ -340,11 +489,16 @@ fn draft_body(draft: &ProviderDraft) -> Result<Value, String> {
             "reasoning_efforts": model.reasoning_efforts,
         }));
     }
+    let retry = match &draft.retry {
+        Some(retry) => retry_body(retry)?,
+        None => Value::Null,
+    };
     Ok(json!({
         "protocol": draft.protocol,
         "base_url": (!base_url.is_empty()).then_some(base_url),
         "api_key_env": (!reference.is_empty()).then_some(reference),
         "models": models,
+        "retry": retry,
     }))
 }
 
@@ -816,6 +970,151 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             />
                             <span class="tool">"the value stays in the environment"</span>
                         </div>
+                        <div class="models-retry">
+                            <details>
+                                <summary>
+                                    <span>"Retry policy"</span>
+                                    <span class="models-tag">
+                                        {move || editing.get()
+                                            .and_then(|draft| draft.retry)
+                                            .map(|retry| retry.mode)
+                                            .unwrap_or_else(|| "inherited".to_owned())}
+                                    </span>
+                                </summary>
+                                <div class="models-field">
+                                    <label>"Mode"</label>
+                                    <select
+                                        prop:value=move || editing.get()
+                                            .and_then(|draft| draft.retry)
+                                            .map(|retry| retry.mode)
+                                            .unwrap_or_else(|| "inherit".to_owned())
+                                        on:change=move |event| {
+                                            let selected = event_target_value(&event);
+                                            editing.update(|draft| {
+                                                if let Some(draft) = draft {
+                                                    if selected == "inherit" {
+                                                        draft.retry = None;
+                                                    } else {
+                                                        let retry = draft.retry.get_or_insert_with(RetryDraft::defaults);
+                                                        retry.mode = selected;
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    >
+                                        <option value="inherit">"Inherited (adapter default)"</option>
+                                        <option value="normal">"Transient errors only"</option>
+                                        <option value="always">"Always retry"</option>
+                                    </select>
+                                </div>
+                                {move || {
+                                    let Some(retry) = editing.get().and_then(|draft| draft.retry) else {
+                                        return view! { <span></span> }.into_any();
+                                    };
+                                    view! {
+                                        {(retry.mode == "normal").then(|| view! {
+                                            <div class="models-field">
+                                                <label>"Max retries"</label>
+                                                <input
+                                                    prop:value=retry.max_retries.clone()
+                                                    on:input=move |event| {
+                                                        let value = event_target_value(&event);
+                                                        editing.update(|draft| {
+                                                            if let Some(draft) = draft
+                                                                && let Some(retry) = draft.retry.as_mut()
+                                                            {
+                                                                retry.max_retries = value;
+                                                            }
+                                                        });
+                                                    }
+                                                />
+                                            </div>
+                                            <div class="models-codes">
+                                                {RETRY_CODE_CHOICES.iter().map(|(code, label)| {
+                                                    let code_value = (*code).to_owned();
+                                                    let checked = retry.codes.iter().any(|selected| selected == code);
+                                                    let label = *label;
+                                                    view! {
+                                                        <label class="models-check">
+                                                            <input
+                                                                type="checkbox"
+                                                                prop:checked=checked
+                                                                on:change=move |event| {
+                                                                    let checked = event_target_checked(&event);
+                                                                    let code = code_value.clone();
+                                                                    editing.update(|draft| {
+                                                                        if let Some(draft) = draft
+                                                                            && let Some(retry) = draft.retry.as_mut()
+                                                                        {
+                                                                            if checked {
+                                                                                if !retry.codes.contains(&code) {
+                                                                                    retry.codes.push(code.clone());
+                                                                                }
+                                                                            } else {
+                                                                                retry.codes.retain(|selected| selected != &code);
+                                                                            }
+                                                                        }
+                                                                    });
+                                                                }
+                                                            />
+                                                            {label}
+                                                        </label>
+                                                    }
+                                                }).collect_view()}
+                                            </div>
+                                        })}
+                                        <div class="models-field">
+                                            <label>"Initial delay (ms)"</label>
+                                            <input
+                                                prop:value=retry.initial_delay.clone()
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(retry) = draft.retry.as_mut()
+                                                        {
+                                                            retry.initial_delay = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                        </div>
+                                        <div class="models-field">
+                                            <label>"Max delay (ms)"</label>
+                                            <input
+                                                prop:value=retry.max_delay.clone()
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(retry) = draft.retry.as_mut()
+                                                        {
+                                                            retry.max_delay = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                        </div>
+                                        <div class="models-field">
+                                            <label>"Jitter (0-1)"</label>
+                                            <input
+                                                prop:value=retry.jitter.clone()
+                                                on:input=move |event| {
+                                                    let value = event_target_value(&event);
+                                                    editing.update(|draft| {
+                                                        if let Some(draft) = draft
+                                                            && let Some(retry) = draft.retry.as_mut()
+                                                        {
+                                                            retry.jitter = value;
+                                                        }
+                                                    });
+                                                }
+                                            />
+                                        </div>
+                                    }.into_any()
+                                }}
+                            </details>
+                        </div>
                         <div class="models-models-head">
                             <strong>"Models"</strong>
                             <span class="tool">
@@ -1163,6 +1462,7 @@ mod tests {
                 image: true,
                 reasoning_efforts: Some(json!({"high": "high"})),
             }],
+            retry: None,
             configured: false,
             custom: false,
             account: false,
@@ -1260,6 +1560,44 @@ mod tests {
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!(false));
         assert!(draft_body(&value).is_ok());
+    }
+
+    #[test]
+    fn retry_drafts_round_trip_and_refuse_invalid_values() {
+        let stored = json!({
+            "mode": "normal",
+            "max_retries": 3,
+            "retryable_codes": ["RATE_LIMIT", "SERVER"],
+            "backoff": {"initial_delay_ms": 250, "max_delay_ms": 2500, "jitter_ratio": 0.2}
+        });
+        let draft = RetryDraft::from_value(&stored).expect("retry draft");
+        assert_eq!(draft.mode, "normal");
+        assert_eq!(draft.max_retries, "3");
+        assert_eq!(draft.codes, vec!["RATE_LIMIT", "SERVER"]);
+        assert_eq!(draft.initial_delay, "250");
+        assert_eq!(draft.jitter, "0.2");
+        let body = retry_body(&draft).expect("valid retry");
+        assert_eq!(body["mode"], "normal");
+        assert_eq!(body["backoff"]["initial_delay_ms"], 250);
+
+        let mut invalid = draft.clone();
+        invalid.codes.clear();
+        assert!(retry_body(&invalid).is_err());
+        let mut invalid = draft.clone();
+        invalid.initial_delay = "5000".into();
+        invalid.max_delay = "1000".into();
+        assert!(retry_body(&invalid).is_err());
+        let mut invalid = draft.clone();
+        invalid.jitter = "2".into();
+        assert!(retry_body(&invalid).is_err());
+
+        let always = RetryDraft {
+            mode: "always".into(),
+            ..draft
+        };
+        let body = retry_body(&always).expect("always policy");
+        assert_eq!(body["mode"], "always");
+        assert!(body["retryable_codes"].is_null());
     }
 
     #[test]

@@ -315,3 +315,27 @@ dialog.settings-dialog {
     font-size: 12px;
     min-width: 0;
 }
+.models-retry {
+    border-top: 1px dashed var(--border);
+    padding-top: 8px;
+}
+.models-retry summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+}
+.models-retry[open] summary {
+    margin-bottom: 8px;
+}
+.models-retry .models-field {
+    grid-template-columns: 160px minmax(0, 1fr);
+}
+.models-codes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding-left: 160px;
+}

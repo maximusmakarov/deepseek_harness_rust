@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use async_stream::stream;
 use dshr_llm::{
-    Capabilities, ChunkStream, ContentBlock, LlmError, LlmProvider, Request, Role, SseDecoder,
-    SseEvent, StopReason, StreamChunk, Usage,
+    Capabilities, ChunkStream, ContentBlock, LlmError, LlmProvider, Request, RetryCode, RetryPlan,
+    Role, SseDecoder, SseEvent, StopReason, StreamChunk, Usage,
 };
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -22,6 +22,7 @@ pub struct OpenAiConfig {
     pub model: String,
     pub max_tokens: u32,
     pub api_key: String,
+    pub retry: RetryPlan,
 }
 
 impl fmt::Debug for OpenAiConfig {
@@ -70,6 +71,7 @@ impl OpenAiProvider {
             model,
             max_tokens: max_tokens.unwrap_or(2048).max(1),
             api_key,
+            retry: RetryPlan::default(),
         })
     }
 
@@ -92,8 +94,8 @@ impl OpenAiProvider {
         body: &Value,
         cancel: &CancellationToken,
     ) -> Result<reqwest::Response, LlmError> {
-        const MAX_ATTEMPTS: u32 = 3;
-        let mut attempt = 1;
+        let plan = &self.config.retry;
+        let mut attempt = 1u32;
         loop {
             let result = self
                 .client
@@ -107,32 +109,28 @@ impl OpenAiProvider {
                 Ok(response) if response.status().is_success() => return Ok(response),
                 Ok(response) => {
                     let status = response.status();
-                    let retryable = status.as_u16() == 429 || status.is_server_error();
-                    if retryable && attempt < MAX_ATTEMPTS {
-                        let delay = retry_delay(attempt, response.headers());
-                        drop(response);
-                        tokio::select! {
-                            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                            _ = tokio::time::sleep(delay) => {}
-                        }
-                        attempt += 1;
-                        continue;
+                    let code = RetryCode::from_status(status.as_u16());
+                    if !plan.should_retry(code) || !plan.has_attempts_left(attempt) {
+                        let body = response.text().await.unwrap_or_default();
+                        return Err(LlmError::Http {
+                            status: status.as_u16(),
+                            body: truncate(&body, 2000),
+                        });
                     }
-                    let body = response.text().await.unwrap_or_default();
-                    return Err(LlmError::Http {
-                        status: status.as_u16(),
-                        body: truncate(&body, 2000),
-                    });
+                    let delay = plan.delay(attempt, retry_after(response.headers()));
+                    drop(response);
+                    sleep_or_cancel(cancel, delay).await?;
+                    attempt = attempt.saturating_add(1);
                 }
-                Err(err) if attempt < MAX_ATTEMPTS && (err.is_timeout() || err.is_connect()) => {
-                    let delay = retry_delay(attempt, &reqwest::header::HeaderMap::new());
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                        _ = tokio::time::sleep(delay) => {}
+                Err(err) => {
+                    let code = failure_code(&err);
+                    if !plan.should_retry(code) || !plan.has_attempts_left(attempt) {
+                        return Err(LlmError::Transport(err.to_string()));
                     }
-                    attempt += 1;
+                    let delay = plan.delay(attempt, None);
+                    sleep_or_cancel(cancel, delay).await?;
+                    attempt = attempt.saturating_add(1);
                 }
-                Err(err) => return Err(LlmError::Transport(err.to_string())),
             }
         }
     }
@@ -431,13 +429,27 @@ pub fn map_event(event: SseEvent) -> Result<Vec<StreamChunk>, LlmError> {
     Ok(chunks)
 }
 
-fn retry_delay(attempt: u32, headers: &reqwest::header::HeaderMap) -> Duration {
-    let retry_after = headers
+fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
-    let millis = retry_after.map_or(250 * 2u64.pow(attempt - 1), |seconds| seconds * 1000);
-    Duration::from_millis(millis.min(5000))
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+fn failure_code(error: &reqwest::Error) -> RetryCode {
+    if error.is_timeout() {
+        RetryCode::Timeout
+    } else {
+        RetryCode::Transport
+    }
+}
+
+async fn sleep_or_cancel(cancel: &CancellationToken, delay: Duration) -> Result<(), LlmError> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(LlmError::Cancelled),
+        _ = tokio::time::sleep(delay) => Ok(()),
+    }
 }
 
 fn stop_reason(value: &str) -> StopReason {
@@ -532,6 +544,7 @@ mod tests {
             model: "audio-model".into(),
             api_key: "test".into(),
             max_tokens: 64,
+            retry: RetryPlan::default(),
         })
         .expect("provider");
         assert!(provider.capabilities().audio);
@@ -586,6 +599,71 @@ mod tests {
         .expect("map");
         assert!(matches!(chunks[0], StreamChunk::ToolUseStart { .. }));
         assert!(matches!(chunks[1], StreamChunk::ToolInputDelta { .. }));
+    }
+
+    #[tokio::test]
+    async fn retries_transient_failures_according_to_the_plan() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+        use tokio_util::sync::CancellationToken;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            for attempt in 0..2 {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buffer = [0_u8; 4096];
+                let _ = socket.read(&mut buffer).await;
+                let response = if attempt == 0 {
+                    "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
+                } else {
+                    let body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+                    format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                };
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            }
+        });
+
+        let plan = RetryPlan {
+            mode: dshr_llm::RetryMode::Normal,
+            max_retries: 2,
+            initial_delay: std::time::Duration::from_millis(1),
+            max_delay: std::time::Duration::from_millis(2),
+            jitter_ratio: 0.0,
+            ..RetryPlan::default()
+        };
+        let provider = OpenAiProvider::new(OpenAiConfig {
+            base_url: format!("http://{address}/v1"),
+            model: "test-model".into(),
+            api_key: "test".into(),
+            max_tokens: 16,
+            retry: plan,
+        })
+        .expect("provider");
+
+        let request = Request {
+            model: "test-model".into(),
+            messages: vec![Message::user("hi")],
+            max_tokens: 16,
+            ..Request::default()
+        };
+        let mut stream = provider
+            .stream(request, CancellationToken::new())
+            .await
+            .expect("first attempt recovered");
+        let mut text = String::new();
+        while let Some(chunk) = stream.next().await {
+            if let StreamChunk::TextDelta { text: delta } = chunk.expect("chunk") {
+                text.push_str(&delta);
+            }
+        }
+        assert_eq!(text, "ok");
     }
 
     #[test]

@@ -23,7 +23,8 @@ pub mod models;
 
 pub use models::{
     CATALOG, CatalogProvider, MODELS_VERSION, ModelEntry, ModelsDocument, ModelsError, Protocol,
-    ProviderProfile, ReasoningEfforts, ResolvedProvider, catalog_entry, known_route,
+    ProviderProfile, ReasoningEfforts, ResolvedProvider, RetryBackoff, RetryMode, RetryPolicy,
+    catalog_entry, known_route,
 };
 
 pub const CONFIG_VERSION: u32 = 1;

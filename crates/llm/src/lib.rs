@@ -8,12 +8,14 @@
 pub mod assemble;
 pub mod error;
 pub mod provider;
+pub mod retry;
 pub mod sse;
 pub mod types;
 
 pub use assemble::{AssistantOutput, BlockAssembler};
 pub use error::LlmError;
 pub use provider::{Capabilities, ChunkStream, LlmProvider};
+pub use retry::{RetryCode, RetryMode, RetryPlan};
 pub use sse::{SseDecoder, SseEvent};
 pub use types::{ContentBlock, Message, Request, Role, StopReason, StreamChunk, ToolDef, Usage};
 
