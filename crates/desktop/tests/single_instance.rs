@@ -19,10 +19,17 @@ fn temp_home() -> PathBuf {
 }
 
 fn monotonic_suffix() -> u128 {
-    std::time::SystemTime::now()
+    // Tests run in parallel threads and the clock alone can return the same
+    // nanosecond twice, which handed two tests the same home and made the
+    // second `try_lock` fail with WouldBlock. A process-wide counter keeps the
+    // names unique.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let tick = u128::from(COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    elapsed.saturating_mul(1000).saturating_add(tick)
 }
 
 fn hold_lock(home: &Path) -> std::fs::File {

@@ -10,7 +10,16 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
-- Cordis compat: the sidecar answers the service probes real plugins make —
+- Desktop: attach mode is now the default. The Tauri shell opens an existing
+  `dshr serve` (`desktop-server.json`, `DSHR_DESKTOP_SERVER_URL`/
+  `DSHR_DESKTOP_TOKEN`, or the "Server setup… (attach)" tray dialog), does not
+  spawn or stop a server, and skips provider setup. Local supervision stays
+  available for dev/CI via `"mode":"local"`, `DSHR_DESKTOP_LOCAL=1` or
+  `--local`.
+- Tests: the desktop crate gets its missing `tempfile` dev-dependency and unique
+  temp-home names; the npm registry stub now switches accepted sockets to
+  blocking mode (macOS inherits non-blocking) and installs routes before
+  accepting, removing intermittent 404s.- Cordis compat: the sidecar answers the service probes real plugins make —
   `loader`, `profileContext`, `workspaceRegistry`, `agentPresets`,
   `credentials`, `jobs`, `sessionPersistence`, `sessionQuery`, `pluginPackages`,
   `agentDefaultModel` and a fail-closed `approval` — with honest empty or

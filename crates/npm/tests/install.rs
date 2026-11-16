@@ -14,17 +14,29 @@ use dshr_npm::{InstallOptions, Installer, PackageSpec};
 /// Minimal HTTP server: exact-path routes served from a shared map.
 struct Stub {
     base: String,
-    routes: Arc<std::sync::Mutex<HashMap<String, Vec<u8>>>>,
     stop: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl Stub {
-    fn start() -> Self {
+    /// Binds first (so tarball URLs can carry the real address), installs the
+    /// routes, and only then starts accepting — an early request can never see
+    /// an empty table.
+    fn start(routes: HashMap<String, Vec<u8>>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         listener.set_nonblocking(true).expect("nonblocking");
         let base = format!("http://{}", listener.local_addr().expect("addr"));
-        let routes = Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let patched: HashMap<String, Vec<u8>> = routes
+            .into_iter()
+            .map(|(path, body)| {
+                let body = match String::from_utf8(body) {
+                    Ok(text) => text.replace("REPLACED", &base).into_bytes(),
+                    Err(error) => error.into_bytes(),
+                };
+                (path, body)
+            })
+            .collect();
+        let routes = Arc::new(std::sync::Mutex::new(patched));
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
         let shared = Arc::clone(&routes);
@@ -46,18 +58,9 @@ impl Stub {
         });
         Self {
             base,
-            routes,
             stop,
             handle: Some(handle),
         }
-    }
-
-    fn insert(&self, path: String, body: Vec<u8>) {
-        let body = match String::from_utf8(body) {
-            Ok(text) => text.replace("REPLACED", &self.base).into_bytes(),
-            Err(error) => error.into_bytes(),
-        };
-        self.routes.lock().expect("routes").insert(path, body);
     }
 }
 
@@ -71,18 +74,42 @@ impl Drop for Stub {
 }
 
 fn respond(mut stream: TcpStream, routes: &std::sync::Mutex<HashMap<String, Vec<u8>>>) {
-    let mut buffer = [0u8; 2048];
-    let read = stream.read(&mut buffer).unwrap_or(0);
-    let request = String::from_utf8_lossy(&buffer[..read]);
-    let path = request
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or("/");
+    // macOS accepts sockets on a non-blocking listener as non-blocking, so an
+    // immediate read can return WouldBlock before the request arrives — that
+    // looked like an empty request line and answered 404. Block explicitly.
+    let _ = stream.set_nonblocking(false);
+    // Read the whole request head: under parallel test load a single `read`
+    // can return a partial request line, which used to break the route lookup.
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 1024];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                buffer.extend_from_slice(&chunk[..read]);
+                if buffer.windows(4).any(|window| window == b"\r\n\r\n") || buffer.len() > 64 * 1024
+                {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let request = String::from_utf8_lossy(&buffer);
+    let request_line = request.lines().next().unwrap_or("").to_owned();
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("/")
+        .to_owned();
+    let path = path.as_str();
     let body = routes.lock().expect("routes").get(path).cloned();
     let (status, body) = match body {
         Some(body) => ("200 OK", body),
-        None => ("404 Not Found", b"{\"error\":\"not found\"}".to_vec()),
+        None => {
+            eprintln!("[stub] 404 for path {path:?} (request line {request_line:?})");
+            ("404 Not Found", b"{\"error\":\"not found\"}".to_vec())
+        }
     };
     let header = format!(
         "HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",
@@ -219,14 +246,10 @@ fn registry(routes: &mut HashMap<String, Vec<u8>>, packages: &[Package]) {
     }
 }
 
-/// Starts a stub and registers the routes on it (tarball URLs are patched to
-/// the live address).
+/// Starts a stub serving `routes` (tarball URLs are patched to the live
+/// address).
 fn start(routes: HashMap<String, Vec<u8>>) -> Stub {
-    let stub = Stub::start();
-    for (path, body) in routes {
-        stub.insert(path, body);
-    }
-    stub
+    Stub::start(routes)
 }
 
 #[tokio::test]

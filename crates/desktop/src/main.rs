@@ -1,10 +1,16 @@
-//! Thin Tauri shell over `dshr serve`.
+//! Thin Tauri shell over a dshr server.
 //!
-//! The desktop process starts a loopback server with a fresh bearer token,
-//! waits for `/v1/health`, and opens the Leptos UI. No native APIs are exposed
-//! to the page; the protocol is the same HTTP/SSE contract. The tray owns the
-//! lifecycle: closing the window hides it, profiles restart the shell, and the
-//! diagnostics export is available without a running window.
+//! Attach mode is the default: the window opens an existing server
+//! (`desktop-server.json`, `DSHR_DESKTOP_SERVER_URL`/`DSHR_DESKTOP_TOKEN`, or the
+//! "Server setup…" tray dialog), so the app is a client and owns no server
+//! lifecycle. Local mode (`mode: "local"`, `DSHR_DESKTOP_LOCAL=1` or `--local`)
+//! keeps the dev/CI behaviour: spawn a loopback `dshr serve` with a fresh bearer
+//! token, wait for `/v1/health`, and stop it on quit.
+//!
+//! No native APIs are exposed to the page; the protocol is the same HTTP/SSE
+//! contract. The tray owns the shell lifecycle: closing the window hides it,
+//! profiles restart the shell, and the diagnostics export is available without a
+//! running window.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -26,8 +32,124 @@ mod login_env;
 
 struct DesktopState {
     server: Mutex<Option<Child>>,
-    port: u16,
+    /// Attach target (or the spawned server's loopback URL).
+    base_url: String,
     token: String,
+}
+
+/// How the shell gets its server. `attach` (the default) opens an existing
+/// dshr server; `local` supervises a child `dshr serve` (dev/CI/`--local`).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct ServerSettings {
+    #[serde(default = "default_server_mode")]
+    mode: String,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    token: Option<String>,
+}
+
+fn default_server_mode() -> String {
+    "attach".to_owned()
+}
+
+impl Default for ServerSettings {
+    fn default() -> Self {
+        Self {
+            mode: default_server_mode(),
+            url: None,
+            token: None,
+        }
+    }
+}
+
+fn server_settings_path(home: &Path) -> PathBuf {
+    home.join("desktop-server.json")
+}
+
+fn load_server_settings(home: &Path) -> ServerSettings {
+    let mut settings: ServerSettings = std::fs::read_to_string(server_settings_path(home))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    // Environment wins over the file, so CI and one-off runs need no edit.
+    if let Ok(url) = std::env::var("DSHR_DESKTOP_SERVER_URL")
+        && !url.trim().is_empty()
+    {
+        settings.url = Some(url.trim().to_owned());
+    }
+    if let Ok(token) = std::env::var("DSHR_DESKTOP_TOKEN")
+        && !token.trim().is_empty()
+    {
+        settings.token = Some(token.trim().to_owned());
+    }
+    if std::env::var("DSHR_DESKTOP_LOCAL").is_ok_and(|value| !value.is_empty() && value != "0") {
+        settings.mode = "local".to_owned();
+    }
+    settings
+}
+
+fn save_server_settings(home: &Path, settings: &ServerSettings) -> Result<(), String> {
+    let encoded =
+        serde_json::to_string_pretty(settings).map_err(|error| format!("serialize: {error}"))?;
+    std::fs::write(server_settings_path(home), encoded)
+        .map_err(|error| format!("write desktop-server.json: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            server_settings_path(home),
+            std::fs::Permissions::from_mode(0o600),
+        );
+    }
+    Ok(())
+}
+
+/// Trims trailing slashes so `{base}/?token=…` and `{base}/v1/health` stay clean.
+fn server_base(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_owned()
+}
+
+/// URL the webview opens: `{base}/` plus the token when the server needs one.
+fn window_url(base_url: &str, token: &str) -> String {
+    let base = server_base(base_url);
+    if token.is_empty() {
+        format!("{base}/")
+    } else {
+        format!("{base}/?token={token}")
+    }
+}
+
+/// Checks an attach target's `/v1/health` (unauthenticated by design).
+fn attach_health(base_url: &str) -> Result<(), String> {
+    let url = format!("{}/v1/health", server_base(base_url));
+    let output = Command::new("curl")
+        .args(["-fsS", "--max-time", "10", &url])
+        .output()
+        .map_err(|error| format!("curl: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("server {url} is not reachable: {}", stderr.trim()))
+    }
+}
+
+/// Asks for an attach target (URL + token) with a native dialog.
+fn prompt_server_setup() -> Result<ServerSettings, String> {
+    let url = prompt_text("dshr server", "Server URL", "http://127.0.0.1:4317")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "a server URL is required in attach mode".to_owned())?;
+    let token = prompt_secret(
+        "dshr server",
+        "Bearer token (leave empty if the server has none)",
+    )?
+    .filter(|value| !value.trim().is_empty());
+    Ok(ServerSettings {
+        mode: "attach".to_owned(),
+        url: Some(server_base(&url)),
+        token,
+    })
 }
 
 fn main() {
@@ -98,33 +220,71 @@ fn main() {
                 log_line(&home, &format!("cli launcher: {error}"));
             }
             let folder = folder.clone().or_else(|| load_desktop_folder(&home));
-            let provider = match ensure_provider(&home, true) {
-                Ok(provider) => provider,
-                Err(error) => {
-                    show_error("Provider setup", &error);
-                    return Err(error.into());
-                }
-            };
-            let (port, token, child) =
-                match start_server(&home, &profile, folder.as_deref(), provider.as_ref()) {
-                    Ok(started) => started,
+            let settings = load_server_settings(&home);
+            let local_mode =
+                settings.mode == "local" || std::env::args().any(|argument| argument == "--local");
+            let (base_url, token, child) = if local_mode {
+                let provider = match ensure_provider(&home, true) {
+                    Ok(provider) => provider,
                     Err(error) => {
-                        show_recovery_window(app.handle(), &error)?;
-                        return Ok(());
+                        show_error("Provider setup", &error);
+                        return Err(error.into());
                     }
                 };
-            save_last_good(&home, &profile);
+                let (port, token, child) =
+                    match start_server(&home, &profile, folder.as_deref(), provider.as_ref()) {
+                        Ok(started) => started,
+                        Err(error) => {
+                            show_recovery_window(app.handle(), &error)?;
+                            return Ok(());
+                        }
+                    };
+                save_last_good(&home, &profile);
+                (format!("http://127.0.0.1:{port}"), token, Some(child))
+            } else {
+                // Attach mode (default): no child server, no provider setup —
+                // the remote server owns both.
+                let settings = if settings
+                    .url
+                    .as_deref()
+                    .is_some_and(|url| !url.trim().is_empty())
+                {
+                    settings
+                } else {
+                    match prompt_server_setup() {
+                        Ok(settings) => {
+                            if let Err(error) = save_server_settings(&home, &settings) {
+                                show_error("dshr server", &error);
+                                return Err(error.into());
+                            }
+                            settings
+                        }
+                        Err(error) => {
+                            show_error("dshr server", &error);
+                            return Err(error.into());
+                        }
+                    }
+                };
+                let url = settings.url.clone().unwrap_or_default();
+                if let Err(error) = attach_health(&url) {
+                    log_line(&home, &format!("attach failed: {error}"));
+                    show_recovery_window(app.handle(), &error)?;
+                    return Ok(());
+                }
+                log_line(&home, &format!("attach to {}", server_base(&url)));
+                (server_base(&url), settings.token.unwrap_or_default(), None)
+            };
             if first_run {
                 notify("dshr", "First run: home initialized");
             }
             app.manage(DesktopState {
-                server: Mutex::new(Some(child)),
-                port,
+                server: Mutex::new(child),
+                base_url: base_url.clone(),
                 token: token.clone(),
             });
 
             #[allow(unused_mut)]
-            let mut url = format!("http://127.0.0.1:{port}/?token={token}");
+            let mut url = window_url(&base_url, &token);
             let window_settings = load_window_settings(&home);
             #[cfg(not(target_os = "macos"))]
             if window_settings.mode == "extended" {
@@ -239,6 +399,13 @@ fn build_tray(
     )?;
     let new_profile = MenuItem::with_id(app, "new-profile", "New profile…", true, None::<&str>)?;
     let provider = MenuItem::with_id(app, "provider", "Provider setup…", true, None::<&str>)?;
+    let server_setup = MenuItem::with_id(
+        app,
+        "server-setup",
+        "Server setup… (attach)",
+        true,
+        None::<&str>,
+    )?;
     let config_folder = MenuItem::with_id(
         app,
         "config-folder",
@@ -416,6 +583,7 @@ fn build_tray(
             &browser,
             &terminal,
             &install_cli,
+            &server_setup,
             &provider,
             &config_folder,
             &updates,
@@ -450,15 +618,29 @@ fn build_tray(
             }
             "browser" => {
                 if let Some(state) = app.try_state::<DesktopState>() {
-                    open_url(&format!(
-                        "http://127.0.0.1:{}/?token={}",
-                        state.port, state.token
-                    ));
+                    open_url(&window_url(&state.base_url, &state.token));
                 }
             }
             "terminal" => {
                 let home = home_dir();
                 open_terminal(&home, &current_profile(&home));
+            }
+            "server-setup" => {
+                let home = home_dir();
+                match prompt_server_setup() {
+                    Ok(settings) => match save_server_settings(&home, &settings) {
+                        Ok(()) => {
+                            if let Err(error) =
+                                attach_health(settings.url.as_deref().unwrap_or_default())
+                            {
+                                show_error("dshr server", &error);
+                            }
+                            app.restart();
+                        }
+                        Err(error) => show_error("dshr server", &error),
+                    },
+                    Err(error) => show_error("dshr server", &error),
+                }
             }
             "install-cli" => {
                 let home = home_dir();
@@ -1284,6 +1466,16 @@ fn write_terminal_script(home: &Path, profile: &str, folder: &Path) -> Result<Pa
 
 fn check_server(folder: Option<&Path>) -> Result<String, Box<dyn std::error::Error>> {
     let home = home_dir();
+    let settings = load_server_settings(&home);
+    if settings.mode != "local" {
+        let url = settings
+            .url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or("attach mode: no server URL (desktop-server.json or DSHR_DESKTOP_SERVER_URL)")?;
+        attach_health(url)?;
+        return Ok(window_url(url, settings.token.as_deref().unwrap_or("")));
+    }
     let profile = current_profile(&home);
     let provider = ensure_provider(&home, false)?;
     let (port, _token, mut child) = start_server(&home, &profile, folder, provider.as_ref())?;
@@ -1853,6 +2045,47 @@ fn folder_argument(args: &[String]) -> Result<Option<PathBuf>, String> {
     Ok(Some(std::fs::canonicalize(&path).map_err(|error| {
         format!("folder {}: {error}", path.display())
     })?))
+}
+
+#[cfg(test)]
+mod server_settings_tests {
+    use super::*;
+
+    #[test]
+    fn attach_is_the_default_mode() {
+        let dir = tempfile::tempdir().expect("dir");
+        let settings = load_server_settings(dir.path());
+        assert_eq!(settings.mode, "attach");
+        assert!(settings.url.is_none());
+    }
+
+    #[test]
+    fn server_settings_round_trip() {
+        let dir = tempfile::tempdir().expect("dir");
+        let settings = ServerSettings {
+            mode: "attach".to_owned(),
+            url: Some("http://127.0.0.1:4317".to_owned()),
+            token: Some("secret".to_owned()),
+        };
+        save_server_settings(dir.path(), &settings).expect("save");
+        let loaded = load_server_settings(dir.path());
+        assert_eq!(loaded.mode, "attach");
+        assert_eq!(loaded.url.as_deref(), Some("http://127.0.0.1:4317"));
+        assert_eq!(loaded.token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn window_url_carries_the_token_only_when_present() {
+        assert_eq!(
+            window_url("http://127.0.0.1:4317/", "abc"),
+            "http://127.0.0.1:4317/?token=abc"
+        );
+        assert_eq!(
+            window_url("http://127.0.0.1:4317", ""),
+            "http://127.0.0.1:4317/"
+        );
+        assert_eq!(server_base(" http://host:1// "), "http://host:1");
+    }
 }
 
 fn free_port() -> std::io::Result<u16> {
