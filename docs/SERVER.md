@@ -20,6 +20,9 @@ dshr serve --bind 127.0.0.1 --port 4317 --rate-limit 60
 
 `/v1/config/providers` (GET) — каталог провайдеров, сохранённые профили и
 активный выбор из `<home>/models.yaml` (см. [CONFIG](CONFIG.md#models-провайдеры-и-списки-моделей)).
+`POST /v1/credentials/describe` (`references`) — состояние и маска до 64
+ключей (без значений); `PUT /v1/credentials/{reference}`
+(`{value, expected_revision}`) — write-only запись, `DELETE` с ревизией.
 `POST /v1/config/providers/welcome` (`version`) — подтверждение first-run
 notice (durable, без revision-fence).
 `POST /v1/config/providers/discover` (`protocol`, `base_url`, `api_key_env`) —

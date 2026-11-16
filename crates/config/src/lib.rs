@@ -19,8 +19,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod credentials;
 pub mod models;
 
+pub use credentials::{
+    CREDENTIALS_VERSION, CredentialDescription, CredentialSource, CredentialsDocument,
+    CredentialsError, ResolvedCredential,
+};
 pub use models::{
     CATALOG, CatalogProvider, MODELS_VERSION, ModelEntry, ModelsDocument, ModelsError, Protocol,
     ProviderProfile, ReasoningEfforts, ResolvedProvider, RetryBackoff, RetryMode, RetryPolicy,

@@ -2,6 +2,9 @@
 
 ## 0.1.0 — current
 
+- API keys entered in Models or the first-run onboarding are stored
+  write-only in `<home>/credentials.json` (0600, revision-fenced, environment
+  wins); the Models card gains a masked key field with show/remove actions.
 - The Models section mounts the upstream child slots
   `settings.models.provider-card` (per provider card, keyed by route with the
   row in owner props) and `settings.models.footer`, each in its own shell region

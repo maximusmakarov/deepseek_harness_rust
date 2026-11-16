@@ -89,6 +89,10 @@ struct ProviderRow {
     #[serde(default)]
     credential_configured: Option<bool>,
     #[serde(default)]
+    credential_masked: Option<String>,
+    #[serde(default)]
+    credential_source: Option<String>,
+    #[serde(default)]
     account: bool,
     #[serde(default)]
     summary: String,
@@ -120,6 +124,8 @@ struct ModelsSnapshot {
     note: String,
     #[serde(default)]
     welcome_version: Option<u32>,
+    #[serde(default)]
+    credentials_revision: u64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -170,6 +176,10 @@ struct ProviderDraft {
     api_key_env: String,
     models: Vec<ModelDraft>,
     retry: Option<RetryDraft>,
+    api_key: String,
+    api_key_saved: bool,
+    api_key_mask: Option<String>,
+    api_key_source: Option<String>,
     configured: bool,
     custom: bool,
     account: bool,
@@ -187,6 +197,10 @@ impl ProviderDraft {
             api_key_env: row.api_key_env.clone().unwrap_or_default(),
             models: row.models.iter().map(model_draft).collect(),
             retry: row.retry.as_ref().and_then(RetryDraft::from_value),
+            api_key: String::new(),
+            api_key_saved: row.credential_configured == Some(true),
+            api_key_mask: row.credential_masked.clone(),
+            api_key_source: row.credential_source.clone(),
             configured: row.configured,
             custom: false,
             account: row.account,
@@ -207,6 +221,10 @@ impl ProviderDraft {
             base_url: String::new(),
             api_key_env: entry.api_key_env.clone().unwrap_or_default(),
             retry: None,
+            api_key: String::new(),
+            api_key_saved: false,
+            api_key_mask: None,
+            api_key_source: None,
             models: entry
                 .models
                 .iter()
@@ -237,6 +255,10 @@ impl ProviderDraft {
             api_key_env: String::new(),
             models: Vec::new(),
             retry: None,
+            api_key: String::new(),
+            api_key_saved: false,
+            api_key_mask: None,
+            api_key_source: None,
             configured: false,
             custom: true,
             account: false,
@@ -647,6 +669,22 @@ fn protocol_label(protocol: &str) -> &'static str {
     }
 }
 
+/// The conventional key reference for a route: `<ROUTE>_API_KEY`.
+fn derive_key_ref(route: &str) -> String {
+    let mut name: String = route
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    name.push_str("_API_KEY");
+    name
+}
+
 fn valid_route(route: &str) -> bool {
     !route.is_empty()
         && route.len() <= 64
@@ -673,6 +711,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
     let discovering = RwSignal::new(false);
     let welcome_dismissed = RwSignal::new(false);
     let acknowledging = RwSignal::new(false);
+    let api_key_visible = RwSignal::new(false);
+    let welcome_key = RwSignal::new(String::new());
 
     let load = move || {
         let value = token.get_untracked();
@@ -696,7 +736,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
     Effect::new(move |_| load());
 
     let save = move || {
-        let Some(draft) = editing.get_untracked() else {
+        let Some(mut draft) = editing.get_untracked() else {
             return;
         };
         let revision = snapshot
@@ -731,6 +771,11 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 return;
             }
         }
+        let typed_key = draft.api_key.trim().to_owned();
+        if !typed_key.is_empty() && draft.api_key_env.trim().is_empty() {
+            draft.api_key_env = derive_key_ref(&draft.id);
+        }
+        let key_reference = draft.api_key_env.trim().to_owned();
         let mut body = match draft_body(&draft) {
             Ok(body) => body,
             Err(message) => {
@@ -741,6 +786,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         body["expected_revision"] = json!(revision);
         let value = token.get_untracked();
         let route = draft.id.clone();
+        let credentials_revision = snapshot
+            .get_untracked()
+            .map(|value| value.credentials_revision)
+            .unwrap_or_default();
         busy.set(true);
         spawn_local(async move {
             match send(
@@ -752,11 +801,68 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             .await
             {
                 Ok(_) => {
+                    if !typed_key.is_empty() {
+                        let key_body = json!({
+                            "value": typed_key,
+                            "expected_revision": credentials_revision,
+                        });
+                        if let Err(message) = send(
+                            "PUT",
+                            &format!("/v1/credentials/{key_reference}"),
+                            &value,
+                            Some(&key_body),
+                        )
+                        .await
+                        {
+                            error.set(format!(
+                                "profile saved, but the key was not stored: {message}"
+                            ));
+                            load();
+                            busy.set(false);
+                            return;
+                        }
+                    }
                     status.set(format!("saved {route} · restart dshr serve to apply"));
                     editing.set(None);
                     candidates.set(None);
                     candidate_checked.set(std::collections::BTreeSet::new());
                     confirm.set(None);
+                    error.set(String::new());
+                    load();
+                }
+                Err(message) => error.set(message),
+            }
+            busy.set(false);
+        });
+    };
+
+    let remove_saved_key = move || {
+        let Some(draft) = editing.get_untracked() else {
+            return;
+        };
+        let reference = if draft.api_key_env.trim().is_empty() {
+            derive_key_ref(&draft.id)
+        } else {
+            draft.api_key_env.trim().to_owned()
+        };
+        let revision = snapshot
+            .get_untracked()
+            .map(|value| value.credentials_revision)
+            .unwrap_or_default();
+        let value = token.get_untracked();
+        busy.set(true);
+        spawn_local(async move {
+            let path = format!("/v1/credentials/{reference}?expected_revision={revision}");
+            match send("DELETE", &path, &value, None).await {
+                Ok(_) => {
+                    editing.update(|draft| {
+                        if let Some(draft) = draft {
+                            draft.api_key_saved = false;
+                            draft.api_key_mask = None;
+                            draft.api_key_source = None;
+                        }
+                    });
+                    status.set(format!("removed the stored key {reference}"));
                     error.set(String::new());
                     load();
                 }
@@ -902,8 +1008,31 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
 
     let acknowledge_welcome = move || {
         let value = token.get_untracked();
+        let key = welcome_key.get_untracked().trim().to_owned();
+        let credentials_revision = snapshot
+            .get_untracked()
+            .map(|value| value.credentials_revision)
+            .unwrap_or_default();
         acknowledging.set(true);
         spawn_local(async move {
+            if !key.is_empty() {
+                let body = json!({
+                    "value": key,
+                    "expected_revision": credentials_revision,
+                });
+                if let Err(message) = send(
+                    "PUT",
+                    "/v1/credentials/DEEPSEEK_API_KEY",
+                    &value,
+                    Some(&body),
+                )
+                .await
+                {
+                    error.set(format!("the key was not stored: {message}"));
+                    acknowledging.set(false);
+                    return;
+                }
+            }
             match send(
                 "POST",
                 "/v1/config/providers/welcome",
@@ -1183,8 +1312,60 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     editing.update(|draft| { if let Some(draft) = draft { draft.api_key_env = value; } });
                                 }
                             />
-                            <span class="tool">"the value stays in the environment"</span>
+                            <span class="tool">"the value lives in credentials.json (0600); env wins"</span>
                         </div>
+                        {move || {
+                            let Some(draft) = editing.get() else {
+                                return view! { <span></span> }.into_any();
+                            };
+                            let placeholder = if draft.api_key_saved {
+                                format!(
+                                    "saved {}",
+                                    draft.api_key_mask.clone().unwrap_or_default()
+                                )
+                            } else {
+                                "not configured".to_owned()
+                            };
+                            let status = if draft.api_key_saved {
+                                format!(
+                                    "saved {} ({}) — an environment variable with the same name wins",
+                                    draft.api_key_mask.clone().unwrap_or_default(),
+                                    draft.api_key_source.clone().unwrap_or_default(),
+                                )
+                            } else {
+                                "no saved key for this reference".to_owned()
+                            };
+                            view! {
+                                <div class="models-field">
+                                    <label>"API key"</label>
+                                    <input
+                                        type=move || if api_key_visible.get() { "text" } else { "password" }
+                                        placeholder=placeholder
+                                        autocomplete="new-password"
+                                        prop:value=move || editing.get().map(|draft| draft.api_key).unwrap_or_default()
+                                        on:input=move |event| {
+                                            let value = event_target_value(&event);
+                                            editing.update(|draft| { if let Some(draft) = draft { draft.api_key = value; } });
+                                        }
+                                    />
+                                    <button
+                                        type="button"
+                                        on:click=move |_| api_key_visible.update(|visible| *visible = !*visible)
+                                    >
+                                        {move || if api_key_visible.get() { "Hide" } else { "Show" }}
+                                    </button>
+                                </div>
+                                <p class="tool">{status}</p>
+                                {draft.api_key_saved.then(|| view! {
+                                    <div class="row">
+                                        <button
+                                            on:click=move |_| remove_saved_key()
+                                            disabled=move || busy.get()
+                                        >"Remove saved key"</button>
+                                    </div>
+                                })}
+                            }.into_any()
+                        }}
                         <div class="models-retry">
                             <details>
                                 <summary>
@@ -1759,7 +1940,18 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             <h4>"Welcome to Models"</h4>
                             <p>"Configure providers and their model lists here. Profiles live in models.yaml; API keys stay in the environment and never reach this page."</p>
                             {(!usable).then(|| view! {
-                                <p>"No provider has a key yet. Set DEEPSEEK_API_KEY or DSH_DEEPSEEK_TOKEN in the environment (or use the desktop Settings window) before sending a prompt."</p>
+                                <p>"No provider has a key yet. Save one here, or set DEEPSEEK_API_KEY / DSH_DEEPSEEK_TOKEN in the environment (desktop Settings writes desktop.env)."</p>
+                                <div class="models-field">
+                                    <label>"DeepSeek API key"</label>
+                                    <input
+                                        type="password"
+                                        autocomplete="new-password"
+                                        placeholder="DEEPSEEK_API_KEY"
+                                        prop:value=move || welcome_key.get()
+                                        on:input=move |event| welcome_key.set(event_target_value(&event))
+                                    />
+                                    <span class="tool">"stored in credentials.json (0600); env wins"</span>
+                                </div>
                             })}
                             <div class="row">
                                 <button
@@ -1843,6 +2035,10 @@ mod tests {
                 reasoning_efforts: Some(json!({"high": "high"})),
             }],
             retry: None,
+            api_key: String::new(),
+            api_key_saved: false,
+            api_key_mask: None,
+            api_key_source: None,
             configured: false,
             custom: false,
             account: false,
@@ -1982,6 +2178,16 @@ mod tests {
             &std::collections::BTreeSet::new(),
         );
         assert!(refused.is_err());
+    }
+
+    #[test]
+    fn derives_conventional_key_references() {
+        assert_eq!(
+            derive_key_ref("deepseek-official"),
+            "DEEPSEEK_OFFICIAL_API_KEY"
+        );
+        assert_eq!(derive_key_ref("my_gateway"), "MY_GATEWAY_API_KEY");
+        assert_eq!(derive_key_ref("a.b c"), "A_B_C_API_KEY");
     }
 
     #[test]

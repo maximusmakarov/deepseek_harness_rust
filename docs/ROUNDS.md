@@ -2284,6 +2284,32 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Осталось: i18n ru/en, DeepSeek-онбординг с ключом (нужно хранилище
   секретов), отправка reasoning effort.
 
+## Раунд 146 — Models: хранилище ключей и ключ в онбординге (17.11.2026)
+
+- Новый `dshr-config::credentials`: `<home>/credentials.json` (0600, atomic,
+  `version`/`revision`/`values`), env важнее документа, маска `abcd…wxyz`,
+  валидация reference (`UPPER_SNAKE`, ≤96) и секрета (printable ASCII,
+  1..4096). API: `POST /v1/credentials/describe` (до 64 refs, только
+  configured/source/masked), `PUT /v1/credentials/{reference}` (write-only,
+  revision-fence), `DELETE` с ревизией. Значения не возвращаются и не
+  логируются.
+- Строка провайдера теперь отдаёт `credential_masked`/`credential_source`;
+  `dshr serve` и discovery читают ключ через `credentials::resolve` (env →
+  файл). Профиль по-прежнему хранит только имя переменной.
+- Web: поле **API key** в карточке редактора (пароль + Show/Hide, saved-маска,
+  «Remove saved key»); при Save профиль пишется первым, затем ключ под
+  выбранной/производной `<ROUTE>_API_KEY`; частичный сбой показывает
+  «profile saved, but the key was not stored». First-run onboarding получил
+  поле DeepSeek-ключа и сохраняет его как `DEEPSEEK_API_KEY` перед
+  подтверждением notice.
+- Проверки: config 25 (+3 credentials, 0600/маска/revision), server 8
+  (+write-only round-trip, join в строку, 409), web 19, web-e2e **24/25**
+  (+«onboarding stores the key write-only», +«the credentials file is
+  private», ключ из редактора openai); единственный FAIL — прежний bash
+  timeout среды.
+- Осталось: i18n, отправка reasoning effort, ключи в `run`/`tui`, очистка
+  ключа при удалении провайдера.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

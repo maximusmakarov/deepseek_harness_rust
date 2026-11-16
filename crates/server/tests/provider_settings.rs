@@ -512,3 +512,96 @@ async fn acknowledges_the_welcome_notice_durably() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn stores_credentials_write_only_and_joins_them_into_rows() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+
+    let (status, answer) = call(
+        &app,
+        "PUT",
+        "/v1/credentials/MY_TEST_KEY",
+        Some(json!({"value": "sk-1234567890abcdef", "expected_revision": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["masked"], "sk-1…cdef");
+    assert!(!answer.to_string().contains("1234567890"));
+
+    let (status, answer) = call(
+        &app,
+        "POST",
+        "/v1/credentials/describe",
+        Some(json!({"references": ["MY_TEST_KEY", "MISSING_KEY"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["credentials"]["MY_TEST_KEY"]["configured"], true);
+    assert_eq!(answer["credentials"]["MY_TEST_KEY"]["source"], "config");
+    assert_eq!(answer["credentials"]["MISSING_KEY"]["configured"], false);
+    assert!(!answer.to_string().contains("1234567890"));
+
+    // A profile naming the reference joins the stored key into its row.
+    let (status, answer) = call(
+        &app,
+        "PUT",
+        "/v1/config/providers/deepseek-official",
+        Some(json!({
+            "expected_revision": 0,
+            "base_url": null,
+            "api_key_env": "MY_TEST_KEY",
+            "models": [],
+            "retry": null
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    let row = get(&app).await["providers"]
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["id"] == "deepseek-official")
+                .cloned()
+        })
+        .expect("row");
+    assert_eq!(row["credential_configured"], true);
+    assert_eq!(row["credential_source"], "config");
+    assert_eq!(row["credential_masked"], "sk-1…cdef");
+
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/v1/credentials/MY_TEST_KEY",
+        Some(json!({"value": "replacement", "expected_revision": 0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    let (status, _) = call(
+        &app,
+        "DELETE",
+        "/v1/credentials/MY_TEST_KEY?expected_revision=1",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, answer) = call(
+        &app,
+        "POST",
+        "/v1/credentials/describe",
+        Some(json!({"references": ["MY_TEST_KEY"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(answer["credentials"]["MY_TEST_KEY"]["configured"], false);
+
+    let (status, _) = call(
+        &app,
+        "PUT",
+        "/v1/credentials/MY_TEST_KEY",
+        Some(json!({"value": "has space"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

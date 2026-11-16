@@ -10,6 +10,7 @@ use std::time::Duration;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
+use dshr_config::credentials::{self, CredentialsDocument, CredentialsError};
 use dshr_config::models::{CATALOG, ModelsDocument, ModelsError, Protocol, catalog_entry};
 use dshr_config::{ModelEntry, ProviderProfile, RetryPolicy};
 use serde::Deserialize;
@@ -63,20 +64,39 @@ fn active_model(state: &AppState) -> (String, String, Option<String>) {
     (provider, model, base_url)
 }
 
-/// Whether a referenced environment variable carries a non-empty value.
-fn reference_configured(reference: &str) -> bool {
-    std::env::var(reference).is_ok_and(|value| !value.trim().is_empty())
-}
-
-fn credential_configured(route: &str, reference: Option<&str>) -> Option<bool> {
-    let reference = reference?;
+/// Credential facts for a row: configured, masked preview, source.
+fn credential_state(
+    home: &std::path::Path,
+    route: &str,
+    reference: Option<&str>,
+) -> (Option<bool>, Option<String>, Option<String>) {
     if route == "deepseek" || route == "deepseek-account" {
-        // The DeepSeek adapter accepts either the account grant or an API key.
-        return Some(
-            reference_configured("DSH_DEEPSEEK_TOKEN") || reference_configured("DEEPSEEK_API_KEY"),
-        );
+        // The account route accepts the grant or an API key; either one counts.
+        for candidate in [
+            reference.unwrap_or("DSH_DEEPSEEK_TOKEN"),
+            "DSH_DEEPSEEK_TOKEN",
+            "DEEPSEEK_API_KEY",
+        ] {
+            let description = credentials::describe(home, candidate);
+            if description.configured {
+                return (
+                    Some(true),
+                    Some(description.masked),
+                    description.source.map(|source| source.id().to_owned()),
+                );
+            }
+        }
+        return (Some(false), None, None);
     }
-    Some(reference_configured(reference))
+    let Some(reference) = reference else {
+        return (None, None, None);
+    };
+    let description = credentials::describe(home, reference);
+    (
+        Some(description.configured),
+        (!description.masked.is_empty()).then_some(description.masked),
+        description.source.map(|source| source.id().to_owned()),
+    )
 }
 
 fn model_json(model: &ModelEntry) -> Value {
@@ -120,6 +140,7 @@ fn provider_row(
     route: &str,
     active: &str,
     config_base_url: Option<&str>,
+    home: &std::path::Path,
 ) -> Value {
     let configured = document.providers.contains_key(route);
     let resolved = document.resolve(
@@ -148,6 +169,8 @@ fn provider_row(
         });
     };
     let reference = resolved.api_key_env.as_deref();
+    let (credential_configured, credential_masked, credential_source) =
+        credential_state(home, route, reference);
     json!({
         "id": route,
         "display_name": resolved.display_name,
@@ -158,7 +181,9 @@ fn provider_row(
         "base_url": resolved.base_url,
         "effective_base_url": resolved.effective_base_url,
         "api_key_env": resolved.api_key_env,
-        "credential_configured": credential_configured(route, reference),
+        "credential_configured": credential_configured,
+        "credential_masked": credential_masked,
+        "credential_source": credential_source,
         "account": resolved.account,
         "summary": resolved.summary,
         "models": resolved.models.iter().map(model_json).collect::<Vec<_>>(),
@@ -181,15 +206,26 @@ pub async fn get_providers(
     authorized(&state, &headers)?;
     let document =
         ModelsDocument::load(&state.config.home).map_err(|error| models_error(&error))?;
+    let credentials_document = CredentialsDocument::load(&state.config.home)
+        .map_err(|failure| credentials_error(&failure))?;
     let (active, model, config_base_url) = active_model(&state);
     let configured_active = (!active.is_empty()).then_some(active.as_str());
     let routes = document.visible_routes(configured_active);
     let rows: Vec<Value> = routes
         .iter()
-        .map(|route| provider_row(&document, route, &active, config_base_url.as_deref()))
+        .map(|route| {
+            provider_row(
+                &document,
+                route,
+                &active,
+                config_base_url.as_deref(),
+                &state.config.home,
+            )
+        })
         .collect();
     Ok(Json(json!({
         "revision": document.revision,
+        "credentials_revision": credentials_document.revision,
         "writable": true,
         "active": { "provider": active, "model": model },
         "catalog": catalog_json(),
@@ -418,8 +454,8 @@ pub async fn discover_provider(
         return Err(error(StatusCode::BAD_REQUEST, "invalid API key variable"));
     }
     let key = reference
-        .and_then(|reference| std::env::var(reference).ok())
-        .filter(|value| !value.trim().is_empty());
+        .and_then(|reference| credentials::resolve(&state.config.home, reference))
+        .map(|resolved| resolved.value().to_owned());
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()
@@ -511,6 +547,145 @@ pub async fn acknowledge_welcome(
         "ok": true,
         "revision": saved.revision,
         "welcome_version": saved.welcome_version,
+    })))
+}
+
+fn credentials_error(failure: &CredentialsError) -> ApiError {
+    match failure {
+        CredentialsError::Conflict { expected, actual } => error(
+            StatusCode::CONFLICT,
+            format!(
+                "credentials changed elsewhere (expected revision {expected}, stored {actual})"
+            ),
+        ),
+        CredentialsError::Io(message) => error(StatusCode::INTERNAL_SERVER_ERROR, message.clone()),
+        CredentialsError::Parse(message) => {
+            error(StatusCode::INTERNAL_SERVER_ERROR, message.clone())
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescribeRequest {
+    pub references: Vec<String>,
+}
+
+/// `POST /v1/credentials/describe`: configured state and a masked preview for
+/// up to 64 references. Values never leave the server.
+pub async fn describe_credentials(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<DescribeRequest>,
+) -> Result<Json<Value>, ApiError> {
+    authorized(&state, &headers)?;
+    if body.references.len() > 64 {
+        return Err(error(StatusCode::BAD_REQUEST, "at most 64 references"));
+    }
+    for reference in &body.references {
+        if !credentials::valid_reference(reference) {
+            return Err(error(
+                StatusCode::BAD_REQUEST,
+                "invalid credential reference",
+            ));
+        }
+    }
+    let document = CredentialsDocument::load(&state.config.home)
+        .map_err(|failure| credentials_error(&failure))?;
+    let mut entries = serde_json::Map::new();
+    for reference in body.references {
+        let environment = std::env::var(&reference)
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        let stored = document
+            .values
+            .get(&reference)
+            .filter(|value| !value.trim().is_empty())
+            .cloned();
+        let (configured, source, value) = match (environment, stored) {
+            (Some(value), _) => (true, Some("env"), Some(value)),
+            (None, Some(value)) => (true, Some("config"), Some(value)),
+            (None, None) => (false, None, None),
+        };
+        entries.insert(
+            reference.clone(),
+            json!({
+                "configured": configured,
+                "source": source,
+                "masked": value.map_or_else(String::new, |value| credentials::mask(&value)),
+            }),
+        );
+    }
+    Ok(Json(json!({
+        "revision": document.revision,
+        "credentials": entries,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoreCredential {
+    pub value: String,
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+}
+
+/// `PUT /v1/credentials/{reference}`: write-only secret storage.
+pub async fn store_credential(
+    State(state): State<AppState>,
+    Path(reference): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<StoreCredential>,
+) -> Result<Json<Value>, ApiError> {
+    authorized(&state, &headers)?;
+    if !credentials::valid_reference(&reference) {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "invalid credential reference",
+        ));
+    }
+    if !credentials::valid_secret(&body.value) {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "the key must be 1-4096 printable ASCII characters",
+        ));
+    }
+    let saved = CredentialsDocument::set(
+        &state.config.home,
+        &reference,
+        &body.value,
+        body.expected_revision,
+    )
+    .map_err(|failure| credentials_error(&failure))?;
+    Ok(Json(json!({
+        "ok": true,
+        "revision": saved.revision,
+        "reference": reference,
+        "masked": credentials::mask(&body.value),
+    })))
+}
+
+/// `DELETE /v1/credentials/{reference}`: idempotent removal.
+pub async fn delete_credential(
+    State(state): State<AppState>,
+    Path(reference): Path<String>,
+    Query(query): Query<RevisionQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, ApiError> {
+    authorized(&state, &headers)?;
+    if !credentials::valid_reference(&reference) {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "invalid credential reference",
+        ));
+    }
+    let saved =
+        CredentialsDocument::remove(&state.config.home, &reference, query.expected_revision)
+            .map_err(|failure| credentials_error(&failure))?;
+    Ok(Json(json!({
+        "ok": true,
+        "revision": saved.revision,
+        "reference": reference,
     })))
 }
 

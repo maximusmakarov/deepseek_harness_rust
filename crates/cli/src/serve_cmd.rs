@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use clap::Args;
 use dshr_agent::PermissionMode;
+use dshr_config::credentials;
 use dshr_config::{
     Config, ConfigLoader, ModelsDocument, Protocol, ResolvedProvider, RetryMode as ConfigRetryMode,
 };
@@ -266,10 +267,10 @@ fn build_provider(
         .clone()
         .unwrap_or_else(|| default_key_reference(&route).to_owned());
     let retry = retry_plan(&resolved);
-    let (secret, account_token) = read_secret(&reference, &resolved)
+    let (secret, account_token) = read_secret(&reference, &resolved, home)
         .ok_or_else(|| {
             LlmError::MissingCredentials(format!(
-                "set {reference} in the environment (Settings -> Models shows the route's key variable)"
+                "set {reference} in the environment or save it in Settings -> Models"
             ))
         })
         .map_err(llm_error)?;
@@ -339,12 +340,13 @@ fn default_key_reference(route: &str) -> &'static str {
 /// fallbacks, so an existing `desktop.env` keeps working untouched.
 /// Returns the secret and whether it is the account grant (which the DeepSeek
 /// adapter sends on a different header than an API key).
-fn read_secret(reference: &str, resolved: &ResolvedProvider) -> Option<(String, bool)> {
-    let read = |name: &str| {
-        std::env::var(name)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-    };
+fn read_secret(
+    reference: &str,
+    resolved: &ResolvedProvider,
+    home: &std::path::Path,
+) -> Option<(String, bool)> {
+    let read =
+        |name: &str| credentials::resolve(home, name).map(|resolved| resolved.value().to_owned());
     if let Some(value) = read(reference) {
         return Some((value, reference == "DSH_DEEPSEEK_TOKEN"));
     }

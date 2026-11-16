@@ -395,6 +395,10 @@ def run(args: argparse.Namespace) -> int:
             smoke,
             dt,
             """(() => {
+                const input = document.querySelector('.models-welcome input');
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(input, 'sk-e2e-onboarding-123456');
+                input.dispatchEvent(new Event('input', {bubbles: true}));
                 [...document.querySelectorAll('.models-welcome button')]
                     .find(b => b.textContent.trim() === 'Continue').click();
                 return true;
@@ -410,6 +414,19 @@ def run(args: argparse.Namespace) -> int:
             "welcome_version: 1" in (home / "models.yaml").read_text()
             if (home / "models.yaml").exists()
             else False,
+        )
+        credentials_file = home / "credentials.json"
+        credentials = credentials_file.read_text() if credentials_file.exists() else ""
+        check(
+            "onboarding stores the key write-only",
+            "sk-e2e-onboarding-123456" in credentials,
+            "missing" if not credentials_file.exists() else "value absent",
+        )
+        check(
+            "the credentials file is private",
+            credentials_file.exists()
+            and (credentials_file.stat().st_mode & 0o777) == 0o600,
+            oct(credentials_file.stat().st_mode & 0o777) if credentials_file.exists() else "missing",
         )
         check(
             "models mounts its child slot regions",
@@ -525,6 +542,8 @@ def run(args: argparse.Namespace) -> int:
                 fields[0].dispatchEvent(new Event('input', {bubbles: true}));
                 setter.call(fields[1], 'E2E_OPENAI_KEY');
                 fields[1].dispatchEvent(new Event('input', {bubbles: true}));
+                setter.call(fields[2], 'sk-openai-e2e-987654');
+                fields[2].dispatchEvent(new Event('input', {bubbles: true}));
                 [...editor.querySelectorAll('button')]
                     .find(b => b.textContent.trim() === 'Save').click();
                 return true;
@@ -542,7 +561,9 @@ def run(args: argparse.Namespace) -> int:
         written = models_file.read_text()
         check(
             "the added provider is persisted next to the active one",
-            "openai:" in written and "E2E_OPENAI_KEY" in written,
+            "openai:" in written
+            and "E2E_OPENAI_KEY" in written
+            and "sk-openai-e2e-987654" in credentials_file.read_text(),
             written,
         )
 

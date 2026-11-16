@@ -415,6 +415,14 @@ pub fn router(state: AppState) -> Router {
             post(models_api::acknowledge_welcome),
         )
         .route(
+            "/v1/credentials/describe",
+            post(models_api::describe_credentials),
+        )
+        .route(
+            "/v1/credentials/{reference}",
+            put(models_api::store_credential).delete(models_api::delete_credential),
+        )
+        .route(
             "/v1/config/providers/{id}",
             put(models_api::put_provider).delete(models_api::delete_provider),
         )

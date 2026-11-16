@@ -37,6 +37,23 @@ logging:
 
 `plugins.trusted_keys` включает режим подписи WASM-плагинов. Пустой список — подписи не проверяются (подписанный плагин без ключей отклоняется); непустой список — каждый WASM-плагин обязан иметь `signature` в манифесте, которая проверяется по одному из ключей. Отсутствие подписи или чужой ключ означает отказ загрузки. Ключи и подписи создаются командами `dshr plugin keygen` и `dshr plugin sign` — см. [PLUGINS.md](PLUGINS.md).
 
+## Секреты: `<home>/credentials.json`
+
+Ключи, введённые в Models (или в first-run onboarding), хранятся в
+`<home>/credentials.json` (0600, атомарная запись) в виде
+`{version, revision, values: {REF: value}}`. Переменная окружения с тем же
+именем всегда важнее (так `desktop.env` продолжает работать), поэтому
+`credentials::resolve` сначала читает env, затем документ.
+
+- API отдаёт только `configured`/`source`/`masked` — значение не покидает
+  сервер (`POST /v1/credentials/describe`).
+- Запись — `PUT /v1/credentials/{reference}` (write-only, `1..=4096`
+  printable ASCII, опциональный `expected_revision`), удаление —
+  `DELETE` с ревизией.
+- Итоговый ключ провайдера ищется как env → `credentials.json`; `dshr serve`
+  читает оба источника. Остальные команды (`run`/`tui`) пока читают только
+  env — это записано в TECH-DEBT.
+
 ## Models: провайдеры и списки моделей
 
 Вкладка **Models** веб-UI (порт React-секции `ui-settings-models`) хранит
