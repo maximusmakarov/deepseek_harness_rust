@@ -2222,6 +2222,29 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Осталось: discovery `/v1/models` и пикер, модальные диалоги, онбординг,
   слоты секции, ключи, отправка reasoning effort.
 
+## Раунд 143 — Models: discovery моделей и пикер (17.11.2026)
+
+- Сервер: `POST /v1/config/providers/discover` (`protocol`, `base_url`,
+  `api_key_env`) спрашивает endpoint о каталоге. OpenAI-формат — `{base}/models`
+  с Bearer; Anthropic-формат — `{base}/v1/models` с `x-api-key` +
+  `anthropic-version`, а для DeepSeek-базы с суффиксом `/anthropic` —
+  `{root}/models` как fallback. Разбираются `data`/`models` (массив или карта
+  id→name), дубликаты отбрасываются, лимит 500. Ключ читается только из
+  окружения по имени переменной; 15-секундный таймаут, `404` пробует
+  следующий URL, прочие ошибки — `502` с диагностикой.
+- Web-UI: кнопка **Fetch available models** в карточке редактора; ответ
+  открывает пикер с фильтром, Select all/Deselect all и **Update list**.
+  Слияние: отмеченные добавляются, снятые (из перечисленных endpoint'ом)
+  удаляются, настроенные, но не перечисленные строки сохраняются; попытка
+  опустошить непустой список отклоняется. Помощник `merge_discovered`
+  вынесен и покрыт тестами.
+- Проверки: server `provider_settings` 6 (+discovery на локальном endpoint,
+  отказ на `ftp://` и неизвестном протоколе); web 18 (+merge-тест); web-e2e
+  **19/20** — новый чек «discovery lists the endpoint models», custom-провайдер
+  получает модели через пикер; единственный FAIL — прежний bash timeout среды.
+- Осталось: модальные диалоги удаления, онбординг/welcome, слоты секции,
+  i18n, хранение ключей, отправка reasoning effort.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

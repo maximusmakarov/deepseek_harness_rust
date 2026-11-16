@@ -423,3 +423,63 @@ async fn requires_the_bearer_token() {
     let response = app.clone().oneshot(request).await.expect("response");
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn discovers_models_from_an_openai_compatible_endpoint() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+    let address = listener.local_addr().expect("addr");
+    let mock = tokio::spawn(async move {
+        let Ok((mut socket, _)) = listener.accept().await else {
+            return;
+        };
+        let mut buffer = [0_u8; 4096];
+        let _ = socket.read(&mut buffer).await;
+        let body = r#"{"data":[{"id":"alpha","name":"Alpha"},{"id":"beta"}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let _ = socket.write_all(response.as_bytes()).await;
+        let _ = socket.shutdown().await;
+    });
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/v1/config/providers/discover",
+        Some(json!({
+            "protocol": "openai-chat",
+            "base_url": format!("http://{address}/v1")
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["count"], 2);
+    assert_eq!(body["models"][0]["id"], "alpha");
+    assert_eq!(body["models"][0]["name"], "Alpha");
+    assert_eq!(body["models"][1]["name"], "beta");
+    mock.await.expect("mock");
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/config/providers/discover",
+        Some(json!({"protocol": "openai-chat", "base_url": "ftp://example"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/config/providers/discover",
+        Some(json!({"protocol": "nope", "base_url": "https://example.test"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

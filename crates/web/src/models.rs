@@ -118,6 +118,20 @@ struct ModelsSnapshot {
     note: String,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+struct DiscoveredModel {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+struct DiscoverResponse {
+    #[serde(default)]
+    models: Vec<DiscoveredModel>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct ModelDraft {
     id: String,
@@ -398,6 +412,41 @@ fn parse_number(value: &str, label: &str) -> Result<u64, String> {
         .map_err(|_| format!("{label} must be a whole number"))
 }
 
+/// Merge a discovery reply into the drafted model list: checked candidates are
+/// appended when missing, unchecked candidates listed by the reply are removed,
+/// and configured rows the reply does not list stay. A merge that would empty a
+/// non-empty list is refused, since an empty list serves the whole catalog.
+fn merge_discovered(
+    models: &[ModelDraft],
+    candidates: &[DiscoveredModel],
+    selected: &std::collections::BTreeSet<String>,
+) -> Result<Vec<ModelDraft>, String> {
+    let had_rows = !models.is_empty();
+    let mut next = models.to_vec();
+    for candidate in candidates {
+        let present = next.iter().any(|model| model.id == candidate.id);
+        if selected.contains(&candidate.id) {
+            if !present {
+                next.push(ModelDraft {
+                    id: candidate.id.clone(),
+                    name: candidate.name.clone(),
+                    context_window: String::new(),
+                    max_tokens: String::new(),
+                    text: true,
+                    image: false,
+                    reasoning_efforts: None,
+                });
+            }
+        } else if present {
+            next.retain(|model| model.id != candidate.id);
+        }
+    }
+    if next.is_empty() && had_rows {
+        return Err("that selection would empty the model list; keep at least one row".into());
+    }
+    Ok(next)
+}
+
 fn model_draft(model: &ModelInfo) -> ModelDraft {
     ModelDraft {
         id: model.id.clone(),
@@ -597,6 +646,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
     let deleting = RwSignal::new(None::<String>);
     let add_choice = RwSignal::new(String::new());
     let add_mode = RwSignal::new("catalog".to_owned());
+    let candidates = RwSignal::new(None::<Vec<DiscoveredModel>>);
+    let candidate_checked = RwSignal::new(std::collections::BTreeSet::<String>::new());
+    let candidate_filter = RwSignal::new(String::new());
+    let discovering = RwSignal::new(false);
 
     let load = move || {
         let value = token.get_untracked();
@@ -678,6 +731,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 Ok(_) => {
                     status.set(format!("saved {route} · restart dshr serve to apply"));
                     editing.set(None);
+                    candidates.set(None);
+                    candidate_checked.set(std::collections::BTreeSet::new());
                     error.set(String::new());
                     load();
                 }
@@ -736,6 +791,91 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         });
     };
 
+    let discover = move || {
+        let Some(draft) = editing.get_untracked() else {
+            return;
+        };
+        let explicit = draft.base_url.trim().to_owned();
+        let base_url = if explicit.is_empty() {
+            draft.default_base_url.clone().unwrap_or_default()
+        } else {
+            explicit
+        };
+        if base_url.is_empty() {
+            error.set("enter a base URL before fetching models".into());
+            return;
+        }
+        let reference = draft.api_key_env.trim().to_owned();
+        let body = json!({
+            "protocol": draft.protocol,
+            "base_url": base_url,
+            "api_key_env": (!reference.is_empty()).then_some(reference),
+        });
+        let value = token.get_untracked();
+        discovering.set(true);
+        spawn_local(async move {
+            match send("POST", "/v1/config/providers/discover", &value, Some(&body)).await {
+                Ok(answer) => match serde_json::from_value::<DiscoverResponse>(answer) {
+                    Ok(response) => {
+                        let configured: Vec<String> = editing
+                            .get_untracked()
+                            .map(|draft| {
+                                draft
+                                    .models
+                                    .iter()
+                                    .map(|model| model.id.clone())
+                                    .filter(|id| !id.is_empty())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let available: std::collections::BTreeSet<String> = response
+                            .models
+                            .iter()
+                            .map(|model| model.id.clone())
+                            .collect();
+                        candidate_checked.set(if configured.is_empty() {
+                            available
+                        } else {
+                            configured
+                                .into_iter()
+                                .filter(|id| available.contains(id))
+                                .collect()
+                        });
+                        candidate_filter.set(String::new());
+                        candidates.set(Some(response.models));
+                        error.set(String::new());
+                    }
+                    Err(problem) => {
+                        error.set(format!("cannot read the model listing: {problem}"));
+                    }
+                },
+                Err(message) => error.set(message),
+            }
+            discovering.set(false);
+        });
+    };
+
+    let apply_candidates = move || {
+        let Some(list) = candidates.get_untracked() else {
+            return;
+        };
+        let Some(mut draft) = editing.get_untracked() else {
+            return;
+        };
+        let selected = candidate_checked.get_untracked();
+        match merge_discovered(&draft.models, &list, &selected) {
+            Ok(models) => draft.models = models,
+            Err(message) => {
+                error.set(message);
+                return;
+            }
+        }
+        editing.set(Some(draft));
+        candidates.set(None);
+        candidate_checked.set(std::collections::BTreeSet::new());
+        candidate_filter.set(String::new());
+    };
+
     let add_catalog = move || {
         let choice = add_choice.get_untracked();
         let Some(entry) = snapshot
@@ -745,10 +885,14 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             return;
         };
         editing.set(Some(ProviderDraft::from_catalog(&entry)));
+        candidates.set(None);
+        candidate_checked.set(std::collections::BTreeSet::new());
         error.set(String::new());
     };
     let add_custom = move || {
         editing.set(Some(ProviderDraft::new_custom()));
+        candidates.set(None);
+        candidate_checked.set(std::collections::BTreeSet::new());
         error.set(String::new());
     };
 
@@ -825,6 +969,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                 <button
                                                     on:click=move |_| {
                                                         editing.set(Some(draft_for_edit.clone()));
+                                                        candidates.set(None);
+                                                        candidate_checked.set(std::collections::BTreeSet::new());
                                                         error.set(String::new());
                                                     }
                                                     disabled=move || busy.get()
@@ -906,7 +1052,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             <span class="models-tag">{header_tag}</span>
                             <span class="models-tag">{protocol_label(&protocol)}</span>
                             <span class="models-actions">
-                                <button on:click=move |_| { editing.set(None); load(); }>"Cancel"</button>
+                                <button on:click=move |_| {
+                                editing.set(None);
+                                candidates.set(None);
+                                candidate_checked.set(std::collections::BTreeSet::new());
+                                load();
+                            }>"Cancel"</button>
                             </span>
                         </div>
                         {custom.then(|| view! {
@@ -1117,6 +1268,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         </div>
                         <div class="models-models-head">
                             <strong>"Models"</strong>
+                            <button
+                                on:click=move |_| discover()
+                                disabled=move || busy.get() || discovering.get()
+                            >
+                                {move || if discovering.get() { "Fetching…" } else { "Fetch available models" }}
+                            </button>
                             <span class="tool">
                                 {if custom {
                                     "A custom provider needs at least one model."
@@ -1125,6 +1282,74 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 }}
                             </span>
                         </div>
+                        {move || {
+                            let Some(list) = candidates.get() else {
+                                return view! { <span></span> }.into_any();
+                            };
+                            let filter = candidate_filter.get().to_lowercase();
+                            let visible: Vec<DiscoveredModel> = list
+                                .into_iter()
+                                .filter(|model| {
+                                    filter.is_empty()
+                                        || model.id.to_lowercase().contains(&filter)
+                                        || model.name.to_lowercase().contains(&filter)
+                                })
+                                .collect();
+                            let checked_set = candidate_checked.get();
+                            view! {
+                                <div class="models-picker">
+                                    <div class="models-picker-head">
+                                        <strong>{format!("{} available model(s)", visible.len())}</strong>
+                                        <input
+                                            placeholder="filter models"
+                                            prop:value=move || candidate_filter.get()
+                                            on:input=move |event| candidate_filter.set(event_target_value(&event))
+                                        />
+                                        <button on:click=move |_| {
+                                            let ids = candidates.get_untracked().unwrap_or_default()
+                                                .into_iter().map(|model| model.id).collect();
+                                            candidate_checked.set(ids);
+                                        }>"Select all"</button>
+                                        <button on:click=move |_| candidate_checked.set(std::collections::BTreeSet::new())>"Deselect all"</button>
+                                    </div>
+                                    <div class="models-candidates">
+                                        {visible.into_iter().map(|candidate| {
+                                            let id = candidate.id.clone();
+                                            let label = id.clone();
+                                            let checked = checked_set.contains(&id);
+                                            view! {
+                                                <label class="models-check models-candidate">
+                                                    <input
+                                                        type="checkbox"
+                                                        prop:checked=checked
+                                                        on:change=move |event| {
+                                                            let checked = event_target_checked(&event);
+                                                            let id = id.clone();
+                                                            candidate_checked.update(|set| {
+                                                                if checked {
+                                                                    set.insert(id.clone());
+                                                                } else {
+                                                                    set.remove(&id);
+                                                                }
+                                                            });
+                                                        }
+                                                    />
+                                                    <span class="model-id">{label}</span>
+                                                    <span class="tool">{candidate.name}</span>
+                                                </label>
+                                            }
+                                        }).collect_view()}
+                                    </div>
+                                    <div class="row">
+                                        <button on:click=move |_| apply_candidates()>"Update list"</button>
+                                        <button on:click=move |_| {
+                                            candidates.set(None);
+                                            candidate_checked.set(std::collections::BTreeSet::new());
+                                        }>"Cancel"</button>
+                                    </div>
+                                </div>
+                            }.into_any()
+                        }}
                         <div class="models-model-list">
                             {move || {
                                 let Some(draft) = editing.get() else {
@@ -1392,7 +1617,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 on:click=move |_| save()
                                 disabled=move || busy.get()
                             >"Save"</button>
-                            <button on:click=move |_| { editing.set(None); load(); }>"Cancel"</button>
+                            <button on:click=move |_| {
+                                editing.set(None);
+                                candidates.set(None);
+                                candidate_checked.set(std::collections::BTreeSet::new());
+                                load();
+                            }>"Cancel"</button>
                         </div>
                     </div>
                 }.into_any()
@@ -1560,6 +1790,48 @@ mod tests {
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!(false));
         assert!(draft_body(&value).is_ok());
+    }
+
+    fn candidate(id: &str) -> DiscoveredModel {
+        DiscoveredModel {
+            id: id.to_owned(),
+            name: id.to_owned(),
+        }
+    }
+
+    fn model_row(id: &str) -> ModelDraft {
+        ModelDraft {
+            id: id.to_owned(),
+            name: String::new(),
+            context_window: String::new(),
+            max_tokens: String::new(),
+            text: true,
+            image: false,
+            reasoning_efforts: None,
+        }
+    }
+
+    #[test]
+    fn discovery_merges_checked_candidates_and_keeps_unlisted_rows() {
+        let selected = std::collections::BTreeSet::from(["new".to_owned()]);
+        let merged = merge_discovered(
+            &[model_row("kept"), model_row("listed")],
+            &[candidate("listed"), candidate("new")],
+            &selected,
+        )
+        .expect("merge");
+        let ids: Vec<&str> = merged.iter().map(|model| model.id.as_str()).collect();
+        assert_eq!(ids, vec!["kept", "new"]);
+
+        let empty = merge_discovered(&[], &[candidate("new")], &selected).expect("first add");
+        assert_eq!(empty[0].id, "new");
+
+        let refused = merge_discovered(
+            &[model_row("listed")],
+            &[candidate("listed")],
+            &std::collections::BTreeSet::new(),
+        );
+        assert!(refused.is_err());
     }
 
     #[test]

@@ -407,6 +407,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/config/providers", get(models_api::get_providers))
         .route(
+            "/v1/config/providers/discover",
+            post(models_api::discover_provider),
+        )
+        .route(
             "/v1/config/providers/{id}",
             put(models_api::put_provider).delete(models_api::delete_provider),
         )

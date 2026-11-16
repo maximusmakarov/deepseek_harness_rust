@@ -20,6 +20,8 @@ import argparse
 import importlib.util
 import json
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import threading
 import shutil
 import subprocess
 import sys
@@ -73,6 +75,38 @@ def load_smoke():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     return module
+
+
+def start_model_endpoint() -> tuple[ThreadingHTTPServer, str]:
+    """A tiny OpenAI-compatible listing the discovery button can ask."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - http.server API
+            if not self.path.endswith("/models"):
+                self.send_response(404)
+                self.send_header("content-length", "0")
+                self.end_headers()
+                return
+            body = json.dumps(
+                {
+                    "data": [
+                        {"id": "acme-one", "name": "Acme One"},
+                        {"id": "acme-two", "name": "Acme Two"},
+                    ]
+                }
+            ).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}/v1"
 
 
 def start_serve(binary: Path, home: Path, workspace: Path, port: int, cassette: Path) -> subprocess.Popen:
@@ -150,6 +184,8 @@ def run(args: argparse.Namespace) -> int:
     while chrome_port == serve_port:
         chrome_port = smoke.free_port()
     smoke_server = smoke_chrome = None
+    model_server = None
+    models_url = ""
     failures: list[str] = []
     checks = 0
 
@@ -188,6 +224,7 @@ def run(args: argparse.Namespace) -> int:
             "version: 1\nmodel:\n  provider: deepseek-account\n  name: deepseek-flash\n"
         )
         smoke_server = start_serve(binary, home, workspace, serve_port, cassette)
+        model_server, models_url = start_model_endpoint()
         smoke_chrome = smoke.start_chrome(chrome, chrome_port, profile)
         dt = smoke.DevTools(smoke.page_target(chrome_port))
         dt.call("Page.enable")
@@ -523,6 +560,7 @@ def run(args: argparse.Namespace) -> int:
 
         # A hand-declared provider: id, protocol, endpoint, key reference and
         # one model, all persisted through the same revision-fenced write.
+        evaluate(smoke, dt, "window.__MODELS_URL = %s" % json.dumps(models_url))
         evaluate(
             smoke,
             dt,
@@ -554,10 +592,30 @@ def run(args: argparse.Namespace) -> int:
                 };
                 set(fields[0], 'acme-gateway');
                 set(fields[1], 'Acme Gateway');
-                set(fields[2], 'https://acme.example/v1');
+                set(fields[2], window.__MODELS_URL);
                 set(fields[3], 'ACME_GATEWAY_KEY');
                 [...card.querySelectorAll('button')]
-                    .find(b => b.textContent.trim() === 'Add model').click();
+                    .find(b => b.textContent.trim() === 'Fetch available models').click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!!document.querySelector('.models-picker')"),
+            timeout=STEP_TIMEOUT,
+            label="discovered model picker",
+        )
+        candidates = evaluate(smoke, dt, "document.querySelector('.models-picker')?.textContent || ''")
+        check(
+            "discovery lists the endpoint models",
+            "acme-one" in candidates and "acme-two" in candidates,
+            candidates,
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                [...document.querySelectorAll('.models-picker button')]
+                    .find(b => b.textContent.trim() === 'Update list').click();
                 return true;
             })()""",
         )
@@ -565,10 +623,10 @@ def run(args: argparse.Namespace) -> int:
             lambda: evaluate(
                 smoke,
                 dt,
-                "!!document.querySelector('.models-editor-card[data-provider=\"acme-gateway\"] .models-model-row')",
+                "document.querySelectorAll('.models-editor-card[data-provider=\"acme-gateway\"] .models-model-row').length === 2",
             ),
             timeout=STEP_TIMEOUT,
-            label="custom model row",
+            label="custom model rows from discovery",
         )
         evaluate(
             smoke,
@@ -607,6 +665,7 @@ def run(args: argparse.Namespace) -> int:
             "acme-gateway:" in written
             and "ACME_GATEWAY_KEY" in written
             and "acme-one" in written
+            and "acme-two" in written
             and "reasoning_efforts" in written
             and "high" in written
             and "retry:" in written
@@ -683,6 +742,9 @@ def run(args: argparse.Namespace) -> int:
         except Exception:  # noqa: BLE001 - best effort diagnostics
             print("  diagnostics unavailable (page or DevTools target is gone)")
     finally:
+        if model_server is not None:
+            model_server.shutdown()
+            model_server.server_close()
         for process in (smoke_chrome, smoke_server):
             if process is not None and process.poll() is None:
                 process.terminate()

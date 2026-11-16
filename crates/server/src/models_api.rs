@@ -5,6 +5,8 @@
 //! revision they were read at, so a stale card cannot overwrite a newer one;
 //! a mismatch is `409` and the page reloads.
 
+use std::time::Duration;
+
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -302,6 +304,184 @@ pub async fn put_provider(
         "revision": saved.revision,
         "provider": route,
     })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiscoverRequest {
+    pub protocol: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+}
+
+fn discovery_urls(protocol: &str, base_url: &str) -> Vec<String> {
+    let base = base_url.trim().trim_end_matches('/');
+    match Protocol::parse(protocol) {
+        Some(Protocol::OpenAiChat) => vec![format!("{base}/models")],
+        Some(Protocol::AnthropicMessages) => {
+            let mut urls = vec![format!("{base}/v1/models")];
+            // DeepSeek's Anthropic-shaped base carries `/anthropic`; its
+            // listing lives one level up.
+            if let Some(root) = base.strip_suffix("/anthropic") {
+                let candidate = format!("{root}/models");
+                if !urls.contains(&candidate) {
+                    urls.push(candidate);
+                }
+            }
+            urls
+        }
+        None => Vec::new(),
+    }
+}
+
+fn discovered_models(value: &Value) -> Vec<Value> {
+    let mut models = Vec::new();
+    let mut push = |id: Option<&str>, name: Option<&str>| {
+        let Some(id) = id.filter(|id| !id.trim().is_empty()) else {
+            return;
+        };
+        if models
+            .iter()
+            .any(|model: &Value| model["id"].as_str() == Some(id))
+            || models.len() >= 500
+        {
+            return;
+        }
+        models.push(json!({
+            "id": id,
+            "name": name.filter(|name| !name.trim().is_empty()).unwrap_or(id),
+        }));
+    };
+    if let Some(entries) = value["data"].as_array() {
+        for entry in entries {
+            push(
+                entry["id"].as_str(),
+                entry["name"]
+                    .as_str()
+                    .or_else(|| entry["display_name"].as_str()),
+            );
+        }
+    } else if let Some(entries) = value["models"].as_array() {
+        for entry in entries {
+            push(
+                entry["id"].as_str(),
+                entry["name"]
+                    .as_str()
+                    .or_else(|| entry["display_name"].as_str()),
+            );
+        }
+    } else if let Some(entries) = value["models"].as_object() {
+        for (id, entry) in entries {
+            let name = entry
+                .as_str()
+                .or_else(|| entry["name"].as_str())
+                .or_else(|| entry["display_name"].as_str());
+            push(Some(id), name);
+        }
+    }
+    models
+}
+
+/// `POST /v1/config/providers/discover`: asks an OpenAI-compatible or
+/// Anthropic-shaped endpoint for its model list. The key never leaves the
+/// server: the request names an environment variable, exactly like a profile.
+pub async fn discover_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<DiscoverRequest>,
+) -> Result<Json<Value>, ApiError> {
+    authorized(&state, &headers)?;
+    let protocol = Protocol::parse(&body.protocol)
+        .ok_or_else(|| error(StatusCode::BAD_REQUEST, "unknown provider protocol"))?;
+    let base_url = body.base_url.trim();
+    if !(base_url.starts_with("https://") || base_url.starts_with("http://"))
+        || base_url.chars().any(char::is_whitespace)
+    {
+        return Err(error(
+            StatusCode::BAD_REQUEST,
+            "the base URL must start with http:// or https://",
+        ));
+    }
+    let reference = body
+        .api_key_env
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(reference) = reference
+        && (reference.len() > 96
+            || !reference
+                .chars()
+                .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_'))
+    {
+        return Err(error(StatusCode::BAD_REQUEST, "invalid API key variable"));
+    }
+    let key = reference
+        .and_then(|reference| std::env::var(reference).ok())
+        .filter(|value| !value.trim().is_empty());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|failure| error(StatusCode::INTERNAL_SERVER_ERROR, failure.to_string()))?;
+    let mut last_status = None;
+    for url in discovery_urls(protocol.id(), base_url) {
+        let mut request = client.get(&url).header("accept", "application/json");
+        request = match protocol {
+            Protocol::OpenAiChat => match key.as_deref() {
+                Some(key) => request.bearer_auth(key),
+                None => request,
+            },
+            Protocol::AnthropicMessages => {
+                let request = request.header("anthropic-version", "2023-06-01");
+                match key.as_deref() {
+                    Some(key) => request.header("x-api-key", key),
+                    None => request,
+                }
+            }
+        };
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(failure) => {
+                return Err(error(
+                    StatusCode::BAD_GATEWAY,
+                    format!("cannot reach {url}: {failure}"),
+                ));
+            }
+        };
+        let status = response.status();
+        if !status.is_success() {
+            last_status = Some(status);
+            if status == StatusCode::NOT_FOUND {
+                continue;
+            }
+            let detail = response.text().await.unwrap_or_default();
+            let detail = detail.chars().take(200).collect::<String>();
+            return Err(error(
+                StatusCode::BAD_GATEWAY,
+                format!("{url} answered {status}: {detail}"),
+            ));
+        }
+        let text = response.text().await.unwrap_or_default();
+        let value: Value = serde_json::from_str(&text).map_err(|failure| {
+            error(
+                StatusCode::BAD_GATEWAY,
+                format!("invalid model listing: {failure}"),
+            )
+        })?;
+        let models = discovered_models(&value);
+        return Ok(Json(json!({
+            "url": url,
+            "count": models.len(),
+            "models": models,
+        })));
+    }
+    Err(error(
+        StatusCode::BAD_GATEWAY,
+        format!(
+            "the endpoint returned no model listing (last status {})",
+            last_status.map_or_else(|| "unknown".to_owned(), |status| status.to_string())
+        ),
+    ))
 }
 
 #[derive(Debug, Deserialize)]

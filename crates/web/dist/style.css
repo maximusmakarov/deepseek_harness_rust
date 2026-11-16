@@ -339,3 +339,37 @@ dialog.settings-dialog {
     gap: 6px 14px;
     padding-left: 160px;
 }
+.models-picker {
+    border: 1px dashed var(--accent);
+    border-radius: 8px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+.models-picker-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.models-picker-head input {
+    flex: 1;
+    min-width: 140px;
+}
+.models-candidates {
+    max-height: 180px;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.models-candidate {
+    justify-content: flex-start;
+    gap: 6px;
+}
+.models-candidate .model-id {
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--fg);
+}

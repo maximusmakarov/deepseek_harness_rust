@@ -2,6 +2,10 @@
 
 ## 0.1.0 — current
 
+- Models can ask an OpenAI-compatible or Anthropic-shaped endpoint for its
+  model list (`POST /v1/config/providers/discover`) and adopt the result through
+  a filterable picker; the key comes from the named environment variable and
+  never reaches the page.
 - Models providers carry a retry policy (`normal`/`always`, max retries,
   retryable codes, exponential backoff with jitter). It is edited in Settings,
   persisted in `models.yaml`, resolved into `dshr-llm`'s `RetryPlan`, and
