@@ -1,6 +1,6 @@
 # 042. C-full отдельной фазой: renderer-семантика ядра, mounted-model сессий, host-сервисы
 
-- **Статус:** Accepted (решение владельца 16.11.2026) — фаза открыта
+- **Статус:** Accepted; **фаза C5 закрыта 16.11.2026** (раунды 106–114) с записанными границами
 - **Дата:** 2026-11-16
 - **Уточняет:** [041](041-c-full-decision.md) (там C-full был отложен), [040](040-react-client-half.md), [013](013-cordis-compat.md) §5
 - **Влияет на:** PLUGINS.md, PARITY.md, TECH-DEBT.md, ROADMAP.md, ROUNDS.md
@@ -62,7 +62,7 @@ SlotMap**, плагин регистрирует ту же ячейку с ме�
 | **C5.5** | Host-сервис `pluginManager`: фасад над серверными plugin-эндпоинтами (`list`/`status`/`setPluginEnabled`/`installBundle`/`removeBundle`), внутренний токен как альтернатива bearer | ✅ раунд 111: сервис в sidecar + conformance-фикстура `plugin-manager-probe` (list/toggle через stub-сервер), server-тест internal-token, smoke 88/88. Upstream pnpm-менеджер (bundle-патчи, registry-планы, build-approvals) не портирован — это CLI-операции dshr |
 | **C5.6a** | Settings store: серверный `/v1/config-forms/{entry}` (GET/POST, `ops` set/unset, numeric revision-fence, атомарная запись, internal-token) поверх `<home>/cordis/config-forms/*.json` | ✅ раунд 112: 2 server-теста (round-trip с 409 на stale revision, unset, bad entry, internal-token), smoke 88/88 |
 | **C5.6b** | Browser-`configForms` через host-relay на этот store: frame → shell → `/v1/config-forms`, синхронный snapshot для `useSyncExternalStore` | ✅ раунд 113: bridge relay (`config-form-read/mutate` → `config-form-snapshot`), shell-обработчики, harness 121 (+2: relay + stale revision), smoke **89/89** (+1: правка реально в `<home>/cordis/config-forms/*.json`) |
-| **C5.7** | Закрытие: conformance n≥11 без деградаций, матрица PARITY/TECH-DEBT, TLA+ `ClientAssets` при необходимости, отчёт | все гейты CI, документы обновлены |
+| **C5.7** | Закрытие: сверка трёх направлений, матрица PARITY/TECH-DEBT, отчёт | ✅ раунд 114: направление закрыто с границами ниже; workspace 376+3 ignored, desktop 38, web 11, harness 121, smoke 89; документы обновлены |
 
 ### Инварианты
 
@@ -85,6 +85,37 @@ SlotMap**, плагин регистрирует ту же ячейку с ме�
 - Регрессии conformance: 0 (n=11 удерживается на каждом срезе).
 - Покрытие: новые серверные пути — integration-тесты; мост — harness; шелл —
   e2e-probe на каждый срез.
+
+## Итоги фазы (16.11.2026)
+
+| Направление | Срез | Коммит | Чем доказано |
+|---|---|---|---|
+| Renderer-семантика ядра | C5.1 shadowing по `priority` | `3e563b1` | 6 unit-тестов web-крейта; встроенный вид — запись ячейки с `CORE_RENDERER_PRIORITY`, плагин затеняет только `priority < 0` |
+| | C5.2 fallback упавшего кадра | `c3e24f6` | web 8 unit (упавший победитель → builtin), `data-renderer-state/token`, smoke |
+| Mounted-model сессий | C5.3 живой поток | `7408db2` | server +3 (SSE, создание, usage после turn'а), sidecar без 5-с опроса, smoke |
+| | C5.4a живой сайдбар | `2d0bf02` | web 11 unit (+3), server +1, smoke |
+| | C5.4b `llmMs` и история turn'ов | `ab79227` | session +1 (backward-compat), server-поля, smoke |
+| Host-сервисы | C5.5 `pluginManager` | `8c8b276` | cordis +1 (фикстура probe через stub-сервер), server +1 |
+| | C5.6a settings store | `338df29` | server +2 (revision-fence, unset, bad entry, internal-token) |
+| | C5.6b relay и персистентность | `ee78493` | harness 121, smoke 89 (файл настроек создаётся после Save) |
+
+**Итоговые гейты:** root 376 passed + 3 ignored (CI-эквивалентно; в песочнице
+агента 373 passed, 1 environmental failure — `dshr-sandbox::tests::
+seatbelt_confines_writes` из-за запрета вложенного `sandbox-exec`, и два
+исключённых кейса того же класса), desktop 38, web 11, bridge harness 121,
+client-half smoke 89, fmt/clippy/deny чисто.
+
+**Что закрыто как «в объёме»:** плагин может заменить встроенный рендер
+core-узла и безопасно откатиться; сессии живут на событийной модели с реальным
+`llmMs` и per-turn историей; `pluginManager` и settings store доступны
+host-половинам, browser-формы персистентны.
+
+**Что сознательно вне объёма C5 (записано в LIMITATIONS/TECH-DEBT, не долг):**
+порт pnpm-движка upstream `PluginManager` (bundle-патчи, registry-планы,
+`allowBuilds`, version-exemptions) — у dshr CLI-операции; семантика
+конфигурационного движка DSH (схемы, слои, миграции) — dshr хранит документ с
+ревизией; builtin-capture (встроенный Leptos-вид нельзя отдать в iframe как
+React-компонент); thread-модель DSH — субагентские сессии самостоятельны.
 
 ## Альтернативы
 

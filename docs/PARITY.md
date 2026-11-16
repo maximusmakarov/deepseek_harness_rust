@@ -90,7 +90,13 @@ recovery-окно с профилями/плагинами, first-run home. 16.1
 официальной оболочки — отложены решением владельца.
 P1: plugin market — каталог с категориями/поиском и карточкой пакета сделан; GUI-менеджер
 плагинов есть; внешней (общей) базы отзывов нет — отзывы живут в home.
-P2: прогон brew/desktop CI на теге, React-совместимость клиентских плагинов
+P2: прогон brew/desktop CI на теге; **C-full закрыт фазой C5 (ADR-042,
+16.11.2026)** — renderer-семантика (shadowing по priority, builtin-fallback),
+живая модель сессий (`/v1/sessions/events`, `/v1/internal/session-events`,
+`llmMs`, per-turn история), host-сервисы `pluginManager` и settings store с
+relay для browser-форм; вне объёма остались pnpm-менеджер upstream, семантика
+конфигурационного движка DSH и builtin-capture. Далее — React-совместимость
+клиентских плагинов
 (регионы и словарь имён — раунд 76, enabler `dsh.client.runtime` — раунд 77,
 PoC тира B `dsh.client.host_modules` — раунд 78, C-lite — раунд 79: при host
 React `ctx.slots.register(entry, Component)` рендерится как React-компонент с

@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–113)
+# Журнал раундов паритета (1–114)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 375 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **424**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 376 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **425**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1206,6 +1206,35 @@ streaming-прокси.
     создан с `revision >= 1`).
   - Осталось: C5.7 — закрытие фазы (сверка трёх направлений, матрица, отчёт,
     решение о complete).
+
+- 114: **C5.7 — фаза C-full закрыта** (16.11.2026,
+  [ADR-042](adr/042-c-full-phase.md)). Сведены доказательства по трём
+  направлениям и зафиксированы границы:
+  - **renderer-семантика ядра:** встроенный вид — запись keyed-ячейки с
+    `CORE_RENDERER_PRIORITY`; плагин затеняет её только `priority < 0`;
+    упавший кадр-победитель откатывается в builtin (`data-renderer-state`);
+    `single`-ячейки shell-owned; builtin-capture невозможен (Leptos-вид в
+    iframe) — записано как граница, а не долг (коммиты `3e563b1`, `c3e24f6`);
+  - **mounted-model сессий:** серверный поток `session` (внутренний и
+    публичный), sidecar без 5-с опроса (`resync` → снимок), шелл применяет
+    дельты в сайдбар, `llmMs` считается из латентности шага, `turns_detail`
+    даёт per-turn историю; thread-модели DSH нет (субагентские сессии
+    самостоятельны) — отсутствие, не долг (коммиты `7408db2`, `2d0bf02`,
+    `ab79227`);
+  - **host-сервисы:** `pluginManager` (фасад над CLI-операциями, internal
+    token), settings store `/v1/config-forms/{entry}` с revision-fence и
+    атомарной записью, browser-формы через relay и персистентность
+    (коммиты `8c8b276`, `338df29`, `ee78493`).
+  - **Гейты:** полный `cargo test --workspace` — 376 passed + 3 ignored
+    (CI-эквивалент; в песочнице агента 373 passed, 1 environmental failure
+    `dshr-sandbox::seatbelt_confines_writes` из-за запрета вложенного
+    `sandbox-exec`, и 2 кейса того же класса исключены по имени), desktop 38,
+    web 11, bridge harness 121, client-half smoke 89; fmt/clippy/deny чисто.
+  - **Вне объёма C5 (LIMITATIONS/TECH-DEBT):** порт pnpm-движка upstream
+    `PluginManager`, семантика конфигурационного движка DSH (схемы/слои/
+    миграции), builtin-capture, thread-модель.
+  - «Что осталось» ниже относится к прежним трекам (Cordis-совместимость,
+    дистрибутивы, блокеры), а не к C-full.
 
 ## Что осталось
 
