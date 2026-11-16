@@ -391,16 +391,21 @@ export function apply(ctx) {
   слушает не loopback, прокси отвечает 403, пока явно не передан
   `--allow-lan-plugin-routes`.
 
-**Сервисы `sessions`/`sessionProjections` (C1.1).** Сервер публикует в
-`<home>/cordis/host.json` внутренний URL и per-run токен, а sidecar забирает
-`GET /v1/internal/session-snapshot` (recent ≤50 сессий: id/title/model/turns/
-steps/usage-события, без содержимого сообщений) и раз в 5 с обновляет снимок.
-Из него bootstrap строит DSH-совместимые сервисы: `ctx.get('sessions')`
-(`list()`/`get(id)`, объекты с `header.createdAt` и DSH-shaped `log`) и
-`ctx.get('sessionProjections')` (`snapshot(session).values` с `sessionStats` и
-`tokenUsage`). Реальные usage-маршруты плагинов теперь считают статистику по
-сессиям dshr; данные могут отставать до интервала обновления (5 с), а проекция
-упрощена (без `llmMs`/истории тредов).
+**Сервисы `sessions`/`sessionProjections` (C1.1, живой поток с C5.3–C5.4b).**
+Сервер публикует в `<home>/cordis/host.json` внутренний URL и per-run токен.
+Sidecar гидратируется снимком (`GET /v1/internal/session-snapshot`, recent ≤50
+сессий: id/title/model/turns/steps/usage-события/`llm_ms`/`turns_detail`, без
+содержимого сообщений), а дальше живёт на потоке
+`GET /v1/internal/session-events` (`event: session` — та же запись, что в
+снимке; `resync` при отставании → перегидратация, reconnect с backoff).
+Пятисекундного опроса нет, снимок — только гидратация/восстановление.
+Сервисы: `ctx.get('sessions')` (`list()`/`get(id)`, объекты с
+`header.createdAt` и DSH-shaped `log`) и `ctx.get('sessionProjections')`
+(`snapshot(session).values` с `sessionStats` и `tokenUsage`);
+`sessionStats.llmMs` — реальная сумма латентностей шагов из журнала (C5.4b),
+`log` несёт per-turn usage. Отдельной thread-модели DSH в dshr нет:
+субагентские сессии — самостоятельные сессии, поэтому `threads` не
+эмулируются.
 
 Ограничения C1: нет SSE/WebSocket/стриминга и потоковых ответов через прокси;
 поддерживаются `kind: "exact"` и `kind: "prefix"` (longest-prefix), других kind

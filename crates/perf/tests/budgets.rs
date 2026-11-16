@@ -69,6 +69,7 @@ fn text_event(seq: u64, turn: &TurnId, body: String) -> SessionEvent {
             content: vec![ContentBlock::text(body)],
             usage: Usage::default(),
             stop_reason: None,
+            latency_ms: None,
         }
     }
 }

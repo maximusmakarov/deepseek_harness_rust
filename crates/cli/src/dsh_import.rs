@@ -107,6 +107,7 @@ pub fn import(store: &SessionStore, path: &Path, provider: &str, model: &str) ->
                         content,
                         usage: Usage::default(),
                         stop_reason: None,
+                        latency_ms: None,
                     },
                 )?;
             }

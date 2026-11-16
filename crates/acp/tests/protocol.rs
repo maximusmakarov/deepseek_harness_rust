@@ -595,6 +595,7 @@ async fn loads_and_replays_a_session() {
                 content: vec![dshr_llm::ContentBlock::text("old assistant")],
                 usage: dshr_llm::Usage::default(),
                 stop_reason: Some(dshr_llm::StopReason::EndTurn),
+                latency_ms: None,
             },
         )
         .expect("assistant");

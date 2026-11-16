@@ -205,6 +205,7 @@ mod tests {
                     content: vec![ContentBlock::text(format!("answer {index}"))],
                     usage: Usage::default(),
                     stop_reason: None,
+                    latency_ms: None,
                 },
                 SessionEvent::TurnEnd {
                     seq: session.next_seq() + 3,

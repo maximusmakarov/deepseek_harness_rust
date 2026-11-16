@@ -7,6 +7,7 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use dshr_core::{DshrError, TurnId};
@@ -475,6 +476,7 @@ impl Agent {
                 ..Request::default()
             };
 
+            let model_started = Instant::now();
             let mut stream = match self.provider.stream(request, cancel.clone()).await {
                 Ok(stream) => stream,
                 Err(LlmError::Cancelled) => {
@@ -520,6 +522,7 @@ impl Agent {
                 }
             };
             usage.merge(output.usage);
+            let latency_ms = u64::try_from(model_started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
             let calls = tool_calls_of(&output.content);
             self.append(SessionEvent::AssistantMessage {
@@ -529,6 +532,7 @@ impl Agent {
                 content: output.content,
                 usage: output.usage,
                 stop_reason: output.stop_reason,
+                latency_ms: Some(latency_ms),
             })?;
 
             if let Some(budget) = &self.config.budget {

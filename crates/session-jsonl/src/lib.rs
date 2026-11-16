@@ -535,6 +535,7 @@ mod tests {
                     ..Usage::default()
                 },
                 stop_reason: Some(StopReason::EndTurn),
+                latency_ms: None,
             },
             SessionEvent::TurnEnd {
                 seq: session.next_seq() + 3,

@@ -1273,6 +1273,7 @@ async fn internal_session_snapshot_feeds_the_host_bridge() {
                     cache_read_input_tokens: 3,
                 },
                 stop_reason: None,
+                latency_ms: None,
             },
         )
         .expect("append");

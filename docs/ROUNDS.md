@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–109)
+# Журнал раундов паритета (1–110)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 370 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **419**, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 371 root-тест (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **420**, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1125,6 +1125,26 @@ streaming-прокси.
     `llmMs=0`) и история turn'ов; отдельной thread-модели в dshr нет
     (субагентские сессии — самостоятельные сессии), это будет записано как
     отсутствие, а не как долг. Затем C5.5 `pluginManager`, C5.6 `settings`.
+
+- 110: **C5.4b — проекции: `llmMs` и история turn'ов** (фаза C-full,
+  [ADR-042](adr/042-c-full-phase.md)). `sessionStats.llmMs=0` был
+  заглушкой; теперь латентность шага — факт журнала:
+  - `SessionEvent::AssistantMessage` получил
+    `#[serde(default, skip_serializing_if = "Option::is_none")] latency_ms`;
+    старые журналы реплеятся без поля (тест backward-compat), `None` не
+    сериализуется;
+  - `dshr-agent` замеряет провайдерский вызов (`Instant` до `stream`, после
+    `assembler.finish()`) и пишет `Some(ms)`;
+  - запись сессии (`session_summary_entry`) теперь несёт `llm_ms` (сумма
+    латентностей), `turns_detail` (turn → steps/llm_ms/tokens) и
+    `latency_ms` в каждом `usage_events`; sidecar отдаёт
+    `sessionStats.llmMs` из `llm_ms`;
+  - thread-модели (DSH threads) в dshr нет: субагентские сессии — отдельные
+    сессии, поэтому это **отсутствие**, а не долг; per-turn история едет в
+    `turns_detail`/`log`.
+  - Проверки: session 6 (+1 backward-compat/round-trip), server 20 (+поля в
+    фиде), agent/session-jsonl/acp зелёные, smoke **88/88**; итог root 371
+    (+3 ignored). Дальше C5.5 `pluginManager`, C5.6 `settings`, C5.7 закрытие.
 
 ## Что осталось
 

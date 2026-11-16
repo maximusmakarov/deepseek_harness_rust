@@ -57,6 +57,10 @@ pub enum SessionEvent {
         usage: Usage,
         #[serde(default)]
         stop_reason: Option<StopReason>,
+        /// Wall-clock time of the provider call for this step (C5.4b). Optional
+        /// so journals written before the field existed still replay.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        latency_ms: Option<u64>,
     },
     AssistantAttempt {
         seq: u64,
@@ -155,6 +159,43 @@ mod tests {
         assert!(json.contains("\"type\":\"user_message\""));
         let back: SessionEvent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(event, back);
+    }
+
+    #[test]
+    fn assistant_latency_is_optional_and_backward_compatible() {
+        // A journal written before C5.4b has no `latency_ms` field.
+        let legacy = r#"{"type":"assistant_message","seq":4,"at":"2026-11-16T00:00:00Z","turn":"turn_1","content":[],"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}"#;
+        let event: SessionEvent = serde_json::from_str(legacy).expect("legacy event");
+        let SessionEvent::AssistantMessage { latency_ms, .. } = &event else {
+            panic!("expected assistant message");
+        };
+        assert_eq!(*latency_ms, None);
+
+        let measured = SessionEvent::AssistantMessage {
+            seq: 5,
+            at: "2026-11-16T00:00:00Z".into(),
+            turn: TurnId::new(),
+            content: Vec::new(),
+            usage: Usage::default(),
+            stop_reason: Some(StopReason::EndTurn),
+            latency_ms: Some(1234),
+        };
+        let json = serde_json::to_string(&measured).expect("serialize");
+        assert!(json.contains("\"latency_ms\":1234"), "{json}");
+        let back: SessionEvent = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(measured, back);
+
+        let unmeasured = SessionEvent::AssistantMessage {
+            seq: 6,
+            at: "2026-11-16T00:00:00Z".into(),
+            turn: TurnId::new(),
+            content: Vec::new(),
+            usage: Usage::default(),
+            stop_reason: None,
+            latency_ms: None,
+        };
+        let json = serde_json::to_string(&unmeasured).expect("serialize");
+        assert!(!json.contains("latency_ms"), "{json}");
     }
 
     #[test]

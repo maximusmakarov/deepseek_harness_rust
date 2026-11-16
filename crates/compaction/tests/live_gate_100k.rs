@@ -83,6 +83,7 @@ fn build_session(store: &SessionStore) -> Session {
                     content: vec![ContentBlock::text(assistant_text(index))],
                     usage: Usage::default(),
                     stop_reason: Some(StopReason::EndTurn),
+                    latency_ms: None,
                 },
             )
             .expect("assistant message");

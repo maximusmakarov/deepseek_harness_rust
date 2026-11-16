@@ -184,7 +184,7 @@
 | C5.2 | Fallback рендерера: ошибка кадра-победителя → builtin + диагностика `data-renderer-state/token` | 1.5 | ✅ раунд 107: `renderer_errors` по токену, 8 unit-тестов, smoke 88/88; browser-probe с падающим chat-node — в C5.3 |
 | C5.3 | Живой поток сессий: `GET /v1/internal/session-events` (SSE), `resync`, подписка sidecar, кэш без опроса | 2 | ✅ раунд 108: feed + `publish_session` (create/title/turn), 3 server-теста (401/404/200, создание, usage после turn), sidecar гидрируется снимком и живёт на событиях, smoke 88/88 |
 | C5.4a | Mounted-model в шелле: публичный `GET /v1/sessions/events`, живой сайдбар без перезагрузки | 1 | ✅ раунд 109: `connect_session_feed` (SSE `session`, merge newest-first, `resync`→снимок), web 11 unit, server 20, smoke 88/88 |
-| C5.4b | Проекции: `sessionStats.llmMs` из латентности шага, история turn'ов | 1.5 | bridge harness: `llmMs` после turn'а; thread-модели нет — записать |
+| C5.4b | Проекции: `sessionStats.llmMs` из латентности шага, история turn'ов | 1.5 | ✅ раунд 110: `latency_ms` в журнале (optional), `llm_ms` + `turns_detail` в записи, sidecar `llmMs`; thread-модели нет — записано в LIMITATIONS/PLUGINS |
 | C5.5 | Host-сервис `pluginManager`: install/remove/enable/disable и реестр через RPC | 2 | conformance studio/debugging без error-состояний |
 | C5.6 | Host-сервис `settings`: конфигурационный движок (схема/слои/миграции/revision) вместо in-memory `configForms` | 2.5 | персистентность через reload; conformance settings-UI сохраняет |
 | C5.7 | Закрытие фазы: conformance n≥11, матрица, TLA+ `ClientAssets` при необходимости, отчёт | 1 | все гейты CI; документы обновлены |

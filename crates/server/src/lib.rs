@@ -1369,15 +1369,20 @@ fn session_summary_entry(
 ) -> Option<Value> {
     let session = store.open(summary.id.as_str()).ok()?;
     let mut usage_events = Vec::new();
+    let mut llm_ms = 0_u64;
+    let mut turns_detail: Vec<Value> = Vec::new();
     for event in &session.events {
         if let dshr_session::SessionEvent::AssistantMessage {
             seq,
             at,
             turn,
             usage,
+            latency_ms,
             ..
         } = event
         {
+            let latency = latency_ms.unwrap_or(0);
+            llm_ms = llm_ms.saturating_add(latency);
             usage_events.push(json!({
                 "seq": seq,
                 "at": at,
@@ -1386,7 +1391,31 @@ fn session_summary_entry(
                 "output_tokens": usage.output_tokens,
                 "cache_creation_input_tokens": usage.cache_creation_input_tokens,
                 "cache_read_input_tokens": usage.cache_read_input_tokens,
+                "latency_ms": latency,
             }));
+            // C5.4b: per-turn history, so projections do not lose the turn
+            // boundaries when several steps belong to one turn.
+            let key = turn.as_str();
+            match turns_detail
+                .iter_mut()
+                .find(|entry| entry["turn"].as_str() == Some(key))
+            {
+                Some(entry) => {
+                    entry["steps"] = json!(entry["steps"].as_u64().unwrap_or(0) + 1);
+                    entry["llm_ms"] = json!(entry["llm_ms"].as_u64().unwrap_or(0) + latency);
+                    entry["input_tokens"] =
+                        json!(entry["input_tokens"].as_u64().unwrap_or(0) + usage.input_tokens);
+                    entry["output_tokens"] =
+                        json!(entry["output_tokens"].as_u64().unwrap_or(0) + usage.output_tokens);
+                }
+                None => turns_detail.push(json!({
+                    "turn": key,
+                    "steps": 1,
+                    "llm_ms": latency,
+                    "input_tokens": usage.input_tokens,
+                    "output_tokens": usage.output_tokens,
+                })),
+            }
         }
     }
     Some(json!({
@@ -1396,6 +1425,8 @@ fn session_summary_entry(
         "model": session.header.model,
         "turns": session.turn_count(),
         "steps": usage_events.len(),
+        "llm_ms": llm_ms,
+        "turns_detail": turns_detail,
         "usage_events": usage_events,
     }))
 }

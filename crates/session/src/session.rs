@@ -228,6 +228,7 @@ mod tests {
             content: vec![ContentBlock::text("hello")],
             usage: dshr_llm::Usage::default(),
             stop_reason: None,
+            latency_ms: None,
         });
 
         let messages = session.derive_messages();
@@ -252,6 +253,7 @@ mod tests {
             }],
             usage: dshr_llm::Usage::default(),
             stop_reason: None,
+            latency_ms: None,
         });
         for (seq, id) in [(2, "call_1"), (3, "call_2")] {
             session.events.push(SessionEvent::ToolResult {

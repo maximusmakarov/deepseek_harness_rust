@@ -359,7 +359,12 @@ function dshSessionFromSnapshot(raw) {
     log,
     projections: {
       values: {
-        sessionStats: { turns: Number(raw.turns) || 0, steps: events.length, llmMs: 0 },
+        sessionStats: {
+          turns: Number(raw.turns) || 0,
+          steps: events.length,
+          // C5.4b: real step latency summed by the server from the journal.
+          llmMs: Number(raw.llm_ms) || 0,
+        },
         tokenUsage,
       },
     },
