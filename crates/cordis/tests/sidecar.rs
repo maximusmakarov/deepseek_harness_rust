@@ -265,3 +265,132 @@ export default {
         "config forms are created lazily: {description}"
     );
 }
+
+/// Minimal HTTP stub serving `/v1/internal/agents` for the host bridge.
+fn agents_stub(
+    payload: serde_json::Value,
+    token: &'static str,
+) -> (String, std::thread::JoinHandle<()>) {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let address = listener.local_addr().expect("addr");
+    let body = payload.to_string();
+    let handle = std::thread::spawn(move || {
+        for stream in listener.incoming().take(16) {
+            let Ok(mut stream) = stream else { continue };
+            let mut buffer = [0u8; 2048];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]);
+            let authorized = request
+                .lines()
+                .any(|line| line.eq_ignore_ascii_case(&format!("x-dshr-internal-token: {token}")));
+            let (status, body) = if authorized && request.starts_with("GET /v1/internal/agents") {
+                ("200 OK", body.as_str())
+            } else {
+                ("401 Unauthorized", "{}")
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    (format!("http://{address}"), handle)
+}
+
+/// The `agents` service is hydrated from the host bridge: the sidecar polls
+/// `/v1/internal/agents` and exposes the tree to plugins.
+#[tokio::test]
+async fn agents_service_is_bridged_from_the_host() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (url, stub) = agents_stub(
+        json!({
+            "revision": 7,
+            "agents": [
+                {"id": "s1", "session_id": "s1", "root_id": "s1", "depth": 0,
+                 "title": "root", "started_at": "2026-01-01T00:00:00Z"},
+                {"id": "s1#sub1", "session_id": "s1", "parent_id": "s1", "root_id": "s1",
+                 "depth": 1, "started_at": "2026-01-01T00:00:01Z"}
+            ]
+        }),
+        "bridge-token",
+    );
+    std::fs::create_dir_all(dir.path().join("cordis")).expect("cordis dir");
+    std::fs::write(
+        dir.path().join("cordis/host.json"),
+        json!({"url": url, "token": "bridge-token"}).to_string(),
+    )
+    .expect("host bridge");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+export default {
+  apply(ctx) {
+    ctx.tool({
+      name: "agents",
+      description: "agents bridge",
+      handler: () => {
+        const agents = ctx.get("agents");
+        return JSON.stringify({
+          count: agents.list().length,
+          roots: agents.roots().map((agent) => agent.id),
+          rootOf: agents.rootOf("s1#sub1"),
+          owned: agents.isOwnedBy("s1#sub1", "s1"),
+          parentId: agents.get("s1#sub1")?.parentId,
+        });
+      },
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "bridge".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect");
+    // The bridge poll runs every 2 s; give the first one time to land.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cordis__bridge__agents")
+        .expect("agents tool");
+    let ctx = ToolCtx {
+        cwd: dir.path().to_path_buf(),
+        session_id: SessionId::new(),
+        output_limit: 10_000,
+        spill_dir: dir.path().join("spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    let outcome = tool.execute(&ctx, json!({})).await.expect("call");
+    let content = outcome.content;
+    assert!(content.contains("\"count\":2"), "{content}");
+    assert!(content.contains("\"roots\":[\"s1\"]"), "{content}");
+    assert!(content.contains("\"rootOf\":\"s1\""), "{content}");
+    assert!(content.contains("\"owned\":true"), "{content}");
+    assert!(content.contains("\"parentId\":\"s1\""), "{content}");
+    drop(stub);
+}

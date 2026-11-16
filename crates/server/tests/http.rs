@@ -831,3 +831,89 @@ async fn config_forms_reject_bad_entries_and_accept_the_internal_token() {
         .expect("response");
     assert_eq!(response.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn internal_agents_require_the_bridge_token() {
+    let dir = tempfile::tempdir().expect("dir");
+    let state = state_with_bridge(dir.path(), Some("service-secret"));
+
+    let response = router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/v1/internal/agents")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    let response = router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/v1/internal/agents")
+                .header("x-dshr-internal-token", "service-secret")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(body["agents"], json!([]));
+}
+
+#[tokio::test]
+async fn internal_agents_publish_live_agents() {
+    let dir = tempfile::tempdir().expect("dir");
+    let state = state_with_bridge(dir.path(), Some("service-secret"));
+    let guard = state
+        .agents()
+        .register(dshr_core::LiveAgent::root("s1", "2026-01-01T00:00:00Z"));
+
+    let response = router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/v1/internal/agents")
+                .header("x-dshr-internal-token", "service-secret")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(body["agents"][0]["id"], json!("s1"));
+    assert_eq!(body["agents"][0]["root_id"], json!("s1"));
+    assert!(body["revision"].as_u64().unwrap_or_default() > 0);
+
+    drop(guard);
+
+    let response = router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/v1/internal/agents")
+                .header("x-dshr-internal-token", "service-secret")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(body["agents"], json!([]));
+}

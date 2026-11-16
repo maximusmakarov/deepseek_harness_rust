@@ -10,6 +10,13 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Cordis compat: `dshr-core` gained an `AgentRegistry` of live agents, the
+  server publishes it on `/v1/internal/agents` (bridge token only, metadata
+  only), and the sidecar exposes an `agents` service (`list`/`roots`/`get`/
+  `isOwnedBy`/`rootOf`/`resolveName`) hydrated from that endpoint with
+  `agent/created`/`agent/disposed` events. A `commands` registry service was
+  added as well. `dsh-mnemon@0.5.46` now mounts with three tools next to
+  `dsh-remote@1.2.0`.
 - Cordis compat: the sidecar exposes a `subagents` service (provider registry
   with `list`/`getProvider`/`registerProvider` and `subagent/provider-*`
   events). It is a registry, not a runtime: the agent tree lives in the host, so

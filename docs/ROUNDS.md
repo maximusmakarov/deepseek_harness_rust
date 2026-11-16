@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–120)
+# Журнал раундов паритета (1–121)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 409 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **458**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 414 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **463**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1776,6 +1776,36 @@ link-safety) и +5 интеграционных на локальном registry
   `dsh-remote@1.2.0` по-прежнему монтируется и отдаёт 21 инструмент.
 - Тест `exposes_subagent_registry_and_safe_config_forms`: регистрация
   провайдера, `list`/`getProvider`, диспозер и ленивая config-форма.
+
+## Раунд 121 — `agents`: мост к дереву агентов хоста (16.11.2026)
+
+- `dshr-core`: `AgentRegistry`/`LiveAgent` — реестр живых агентов (id, session,
+  parent, root, depth, title, model, started_at, монотонная revision) с
+  RAII-гардом на удаление; юнит-тесты на parentage/roots/root_of/revision.
+- Сервер: `AppState` держит реестр, `start_turn` регистрирует корневого агента
+  на время turn'а (title из сессии, model — имя провайдера) и снимает его
+  гардом; новый внутренний endpoint `GET /v1/internal/agents` (тот же
+  bridge-токен) отдаёт `{agents, revision}`.
+- Sidecar: сервис `agents` гидратируется из этого endpoint'а раз в 2 с,
+  нормализует snake_case/camelCase, эмитит `agent/created`/`agent/disposed` на
+  дельте и отдаёт `list`/`roots`/`get`/`isOwnedBy`/`rootOf`/`resolveName`/
+  `getProvider`. Через мост идут только метаданные.
+- Заодно добавлен сервис `commands` (реестр слэш-команд: `register`/`list`/
+  `get`/`run`), потому что `dsh-mnemon` регистрирует команду на старте.
+
+Проверено:
+
+- `dsh-mnemon@0.5.46` **монтируется** и отдаёт 3 инструмента
+  (`mnemon_view_route`, `mnemon_view_action`, `mnemon_subagent_result`), без
+  предупреждений; `dsh-remote@1.2.0` по-прежнему 21 инструмент. Итого два
+  реальных host-плагина в conformance под sidecar.
+- Тесты: `AgentRegistry` (2), серверный endpoint (`/v1/internal/agents` требует
+  токен; живые агенты видны, после drop гарда список пуст) — 2, интеграционный
+  тест sidecar с локальным HTTP-стабом: плагин видит `count=2`, `roots=[s1]`,
+  `rootOf=s1`, `owned=true`, `parentId=s1`.
+- Остаток, записанный в TECH-DEBT: сервис форм настроек (`dsh-mnemon` пишет
+  не-фатальное «could not persist displayMode») и вывод команд в UI/агенту
+  (реестр есть, исполнение через `commands.run`).
 
 ## Формализация и каталог тестов (14.11.2026)
 

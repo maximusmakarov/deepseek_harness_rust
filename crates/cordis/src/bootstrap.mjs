@@ -407,6 +407,62 @@ async function refreshHostSessions() {
   }
 }
 
+let hostAgents = [];
+let hostAgentsRevision = -1;
+
+/// Round 121: hydrate the live agent tree from the host server.
+async function refreshHostAgents() {
+  const bridge = await readHostBridge();
+  if (!bridge) return;
+  try {
+    const response = await fetch(bridge.url + "/v1/internal/agents", {
+      headers: { "x-dshr-internal-token": bridge.token },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return;
+    const payload = await response.json();
+    if (!payload || !Array.isArray(payload.agents)) return;
+    applyHostAgents(payload.agents, Number(payload.revision ?? 0));
+  } catch {
+    // The server may not be listening yet; the poll loop retries.
+  }
+}
+
+/// Replaces the agent list and emits creation/disposal edges for the diff.
+function applyHostAgents(next, revision) {
+  if (revision === hostAgentsRevision) return;
+  hostAgentsRevision = revision;
+  const normalise = (agent) => ({
+    ...agent,
+    parentId: agent.parent_id ?? agent.parentId,
+    rootId: agent.root_id ?? agent.rootId,
+    sessionId: agent.session_id ?? agent.sessionId,
+  });
+  const previous = new Map(hostAgents.map((agent) => [agent.id, agent]));
+  const updated = next.map(normalise);
+  const current = new Map(updated.map((agent) => [agent.id, agent]));
+  hostAgents = updated;
+  for (const agent of current.values()) {
+    if (!previous.has(agent.id)) emitAgentEvent("agent/created", agent);
+  }
+  for (const agent of previous.values()) {
+    if (!current.has(agent.id)) emitAgentEvent("agent/disposed", agent);
+  }
+}
+
+function emitAgentEvent(name, agent) {
+  // `ctx` is defined below; the poll loop only starts after it exists.
+  if (typeof ctx === "undefined" || typeof ctx.emit !== "function") return;
+  ctx.emit(name, agent);
+}
+
+async function runAgentFeed() {
+  for (;;) {
+    await refreshHostAgents();
+    await hostFeedDelay(2000);
+  }
+}
+
 /// C5.3: replaces or prepends one session from the live feed (same shape as the
 /// snapshot entry, so projections re-derive exactly as after a hydration).
 function mergeHostSession(raw) {
@@ -618,6 +674,51 @@ const configFormsService = {
   entries: () => [...configForms.keys()],
 };
 
+// `agents` service (round 121): the host's live agent tree, hydrated from
+// `/v1/internal/agents`. The sidecar never constructs agents itself.
+const agentsService = {
+  list: () => hostAgents.slice(),
+  roots: () => hostAgents.filter((agent) => !agent.parentId),
+  get: (id) => hostAgents.find((agent) => agent.id === String(id)),
+  isOwnedBy: (id, owner) => {
+    const agent = agentsService.get(id);
+    const ownerId = typeof owner === "string" ? owner : owner?.id;
+    return agent !== undefined && agent.parentId === ownerId;
+  },
+  rootOf: (agentOrId) => {
+    const id = typeof agentOrId === "string" ? agentOrId : agentOrId?.id;
+    return agentsService.get(id)?.rootId ?? id;
+  },
+  resolveName: (value) => (typeof value === "string" ? value : value?.id),
+  getProvider: (name) => subagentProviders.get(String(name)),
+};
+
+// `commands` service: plugin slash-commands. The sidecar keeps the registry and
+// runs handlers on demand; wiring them into the host UI is a later increment.
+const commandsRegistry = new Map();
+const commandsService = {
+  register: (command) => {
+    const name = command?.name;
+    if (typeof name !== "string" || name.length === 0) {
+      throw new Error("command name is required");
+    }
+    commandsRegistry.set(name, command);
+    return () => commandsRegistry.delete(name);
+  },
+  list: () =>
+    [...commandsRegistry.values()].map((command) => ({
+      name: command.name,
+      description: command.description ?? "",
+      input: command.input,
+    })),
+  get: (name) => commandsRegistry.get(String(name)),
+  run: async (name, invocation) => {
+    const command = commandsRegistry.get(String(name));
+    if (!command) throw new Error(`unknown command '${name}'`);
+    return command.handler(invocation);
+  },
+};
+
 // `subagents` service: provider registry only. dshr's agent tree lives in the
 // host process, so the sidecar cannot start children itself; plugins that need a
 // provider find the registered ones and degrade when there are none.
@@ -696,6 +797,8 @@ const serviceMap = {
   configForms: configFormsService,
   pluginManager: pluginManagerService,
   subagents: subagentsService,
+  agents: agentsService,
+  commands: commandsService,
 };
 
 const ctx = {
@@ -707,6 +810,8 @@ const ctx = {
   tool: (definition) => addTool(definition),
   get: (name) => serviceMap[name],
   subagents: subagentsService,
+  agents: agentsService,
+  commands: commandsService,
   webServer,
   configForms: configFormsService,
   // Reference fiber helper: run the callback only when every dependency exists.
@@ -912,6 +1017,7 @@ const input = readline.createInterface({ input: process.stdin });
 if (hostBridgeFile) {
   refreshHostSessions();
   runHostFeed();
+  runAgentFeed();
 }
 for await (const line of input) {
   if (!line.trim()) continue;

@@ -217,7 +217,15 @@ pack `node` → `node` из PATH. Если не нашлось ничего, п�
   `provide` + `get` (сервисы), `tools.register`/`tools.list`, `systemPrompt.section`,
   `sandbox.confine`, `config` и разрешение **именованного** `export const Config`
   (значения по умолчанию из схемы) — `apply(ctx, config)` получает конфиг, как в
-  Cordis. С раунда 120 добавлен сервис `subagents`
+  Cordis. С раунда 121 сервис `agents` — **мост к дереву агентов хоста**:
+  сервер публикует `/v1/internal/agents` (`LiveAgent`: id, session, parent, root,
+  depth, title, model, started_at, монотонная revision), sidecar опрашивает его
+  раз в 2 с и отдаёт плагинам `list()`, `roots()`, `get(id)`,
+  `isOwnedBy(id, owner)`, `rootOf()`, `resolveName()`, `getProvider()`, а также
+  события `agent/created`/`agent/disposed` на дельте. Метаданные только: ни
+  промптов, ни вывода модели через мост не идёт. Сервис `commands` (раунд 121) —
+  реестр плагинных слэш-команд (`register`/`list`/`get`/`run`). С раунда 120
+  добавлен сервис `subagents`
   (`list`/`getProvider`/`registerProvider` + события `subagent/provider-*`):
   это реестр провайдеров, а не рантайм — дерево агентов живёт в хосте, поэтому
   `start`/`startActivation` намеренно отсутствуют, и плагины деградируют по

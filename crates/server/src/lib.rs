@@ -83,6 +83,9 @@ pub struct AppState {
     /// C5.3 live session feed: every session summary update is broadcast here,
     /// so plugin host halves keep `sessions` current without polling.
     feed: broadcast::Sender<Value>,
+    /// Live agents of this server process, bridged to Cordis sidecars through
+    /// `/v1/internal/agents` (round 121).
+    agents: Arc<dshr_core::AgentRegistry>,
 }
 
 /// Time-limited read capability over a plugin's package files.
@@ -92,6 +95,12 @@ struct AssetGrant {
 }
 
 impl AppState {
+    /// Live agent registry of this server (bridged to plugin host halves).
+    #[must_use]
+    pub fn agents(&self) -> &Arc<dshr_core::AgentRegistry> {
+        &self.agents
+    }
+
     #[must_use]
     pub fn new(
         config: ServerConfig,
@@ -100,7 +109,9 @@ impl AppState {
         store: Arc<SessionStore>,
     ) -> Self {
         let rate_limit_per_min = config.rate_limit_per_min;
+        let agents = Arc::new(dshr_core::AgentRegistry::new());
         Self {
+            agents,
             config: Arc::new(config),
             provider,
             tools,
@@ -398,6 +409,7 @@ pub fn router(state: AppState) -> Router {
             get(internal_session_snapshot),
         )
         .route("/v1/internal/session-events", get(internal_session_events))
+        .route("/v1/internal/agents", get(internal_agents))
         .fallback(plugin_http_proxy)
         .route(
             "/v1/plugins/{name}/asset/{capability}/{*path}",
@@ -1516,6 +1528,19 @@ fn write_host_bridge(home: &std::path::Path, address: &SocketAddr, internal_toke
     );
 }
 
+/// Round 121: live agent tree for a plugin host half.
+///
+/// Only metadata is exposed (ids, parentage, session, model, start time); a
+/// plugin learns that an agent exists, not what it is working on.
+async fn internal_agents(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    internal_token_matches(&state, &headers)?;
+    let (agents, revision) = state.agents.snapshot();
+    Ok(Json(json!({ "agents": agents, "revision": revision })))
+}
+
 /// C1.1: one snapshot of dshr sessions for a plugin host half.
 ///
 /// The sidecar builds `sessions`/`sessionProjections` services from this
@@ -2623,7 +2648,21 @@ async fn start_turn(
     let tx = runtime.tx.clone();
     let turn_state = state.clone();
     let runtime = Arc::clone(&runtime);
+    let agents = Arc::clone(&state.agents);
     tokio::spawn(async move {
+        // Publish the running agent so plugin host halves see the tree grow and
+        // shrink; the guard removes it when the turn ends.
+        let mut live = dshr_core::LiveAgent::root(
+            session_id.clone(),
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        );
+        live.title = turn_state
+            .store
+            .open(&session_id)
+            .ok()
+            .and_then(|session| session.header.title.clone());
+        live.model = Some(turn_state.provider.name().to_owned());
+        let _agent_guard = agents.register(live);
         let observer = BroadcastObserver {
             tx: tx.clone(),
             questions: Arc::clone(&runtime.questions),
