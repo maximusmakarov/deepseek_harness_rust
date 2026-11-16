@@ -51,8 +51,18 @@ impl Store {
         let digest = expected_digest(meta)?;
         let key = digest.key();
         let package_dir = self.package_dir(&key);
+        // A killed install can leave a half-unpacked CAS entry: only a directory
+        // with a package.json counts as a completed copy.
         if package_dir.is_dir() {
-            return Ok(package_dir);
+            if package_dir.join("package.json").is_file() {
+                return Ok(package_dir);
+            }
+            fs::remove_dir_all(&package_dir).map_err(|error| {
+                DshrError::config(format!(
+                    "npm: cannot clear the incomplete store entry {}: {error}",
+                    package_dir.display()
+                ))
+            })?;
         }
         let tarball = self
             .root
@@ -78,7 +88,12 @@ impl Store {
         fs::create_dir_all(&cas)?;
         let staging = cas.join(format!(".tmp-{}-{}", std::process::id(), key));
         let _ = fs::remove_dir_all(&staging);
-        fs::create_dir(&staging)?;
+        fs::create_dir(&staging).map_err(|error| {
+            DshrError::config(format!(
+                "npm: cannot create the staging directory {}: {error}",
+                staging.display()
+            ))
+        })?;
         let guard = Cleanup(staging.clone());
         let _ = &guard;
         extract(&tarball, &staging)?;
@@ -290,10 +305,23 @@ fn extract(archive: &Path, dest: &Path) -> Result<()> {
                 DshrError::invalid_input("npm: entry has no file name".to_owned())
             })?);
         let mode = entry.header().mode().unwrap_or(0o644);
-        let mut handle = OpenOptions::new()
+        // Archives occasionally repeat an entry; tar semantics overwrite, so a
+        // duplicate is truncated instead of failing with EEXIST.
+        let mut handle = match OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&target)?;
+            .open(&target)
+        {
+            Ok(handle) => handle,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                fs::remove_file(&target)?;
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)?
+            }
+            Err(error) => return Err(error.into()),
+        };
         io::copy(&mut entry, &mut handle)?;
         drop(handle);
         set_mode(&target, mode)?;
@@ -385,6 +413,9 @@ fn create_link(root: &Path, relative: &Path, link: &Path) -> Result<()> {
             .file_name()
             .ok_or_else(|| DshrError::invalid_input("npm: link has no name".to_owned()))?,
     );
+    if fs::symlink_metadata(&target).is_ok() {
+        let _ = fs::remove_file(&target);
+    }
     std::os::unix::fs::symlink(link, &target)?;
     Ok(())
 }

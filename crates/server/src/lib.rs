@@ -101,6 +101,12 @@ impl AppState {
         &self.agents
     }
 
+    /// Tool registry serving this server (plugin commands are `cmd__*` tools).
+    #[must_use]
+    pub fn tools(&self) -> &Arc<ToolRegistry> {
+        &self.tools
+    }
+
     #[must_use]
     pub fn new(
         config: ServerConfig,
@@ -410,6 +416,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/internal/session-events", get(internal_session_events))
         .route("/v1/internal/agents", get(internal_agents))
+        .route("/v1/commands", get(list_commands))
+        .route("/v1/commands/{name}", post(run_command))
         .fallback(plugin_http_proxy)
         .route(
             "/v1/plugins/{name}/asset/{capability}/{*path}",
@@ -482,6 +490,71 @@ async fn list_tools(
         })
         .collect();
     Ok(Json(json!({"tools": tools})))
+}
+
+/// Plugin commands exposed by Cordis sidecars (`cmd__<plugin>__<name>` tools).
+async fn list_commands(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    let commands: Vec<Value> = state
+        .tools
+        .definitions()
+        .into_iter()
+        .filter(|tool| tool.name.starts_with("cmd__"))
+        .map(|tool| {
+            json!({
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.input_schema,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "commands": commands })))
+}
+
+#[derive(Debug, Deserialize)]
+struct CommandRequest {
+    #[serde(default)]
+    args: String,
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+/// Runs one plugin command; the sidecar executes the plugin handler.
+async fn run_command(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<CommandRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    authorize(&state, &headers, None)?;
+    if !name.starts_with("cmd__") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let tool = state.tools.get(&name).ok_or(StatusCode::NOT_FOUND)?;
+    let session_id = match body.session_id {
+        Some(ref value) => value.parse().map_err(|_| StatusCode::BAD_REQUEST)?,
+        None => dshr_core::SessionId::new(),
+    };
+    let ctx = dshr_tools::ToolCtx {
+        cwd: state.config.workspace.clone(),
+        session_id,
+        output_limit: state.config.output_limit,
+        spill_dir: state.config.workspace.join(".dshr/spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    let outcome = tool
+        .execute(&ctx, json!({ "args": body.args }))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(json!({
+        "output": outcome.content,
+        "is_error": outcome.is_error,
+        "files": outcome.files,
+    })))
 }
 
 #[derive(Debug, Deserialize)]

@@ -223,8 +223,10 @@ pack `node` → `node` из PATH. Если не нашлось ничего, п�
   раз в 2 с и отдаёт плагинам `list()`, `roots()`, `get(id)`,
   `isOwnedBy(id, owner)`, `rootOf()`, `resolveName()`, `getProvider()`, а также
   события `agent/created`/`agent/disposed` на дельте. Метаданные только: ни
-  промптов, ни вывода модели через мост не идёт. Сервис `commands` (раунд 121) —
-  реестр плагинных слэш-команд (`register`/`list`/`get`/`run`). Сервис
+  промптов, ни вывода модели через мост не идёт. Сервис `commands` (раунды
+  121–123) — реестр плагинных слэш-команд (`register`/`list`/`get`/`run`);
+  каждая команда публикуется агенту как инструмент `cmd__<plugin>__<name>` и
+  доступна по HTTP (`GET /v1/commands`, `POST /v1/commands/{name}`). Сервис
   `settings` (раунд 122) — реестр пространств имён с послойным разрешением
   (умолчания схемы → композиционный `base` → пользовательский слой), персистом
   в `<home>/cordis/settings.json` и API `register`/`describe`/`get`/`update`/
@@ -239,7 +241,7 @@ pack `node` → `node` из PATH. Если не нашлось ничего, п�
 - **Форма инструментов**: `addTool` принимает и dshr-форму
   (`inputSchema`/`handler`), и хостовую (`parameters`/`execute` от `defineTool`).
 
-Проверено на реальном плагине: `dsh-remote@1.2.0` (59 пакетов после peer'ов)
+Матрица по всем 11 плагинам набора — [CONFORMANCE.md](CONFORMANCE.md) (снята `scripts/conformance.py`). Проверено на реальном плагине: `dsh-remote@1.2.0` (59 пакетов после peer'ов)
 загружается и регистрирует 21 инструмент `rw_*`; вызов `rw_info` через MCP
 возвращает его настоящий текст («No host + workspace configured — call
 rw_connect…»). Граница на 119: `dsh-mnemon@0.5.46` ставится (54 пакета), но

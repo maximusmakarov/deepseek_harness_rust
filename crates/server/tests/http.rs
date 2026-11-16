@@ -917,3 +917,78 @@ async fn internal_agents_publish_live_agents() {
     .expect("json");
     assert_eq!(body["agents"], json!([]));
 }
+
+struct FakeCommand;
+
+#[async_trait::async_trait]
+impl dshr_tools::Tool for FakeCommand {
+    fn name(&self) -> &'static str {
+        "cmd__demo__hello"
+    }
+
+    fn description(&self) -> &'static str {
+        "Say hello from a plugin"
+    }
+
+    fn schema(&self) -> Value {
+        json!({"type": "object", "properties": {"args": {"type": "string"}}})
+    }
+
+    async fn execute(
+        &self,
+        _ctx: &dshr_tools::ToolCtx,
+        args: Value,
+    ) -> Result<dshr_tools::ToolOutcome, dshr_tools::ToolError> {
+        Ok(dshr_tools::ToolOutcome::text(format!(
+            "hello:{}",
+            args["args"].as_str().unwrap_or("")
+        )))
+    }
+}
+
+#[tokio::test]
+async fn plugin_commands_are_listed_and_run_over_http() {
+    let dir = tempfile::tempdir().expect("dir");
+    let state = state_with_bridge(dir.path(), None);
+    state.tools().register_arc(std::sync::Arc::new(FakeCommand));
+
+    let response = router(state.clone())
+        .oneshot(
+            Request::builder()
+                .uri("/v1/commands")
+                .header("authorization", "Bearer test-token")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(body["commands"][0]["name"], json!("cmd__demo__hello"));
+
+    let response = router(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/commands/cmd__demo__hello")
+                .header("authorization", "Bearer test-token")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"args": "world"}).to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("body"),
+    )
+    .expect("json");
+    assert_eq!(body["output"], json!("hello:world"));
+}

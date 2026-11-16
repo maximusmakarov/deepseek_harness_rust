@@ -38,6 +38,24 @@ function confined(name, roots = []) {
   return absolute;
 }
 
+// stdout is the MCP channel. Real plugins log with `console.log` (dsh-plugin-notify
+// does), which used to corrupt the protocol; route everything that is not a
+// JSON-RPC frame to stderr instead.
+const rawStdoutWrite = process.stdout.write.bind(process.stdout);
+process.stdout.write = (chunk, encoding, callback) => {
+  const text =
+    typeof chunk === "string"
+      ? chunk
+      : Buffer.isBuffer(chunk)
+        ? chunk.toString("utf8")
+        : String(chunk);
+  if (text.trimStart().startsWith("{")) return rawStdoutWrite(chunk, encoding, callback);
+  return process.stderr.write(chunk, encoding, callback);
+};
+for (const method of ["log", "info", "debug", "warn", "trace"]) {
+  console[method] = (...args) => console.error(...args);
+}
+
 function addTool(definition) {
   const name = definition && definition.name;
   if (typeof name !== "string" || name.length === 0) {
@@ -888,7 +906,36 @@ const commandsService = {
       throw new Error("command name is required");
     }
     commandsRegistry.set(name, command);
-    return () => commandsRegistry.delete(name);
+    // Every command is also an MCP tool, so the host can list and run it: the
+    // agent registry exposes it as `cmd__<plugin>__<name>`.
+    const toolName = `__dshr_command__${name}`;
+    tools.set(toolName, {
+      name: toolName,
+      description: command.description || `Plugin command '${name}'`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          args: { type: "string", description: "Command arguments" },
+          agent: { type: "object", description: "Session agent descriptor" },
+        },
+        additionalProperties: false,
+      },
+      handler: async (args) => {
+        const raw = typeof args?.args === "string" ? args.args : "";
+        const result = await command.handler({
+          command: name,
+          rawInput: raw,
+          args: raw,
+          agent: args?.agent,
+          env: {},
+        });
+        return typeof result === "string" ? result : JSON.stringify(result ?? null);
+      },
+    });
+    return () => {
+      commandsRegistry.delete(name);
+      tools.delete(toolName);
+    };
   },
   list: () =>
     [...commandsRegistry.values()].map((command) => ({

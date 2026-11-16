@@ -1,9 +1,9 @@
-# Журнал раундов паритета (1–122)
+# Журнал раундов паритета (1–124)
 
 Цель: довести `dshr` до паритета с DSH 0.2.2-rc.3 / официальным `apps/desktop`
 (и community-плагином `dsh-desktop`). Каждый раунд — код/документация +
-проверка. Итоговая сверка: 415 root-тестов (+3 ignored), 38 desktop-тестов и
-11 unit-тестов web-крейта = **464**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
+проверка. Итоговая сверка: 418 root-тестов (+3 ignored), 38 desktop-тестов и
+11 unit-тестов web-крейта = **467**; bridge harness 121, client-half smoke 89, `clippy`/`fmt`/`deny` чисто, release-бинарь
 воспроизводим.
 
 | Раунд | Срез | Ключевые коммиты |
@@ -1826,6 +1826,56 @@ link-safety) и +5 интеграционных на локальном registry
 (3 инструмента), `dsh-remote@1.2.0` — по-прежнему 21. Регрессионный тест
 `settings_service_resolves_and_persists` проверяет умолчания+base, `watch`,
 `update`, дескрипторы и запись в `settings.json`.
+
+## Раунд 123 — команды плагинов: от реестра к инструментам и HTTP (16.11.2026)
+
+- Sidecar: `commands.register(...)` теперь регистрирует и MCP-инструмент
+  `__dshr_command__<name>` (схема `{args, agent}`), который исполняет хендлер
+  команды; диспозер снимает и команду, и инструмент.
+- Хост: `dshr-cordis` пропускает эти инструменты в реестр агента под именем
+  `cmd__<plugin>__<name>` (остальные `__dshr_*` по-прежнему скрыты) и
+  подкладывает в вызов дескриптор сессии `{id, sessionId}` из `ToolCtx` —
+  у sidecar'а нет доступа к контексту хоста.
+- HTTP: `GET /v1/commands` отдаёт список команд (имя, описание, схема),
+  `POST /v1/commands/{name}` с `{args, session_id?}` исполняет команду и
+  возвращает `{output, is_error, files}`; имена не из `cmd__*` — 400.
+
+Проверено: `dsh-mnemon` публикует команду `mnemon` как `cmd__dsh-mnemon__mnemon`
+(в промпте рядом с 3 инструментами); регрессионные тесты —
+`plugin_commands_become_tools` (sidecar→tool, подстановка сессии) и
+`plugin_commands_are_listed_and_run_over_http` (list + run через axum).
+
+Остаток: слэш-ввод в TUI (сейчас команды доступны агенту и HTTP, но не как
+`/команда` в интерактивном терминале) — записан в TECH-DEBT.
+
+## Раунд 124 — матрица conformance и три найденных бага (16.11.2026)
+
+- `scripts/conformance.py`: воспроизводимый прогон по 11 плагинам набора — чистый
+  home, `plugin npm add`, `prompt`, сбор инструментов/команд/предупреждений;
+  результат — [CONFORMANCE.md](CONFORMANCE.md).
+- Итог матрицы: **четыре плагина с host-половиной работают end-to-end** —
+  `dsh-remote` (21 инструмент, 3 команды), `dsh-mnemon` (3 инструмента,
+  1 команда), `dsh-plugin-debugging` (8 инструментов), `dsh-plugin-notify`
+  (2 инструмента, 1 команда). Четыре — клиентские половины без host-инструментов
+  (`dsh-genui`, `dsh-plugin-codegraph-panel`, `dsh-plugin-studio`,
+  `@ruoyang/...balance`). `@kt11/...balance` отдаёт HTTP-маршруты (C1).
+  `dsh-session-superagent` требует Node ≥ 22.15 (`zstdDecompressSync` из
+  `node:zlib`) — с Node 26 монтируется. `dsh-plugin-market` не ставится по вине
+  апстрима (`workspace:^`/`link:` спеки в опубликованном пакете).
+
+Найдено и исправлено по ходу:
+
+- **stdout ломал MCP**: `dsh-plugin-notify` печатает `[notify] …` через
+  `console.log`, и JSON-RPC-канал разваливался («invalid JSON: expected ident»).
+  Bootstrap теперь заворачивает `process.stdout.write` (в stdout проходит только
+  JSON) и уводит `console.log/info/debug/warn` в stderr.
+- **Дублирующиеся записи в tar**: установка падала с `File exists` на пакете,
+  в архиве которого повторяется путь. Теперь дубликат перезаписывается (и в
+  npm-store, и в runtime pack), а недокачанный CAS-каталог без `package.json`
+  самолечится при следующей установке.
+- **Подсказка про Node**: если плагин падает на отсутствующем экспорте
+  (`does not provide an export named`), предупреждение sidecar прямо говорит,
+  что нужен более новый Node, вместо голого стектрейса.
 
 ## Формализация и каталог тестов (14.11.2026)
 

@@ -661,10 +661,22 @@ fn extract(archive: &Path, dest: &Path, strip: usize) -> Result<()> {
                 ))
             })?);
         let mode = entry.header().mode().unwrap_or(0o644);
-        let mut handle = OpenOptions::new()
+        // Duplicate entries are legal in tar; overwrite rather than fail.
+        let mut handle = match OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&target)?;
+            .open(&target)
+        {
+            Ok(handle) => handle,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                fs::remove_file(&target)?;
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&target)?
+            }
+            Err(error) => return Err(error.into()),
+        };
         io::copy(&mut entry, &mut handle)?;
         drop(handle);
         set_mode(&target, mode)?;
@@ -679,6 +691,9 @@ fn create_symlink(root: &Path, relative: &Path, link: &Path) -> Result<()> {
             DshrError::invalid_input("runtime pack: symlink has no name".to_owned())
         })?,
     );
+    if fs::symlink_metadata(&target).is_ok() {
+        let _ = fs::remove_file(&target);
+    }
     std::os::unix::fs::symlink(link, &target)?;
     Ok(())
 }

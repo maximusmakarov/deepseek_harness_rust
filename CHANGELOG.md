@@ -10,6 +10,16 @@
 - M7: workflows, teams (durable), worktrees, schedules, LSP, Office, CUA, FTS5, WASM, OTel, ACP.
 - Hardening: Linux seccomp/network, tool allowlist, agent-tree budget, scheduler lock.
 - Packaging: Dockerfile, release workflow, install script.
+- Cordis compat: `scripts/conformance.py` and docs/CONFORMANCE.md run the set of
+  real DSH plugins and record which tools and commands work. The pass fixed two
+  real bugs: plugins that `console.log` no longer corrupt the MCP channel
+  (stdout carries JSON only, console goes to stderr), and duplicate tar entries
+  or half-unpacked store entries no longer fail an install. A plugin that needs
+  a newer Node now gets a hint instead of a bare stack trace.
+- Cordis compat: plugin commands are published to the agent as
+  `cmd__<plugin>__<name>` tools (with the host session descriptor injected) and
+  over HTTP via `GET /v1/commands` and `POST /v1/commands/{name}`, instead of
+  living only in the sidecar registry.
 - Cordis compat: the sidecar exposes a `settings` service implementing the
   reference layering (schema defaults → composition base → persisted user
   layer) with `register`/`describe`/`get`/`update`/`replace`/`mutate`, watchers,

@@ -490,3 +490,125 @@ export default {
     assert!(stored.contains("probe-settings"), "{stored}");
     assert!(stored.contains("manual"), "{stored}");
 }
+
+/// Plugin commands are exposed to the host as `cmd__<plugin>__<name>` tools and
+/// run through the sidecar command registry.
+#[tokio::test]
+async fn plugin_commands_become_tools() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+export default {
+  apply(ctx) {
+    ctx.commands.register({
+      name: "hello",
+      description: "Say hello",
+      input: { hint: "<name>" },
+      handler: (invocation) => `hello:${invocation.args}:${invocation.agent?.sessionId ?? "none"}`,
+    });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "cmds".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect");
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cmd__cmds__hello")
+        .expect("command tool");
+    assert!(tool.description().contains("Say hello"));
+
+    let session = SessionId::new();
+    let ctx = ToolCtx {
+        cwd: dir.path().to_path_buf(),
+        session_id: session.clone(),
+        output_limit: 10_000,
+        spill_dir: dir.path().join("spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    let outcome = tool
+        .execute(&ctx, json!({"args": "world"}))
+        .await
+        .expect("call");
+    assert_eq!(outcome.content, format!("hello:world:{}", session.as_str()));
+}
+
+/// Plugins that log with `console.log` must not corrupt the JSON-RPC channel.
+#[tokio::test]
+async fn plugin_stdout_logging_does_not_break_mcp() {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("node is not installed; skipping Cordis sidecar test");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("plugin.mjs"),
+        r#"
+console.log("[plugin] loading");
+export default {
+  apply(ctx) {
+    console.log("[plugin] applying");
+    ctx.tool({ name: "quiet", description: "still works", handler: () => "ok" });
+  },
+};
+"#,
+    )
+    .expect("plugin");
+
+    let connection = connect(
+        CordisPluginSpec {
+            name: "noisy".into(),
+            entry: "plugin.mjs".into(),
+            root: dir.path().to_path_buf(),
+            env: Default::default(),
+            grants: dshr_config::CordisGrants::default(),
+        },
+        dir.path(),
+    )
+    .await
+    .expect("connect despite console.log");
+    let tool = connection
+        .tools
+        .iter()
+        .find(|tool| tool.name() == "cordis__noisy__quiet")
+        .expect("tool registered");
+    let ctx = ToolCtx {
+        cwd: dir.path().to_path_buf(),
+        session_id: SessionId::new(),
+        output_limit: 10_000,
+        spill_dir: dir.path().join("spills"),
+        cancel: CancellationToken::new(),
+        prompt: None,
+    };
+    assert_eq!(
+        tool.execute(&ctx, json!({})).await.expect("call").content,
+        "ok"
+    );
+}

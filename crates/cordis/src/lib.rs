@@ -226,11 +226,17 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
         .map_err(|error| {
             // A missing `node` is the common failure when no runtime pack is
             // installed and PATH has no Node; name the fix in the error.
-            let hint = if using_path_node {
+            let mut hint = if using_path_node {
                 " (set DSHR_NODE, or install a pack: dshr runtime install node@<version> --from <archive> --sha256 <hex>)"
             } else {
                 ""
             };
+            // Plugins built for newer Node use APIs such as
+            // `node:zlib.zstdDecompressSync`; an old pack then fails at import.
+            let text = error.to_string();
+            if text.contains("does not provide an export named") {
+                hint = " (the plugin needs a newer Node: install a current node pack, e.g. node@24, or set DSHR_NODE)";
+            }
             CordisError::Sidecar(format!("{error}{hint}"))
         })?;
     let tools = tools
@@ -242,12 +248,14 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
             let short = tool.name().strip_prefix(&prefix).unwrap_or(tool.name());
             // `__dshr_*` is host control, and the MCP bridge exposes its
             // resources/prompts as pseudo-tools — neither belongs in the agent
-            // tool registry for a Cordis plugin.
-            !short.starts_with("__dshr_")
-                && !matches!(
-                    short,
-                    "list_resources" | "read_resource" | "list_prompts" | "get_prompt"
-                )
+            // tool registry for a Cordis plugin. Command tools are the exception:
+            // they reach the agent as `cmd__<plugin>__<name>`.
+            short.starts_with("__dshr_command__")
+                || (!short.starts_with("__dshr_")
+                    && !matches!(
+                        short,
+                        "list_resources" | "read_resource" | "list_prompts" | "get_prompt"
+                    ))
         })
         .map(|tool| {
             let prefix = format!("mcp__cordis-{}__", spec.name);
@@ -256,8 +264,12 @@ pub async fn connect(spec: CordisPluginSpec, home: &Path) -> Result<CordisConnec
                 .strip_prefix(&prefix)
                 .unwrap_or(tool.name())
                 .to_owned();
+            let name = match short.strip_prefix("__dshr_command__") {
+                Some(command) => format!("cmd__{}__{command}", spec.name),
+                None => format!("cordis__{}__{short}", spec.name),
+            };
             Arc::new(CordisTool {
-                name: format!("cordis__{}__{short}", spec.name),
+                name,
                 inner: tool,
                 home: home.to_path_buf(),
             }) as Arc<dyn Tool>
@@ -319,6 +331,23 @@ impl Tool for CordisTool {
     }
 
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutcome, ToolError> {
+        // Plugin commands run in the sidecar process, which has no access to the
+        // host's tool context: hand them the session descriptor explicitly.
+        let args = if self.name.starts_with("cmd__") {
+            let mut object = match args {
+                Value::Object(map) => map,
+                _ => serde_json::Map::new(),
+            };
+            object.entry("agent").or_insert_with(|| {
+                serde_json::json!({
+                    "id": ctx.session_id.as_str(),
+                    "sessionId": ctx.session_id.as_str(),
+                })
+            });
+            Value::Object(object)
+        } else {
+            args
+        };
         let result = self.inner.execute(ctx, args).await;
         self.audit(&result);
         result
