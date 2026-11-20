@@ -129,7 +129,7 @@ pub struct RetryBackoff {
     /// Delay ceiling in milliseconds (default 10000).
     pub max_delay_ms: Option<u64>,
     /// Symmetric random multiplier range around one (default 0.1).
-    pub jitter_ratio: Option<f32>,
+    pub jitter_ratio: Option<f64>,
 }
 
 /// A provider's stored retry policy. Empty fields keep the adapter default.
@@ -153,14 +153,14 @@ pub struct ResolvedRetryPolicy {
     pub retryable_codes: Vec<String>,
     pub initial_delay_ms: u64,
     pub max_delay_ms: u64,
-    pub jitter_ratio: f32,
+    pub jitter_ratio: f64,
 }
 
 /// Adapter defaults, mirrored from `dshr_llm::retry`.
 pub const DEFAULT_RETRY_MAX: u32 = 5;
 pub const DEFAULT_RETRY_INITIAL_DELAY_MS: u64 = 500;
 pub const DEFAULT_RETRY_MAX_DELAY_MS: u64 = 10_000;
-pub const DEFAULT_RETRY_JITTER_RATIO: f32 = 0.1;
+pub const DEFAULT_RETRY_JITTER_RATIO: f64 = 0.1;
 pub const MAX_RETRY_DELAY_MS: u64 = 2_147_483_647;
 pub const DEFAULT_RETRYABLE_CODES: [&str; 5] = [
     "EMPTY_RESPONSE",

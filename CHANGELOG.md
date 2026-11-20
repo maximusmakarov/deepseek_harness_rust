@@ -2,6 +2,9 @@
 
 ## 0.1.0 — current
 
+- The Models first-run key field spans the welcome card with its hint below,
+  and retry jitter is stored as f64 so the API and UI show `0.1` instead of an
+  f32 artifact.
 - API keys entered in Models or the first-run onboarding are stored
   write-only in `<home>/credentials.json` (0600, revision-fenced, environment
   wins); the Models card gains a masked key field with show/remove actions.

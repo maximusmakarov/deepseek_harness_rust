@@ -316,7 +316,7 @@ fn retry_plan(resolved: &ResolvedProvider) -> RetryPlan {
         retry.retryable_codes.clone(),
         retry.initial_delay_ms,
         retry.max_delay_ms,
-        retry.jitter_ratio,
+        retry.jitter_ratio as f32,
     )
 }
 

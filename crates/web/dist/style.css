@@ -232,6 +232,12 @@ dialog.settings-dialog {
 .models-field input {
     min-width: 0;
 }
+/* The welcome card is narrower than the editor; stack its key field so the
+   hint cannot squeeze the password input to a sliver. */
+.models-welcome .models-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+}
 .models-models-head {
     display: flex;
     align-items: baseline;

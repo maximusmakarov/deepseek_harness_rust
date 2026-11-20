@@ -1938,7 +1938,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                     <div class="models-modal models-welcome" role="presentation">
                         <div class="models-modal-card" role="dialog" aria-modal="true" aria-label="Welcome to Models">
                             <h4>"Welcome to Models"</h4>
-                            <p>"Configure providers and their model lists here. Profiles live in models.yaml; API keys stay in the environment and never reach this page."</p>
+                            <p>"Configure providers and their model lists here. Profiles live in models.yaml; keys are stored write-only in credentials.json (0600), and an environment variable with the same name wins."</p>
                             {(!usable).then(|| view! {
                                 <p>"No provider has a key yet. Save one here, or set DEEPSEEK_API_KEY / DSH_DEEPSEEK_TOKEN in the environment (desktop Settings writes desktop.env)."</p>
                                 <div class="models-field">

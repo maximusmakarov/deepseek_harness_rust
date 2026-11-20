@@ -2311,6 +2311,26 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   timeout среды.
 - Осталось: i18n, отправка reasoning effort, ключи в `run`/`tui`.
 
+## Раунд 147 — Models: ручная проверка в живом UI и два фикса (20.11.2026)
+
+- Независимая ручная проверка (сабагент, headless Chrome + CDP) прошла 7/7
+  сценариев: welcome/онбординг с ключом, список провайдеров, редактор и
+  сохранение, кастомный провайдер + discovery, модальные удаления, отсутствие
+  JS-ошибок, скриншоты. Репозиторий не менялся.
+- Найдены и исправлены два дефекта:
+  1. **HIGH:** в welcome-модалке поле ключа сжималось до ~18 px, а подсказка
+     наезжала на него (grid `140px minmax(0,1fr) auto` в узкой карточке).
+     Добавлено `.models-welcome .models-field { grid-template-columns: minmax(0,1fr) }`
+     + подсказка отдельной строкой; копирайт welcome обновлён под
+     `credentials.json`.
+  2. **LOW:** jitter показывался как `0.10000000149011612` — persisted/resolved
+     `jitter_ratio` переведён с f32 на f64 (serve кастует в f32 для
+     `RetryPlan`), API/UI/`models.yaml` теперь пишут `0.1`.
+- Повторная проверка тех же двух сценариев: PASS (input width 422 px,
+  hint без overlap; jitter `0.1` в поле, после Save+reopen, в API и YAML).
+- Проверки: config 25, server 9, web 19, e2e 24/25 (прежний bash timeout
+  среды); clippy/fmt чисто.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

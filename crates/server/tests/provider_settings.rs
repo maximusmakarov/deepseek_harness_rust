@@ -143,7 +143,7 @@ async fn writes_a_profile_and_fences_the_revision() {
             "backoff": {
                 "initial_delay_ms": 250,
                 "max_delay_ms": 2000,
-                "jitter_ratio": 0.25
+                "jitter_ratio": 0.1
             }
         },
         "models": [
@@ -203,7 +203,7 @@ async fn writes_a_profile_and_fences_the_revision() {
         row["retry"]["retryable_codes"],
         json!(["RATE_LIMIT", "SERVER"])
     );
-    assert_eq!(row["retry"]["backoff"]["jitter_ratio"], 0.25);
+    assert_eq!(row["retry"]["backoff"]["jitter_ratio"], 0.1);
 
     // The active selection lives in config.yaml and this write leaves it alone.
     let config: Value = serde_saphyr::from_str(
