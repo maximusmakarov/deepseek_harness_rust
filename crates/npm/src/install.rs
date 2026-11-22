@@ -477,15 +477,26 @@ fn create_symlink(link: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
-fn create_symlink(link: &Path, target: &Path) -> Result<()> {
+/// Copies the link's contents where symlinks are unavailable.
+///
+/// Lives outside the `cfg(not(unix))` block on purpose: a host build then
+/// compiles and type-checks it, instead of leaving it for a Windows-only CI leg
+/// to discover.
+#[cfg_attr(unix, allow(dead_code))]
+fn copy_instead_of_link(link: &Path, target: &Path) -> Result<()> {
     std::fs::copy(link, target).map_err(|error| {
         DshrError::config(format!(
             "npm: cannot recreate symlink {} -> {}: {error}",
             target.display(),
             link.display()
         ))
-    })
+    })?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_symlink(link: &Path, target: &Path) -> Result<()> {
+    copy_instead_of_link(link, target)
 }
 
 fn client() -> reqwest::Client {
@@ -538,6 +549,32 @@ mod tests {
         assert_eq!(
             strip_package_dir(Path::new("node_modules/node_modules")),
             Some(PathBuf::new())
+        );
+    }
+
+    #[test]
+    fn copy_fallback_copies_the_contents() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let source = dir.path().join("source.js");
+        let target = dir.path().join("target.js");
+        std::fs::write(&source, b"export default 1;").expect("write");
+        copy_instead_of_link(&source, &target).expect("copy");
+        assert_eq!(
+            std::fs::read(&target).expect("read back"),
+            b"export default 1;"
+        );
+    }
+
+    #[test]
+    fn copy_fallback_reports_a_missing_source() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let error =
+            copy_instead_of_link(&dir.path().join("absent.js"), &dir.path().join("target.js"))
+                .expect_err("a missing source must fail");
+        let message = error.to_string();
+        assert!(
+            message.contains("cannot recreate symlink"),
+            "unexpected message: {message}"
         );
     }
 }

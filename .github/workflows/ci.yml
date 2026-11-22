@@ -25,6 +25,10 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
+      # Windows-only code is compiled by this matrix leg and by nothing else, so
+      # a host-only clippy run cannot type-check it. Keep those bodies tiny and
+      # any shared logic host-compiled; the checker needs no Windows runner.
+      - run: python3 scripts/check-platform-branches.py
       - name: vendored runtime assets
         if: runner.os == 'Linux'
         run: scripts/check-runtime-assets.sh

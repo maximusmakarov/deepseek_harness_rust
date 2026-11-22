@@ -51,6 +51,7 @@ web_check() {
 }
 
 step cargo fmt --all -- --check
+step python3 scripts/check-platform-branches.py
 step scripts/check-runtime-assets.sh
 step scripts/test-sync-homebrew-tap.sh
 step deny_check
