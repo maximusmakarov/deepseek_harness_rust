@@ -569,17 +569,23 @@ def run(args: argparse.Namespace) -> int:
 
         # The row offers a deletion confirmation and the write removes the
         # stored profile, restoring the catalog defaults.
-        evaluate(
-            smoke,
-            dt,
-            """(() => {
-                const row = document.querySelector('.models-row[data-provider="openai"]');
-                const remove = row && [...row.querySelectorAll('.models-row-head button')]
-                    .find(b => b.textContent.trim() === 'Delete');
-                if (!remove) return false;
-                remove.click();
-                return true;
-            })()""",
+        # The status text is written before `busy` clears, so the row buttons can
+        # still be disabled here. Wait for an enabled Delete or the click is lost.
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                """(() => {
+                    const row = document.querySelector('.models-row[data-provider="openai"]');
+                    const remove = row && [...row.querySelectorAll('.models-row-head button')]
+                        .find(b => b.textContent.trim() === 'Delete' && !b.disabled);
+                    if (!remove) return false;
+                    remove.click();
+                    return true;
+                })()""",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="delete button enabled",
         )
         smoke.wait_until(
             lambda: evaluate(
