@@ -141,7 +141,7 @@ impl Installer {
                 packages.push(InstalledPackage {
                     name: node.name.clone(),
                     version: node.version.to_string(),
-                    path: slot.join(name).display().to_string(),
+                    path: posix(&slot.join(name)),
                     resolved: node.resolved.clone(),
                     integrity: node.integrity.clone(),
                     dependencies: node.dependencies.clone(),
@@ -482,6 +482,12 @@ fn create_symlink(link: &Path, target: &Path) -> Result<()> {
 /// Lives outside the `cfg(not(unix))` block on purpose: a host build then
 /// compiles and type-checks it, instead of leaving it for a Windows-only CI leg
 /// to discover.
+/// Reported and lock-file paths are always forward-slashed: npm lock files are
+/// portable text, not native paths.
+fn posix(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 #[cfg_attr(unix, allow(dead_code))]
 fn copy_instead_of_link(link: &Path, target: &Path) -> Result<()> {
     std::fs::copy(link, target).map_err(|error| {
