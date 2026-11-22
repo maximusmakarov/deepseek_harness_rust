@@ -92,6 +92,78 @@ pub enum ReasoningEfforts {
 /// Reasoning levels the adapters accept, in escalation order.
 pub const REASONING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
+impl ReasoningEfforts {
+    /// Whether this declaration accepts no level at all.
+    #[must_use]
+    pub fn is_disabled(&self) -> bool {
+        match self {
+            Self::Disabled(enabled) => !enabled,
+            Self::Levels(levels) => levels.is_empty(),
+        }
+    }
+
+    /// Declared levels in escalation order (not the map's alphabetical order).
+    #[must_use]
+    pub fn levels(&self) -> Vec<&str> {
+        match self {
+            Self::Disabled(_) => Vec::new(),
+            Self::Levels(levels) => REASONING_LEVELS
+                .iter()
+                .copied()
+                .filter(|level| levels.contains_key(*level))
+                .collect(),
+        }
+    }
+
+    /// The value this declaration sends for `level`.
+    #[must_use]
+    pub fn wire_value(&self, level: &str) -> Option<&str> {
+        match self {
+            Self::Disabled(_) => None,
+            Self::Levels(levels) => levels.get(level).map(String::as_str),
+        }
+    }
+}
+
+impl ModelEntry {
+    /// Levels this model declares, in escalation order; empty means the model
+    /// reasons with the provider's own default and offers no choice.
+    #[must_use]
+    pub fn reasoning_levels(&self) -> Vec<&str> {
+        self.reasoning_efforts
+            .as_ref()
+            .map(ReasoningEfforts::levels)
+            .unwrap_or_default()
+    }
+
+    /// Resolves the selected level to the value sent on the wire.
+    ///
+    /// `None` means "no selection": the provider's own default applies and the
+    /// adapters omit the parameter. An unsupported level is an error rather
+    /// than a clamp, mirroring upstream's `UNSUPPORTED_REASONING_EFFORT`.
+    pub fn reasoning_effort_value(
+        &self,
+        level: Option<&str>,
+    ) -> Result<Option<String>, ModelsError> {
+        let Some(level) = level else {
+            return Ok(None);
+        };
+        let Some(efforts) = self.reasoning_efforts.as_ref() else {
+            return Err(ModelsError::Invalid(format!(
+                "model '{}' declares no reasoning levels",
+                self.id
+            )));
+        };
+        match efforts.wire_value(level) {
+            Some(value) => Ok(Some(value.to_owned())),
+            None => Err(ModelsError::Invalid(format!(
+                "model '{}' does not declare reasoning level '{level}'",
+                self.id
+            ))),
+        }
+    }
+}
+
 /// One provider profile stored in `models.yaml`.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -239,6 +311,10 @@ impl Default for ModelsDocument {
 pub struct CatalogModel {
     pub id: &'static str,
     pub name: &'static str,
+    /// Levels the model offers before the user edits the profile, in
+    /// escalation order; empty means the provider's own default applies and
+    /// the model selector offers no choice.
+    pub reasoning_levels: &'static [&'static str],
 }
 
 /// One built-in provider the Models page can adopt.
@@ -264,14 +340,20 @@ pub struct CatalogProvider {
     pub models: &'static [CatalogModel],
 }
 
+/// Levels the DeepSeek Messages endpoint accepts, in escalation order; its
+/// models offer them without any profile configuration.
+const DEEPSEEK_REASONING_LEVELS: [&str; 4] = ["off", "low", "high", "max"];
+
 const DEEPSEEK_MODELS: [CatalogModel; 2] = [
     CatalogModel {
         id: "deepseek-flash",
         name: "DeepSeek Flash",
+        reasoning_levels: &DEEPSEEK_REASONING_LEVELS,
     },
     CatalogModel {
         id: "deepseek-v4-pro",
         name: "DeepSeek V4 Pro",
+        reasoning_levels: &DEEPSEEK_REASONING_LEVELS,
     },
 ];
 
@@ -279,10 +361,12 @@ const OPENAI_MODELS: [CatalogModel; 2] = [
     CatalogModel {
         id: "gpt-4o-mini",
         name: "GPT-4o mini",
+        reasoning_levels: &[],
     },
     CatalogModel {
         id: "gpt-4o",
         name: "GPT-4o",
+        reasoning_levels: &[],
     },
 ];
 
@@ -363,6 +447,19 @@ pub fn known_route(route: &str) -> bool {
     catalog_entry(route).is_some()
 }
 
+/// Catalog levels as a declaration: absent when the catalog lists none.
+fn catalog_efforts(levels: &'static [&'static str]) -> Option<ReasoningEfforts> {
+    if levels.is_empty() {
+        return None;
+    }
+    Some(ReasoningEfforts::Levels(
+        levels
+            .iter()
+            .map(|level| ((*level).to_owned(), (*level).to_owned()))
+            .collect(),
+    ))
+}
+
 /// Catalog defaults as document entries.
 #[must_use]
 pub fn catalog_models(route: &str) -> Vec<ModelEntry> {
@@ -374,6 +471,7 @@ pub fn catalog_models(route: &str) -> Vec<ModelEntry> {
                 .map(|model| ModelEntry {
                     id: model.id.to_owned(),
                     name: Some(model.name.to_owned()),
+                    reasoning_efforts: catalog_efforts(model.reasoning_levels),
                     ..ModelEntry::default()
                 })
                 .collect()
@@ -788,6 +886,27 @@ mod tests {
             for model in entry.models {
                 assert!(!model.id.is_empty());
                 assert!(!model.name.is_empty());
+                // A catalog level is its own wire value and stays in the
+                // escalation order the selector renders; no level means no
+                // declaration at all, so the model offers no choice.
+                match catalog_efforts(model.reasoning_levels) {
+                    Some(declaration) => {
+                        assert_eq!(
+                            declaration.levels(),
+                            model.reasoning_levels,
+                            "{} levels out of order",
+                            model.id
+                        );
+                        for level in model.reasoning_levels {
+                            assert_eq!(declaration.wire_value(level), Some(*level));
+                        }
+                    }
+                    None => assert!(
+                        model.reasoning_levels.is_empty(),
+                        "{} declares levels",
+                        model.id
+                    ),
+                }
             }
         }
         assert!(known_route("deepseek"));
@@ -988,6 +1107,17 @@ mod tests {
         );
         assert!(!resolved.models_from_profile);
         assert_eq!(resolved.models[0].id, "deepseek-flash");
+        // The DeepSeek endpoint's models offer their levels with no profile.
+        assert_eq!(
+            resolved.models[0].reasoning_levels(),
+            ["off", "low", "high", "max"]
+        );
+        assert_eq!(
+            resolved.models[0]
+                .reasoning_effort_value(Some("max"))
+                .expect("declared level"),
+            Some("max".to_owned())
+        );
 
         document.providers.insert(
             "deepseek-account".into(),
@@ -1029,5 +1159,62 @@ mod tests {
             resolved.effective_base_url.as_deref(),
             Some("https://gateway.example/v1")
         );
+    }
+
+    #[test]
+    fn declared_reasoning_levels_resolve_in_escalation_order() {
+        let model = ModelEntry {
+            id: "gpt-6".into(),
+            reasoning_efforts: Some(ReasoningEfforts::Levels(BTreeMap::from([
+                ("off".into(), "off".into()),
+                ("max".into(), "max".into()),
+                ("high".into(), "gpt-high".into()),
+            ]))),
+            ..ModelEntry::default()
+        };
+        // The map is sorted by key; the levels come back in escalation order.
+        assert_eq!(model.reasoning_levels(), vec!["off", "high", "max"]);
+        assert_eq!(
+            model.reasoning_effort_value(Some("high")).expect("level"),
+            Some("gpt-high".to_owned())
+        );
+        assert_eq!(
+            model
+                .reasoning_effort_value(None)
+                .expect("no selection means the provider default"),
+            None
+        );
+        assert!(matches!(
+            model.reasoning_effort_value(Some("minimal")),
+            Err(ModelsError::Invalid(message)) if message.contains("does not declare reasoning level 'minimal'")
+        ));
+
+        // A model without reasoning metadata refuses any explicit level.
+        let plain = ModelEntry {
+            id: "gpt-4o".into(),
+            ..ModelEntry::default()
+        };
+        assert!(plain.reasoning_levels().is_empty());
+        assert!(matches!(
+            plain.reasoning_effort_value(Some("high")),
+            Err(ModelsError::Invalid(message)) if message.contains("declares no reasoning levels")
+        ));
+        assert_eq!(plain.reasoning_effort_value(None).expect("default"), None);
+
+        // `false` declares reasoning off; an empty map counts as off too.
+        let disabled = ModelEntry {
+            id: "plain".into(),
+            reasoning_efforts: Some(ReasoningEfforts::Disabled(false)),
+            ..ModelEntry::default()
+        };
+        assert!(
+            disabled
+                .reasoning_efforts
+                .as_ref()
+                .expect("efforts")
+                .is_disabled()
+        );
+        assert!(disabled.reasoning_levels().is_empty());
+        assert!(ReasoningEfforts::Levels(BTreeMap::new()).is_disabled());
     }
 }

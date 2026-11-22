@@ -21,6 +21,23 @@ const DEFAULT_BASE_URL: &str = "https://api.deepseek.com/anthropic";
 const DEFAULT_MODEL: &str = "deepseek-flash";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 
+/// Efforts the Anthropic Messages endpoint accepts, mirroring upstream.
+///
+/// The configuration layer knows more levels (`minimal`, `medium`, `xhigh`)
+/// because other providers offer them; this endpoint rejects them instead of
+/// clamping, exactly like upstream's `UNSUPPORTED_REASONING_EFFORT`.
+const REASONING_EFFORTS: [&str; 4] = ["off", "low", "high", "max"];
+
+fn check_reasoning_effort(effort: &str) -> Result<(), LlmError> {
+    if REASONING_EFFORTS.contains(&effort) {
+        return Ok(());
+    }
+    Err(LlmError::Config(format!(
+        "unsupported reasoning effort '{effort}' for the DeepSeek endpoint; use one of {}",
+        REASONING_EFFORTS.join(", ")
+    )))
+}
+
 /// Credential mode for the official endpoint.
 #[derive(Clone)]
 pub enum Auth {
@@ -44,6 +61,9 @@ pub struct DeepSeekConfig {
     pub max_tokens: u32,
     pub auth: Auth,
     pub retry: RetryPlan,
+    /// Reasoning effort sent on the wire, already resolved from the selected
+    /// level by the caller. `None` leaves the choice to the provider.
+    pub reasoning_effort: Option<String>,
 }
 
 impl fmt::Debug for DeepSeekConfigDebug<'_> {
@@ -112,10 +132,14 @@ impl DeepSeekProvider {
             max_tokens,
             auth,
             retry: RetryPlan::default(),
+            reasoning_effort: None,
         })
     }
 
     pub fn new(config: DeepSeekConfig) -> Result<Self, LlmError> {
+        if let Some(effort) = config.reasoning_effort.as_deref() {
+            check_reasoning_effort(effort)?;
+        }
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
@@ -243,7 +267,11 @@ impl LlmProvider for DeepSeekProvider {
         request: Request,
         cancel: CancellationToken,
     ) -> Result<ChunkStream, LlmError> {
-        let body = request_body(&request, self.config.max_tokens)?;
+        let body = request_body(
+            &request,
+            self.config.max_tokens,
+            self.config.reasoning_effort.as_deref(),
+        )?;
         let url = format!("{}/v1/messages", self.config.base_url.trim_end_matches('/'));
         let response = self.send_with_retry(&url, &body, &cancel).await?;
         let mut bytes = response.bytes_stream();
@@ -318,7 +346,14 @@ fn models_url(base_url: &str) -> String {
     format!("{root}/models")
 }
 
-fn request_body(request: &Request, default_max_tokens: u32) -> Result<Value, LlmError> {
+fn request_body(
+    request: &Request,
+    default_max_tokens: u32,
+    reasoning_effort: Option<&str>,
+) -> Result<Value, LlmError> {
+    if let Some(effort) = reasoning_effort {
+        check_reasoning_effort(effort)?;
+    }
     let mut messages = Vec::new();
     for message in &request.messages {
         let role = match message.role {
@@ -372,6 +407,24 @@ fn request_body(request: &Request, default_max_tokens: u32) -> Result<Value, Llm
                 }))
                 .collect::<Vec<_>>()
         );
+    }
+
+    // Upstream always sends a `thinking` flag because it also always picks an
+    // effort. Here an absent effort means "let the provider decide", so no
+    // reasoning parameter is sent at all: that preserves the pre-existing
+    // request shape and avoids turning thinking on for callers who never asked
+    // (this adapter does not replay signed thinking blocks, so an unexpected
+    // thinking turn would break a tool loop).
+    //
+    // `output_config` is written as its own object because other clients put a
+    // structured-output `format` under the same key.
+    match reasoning_effort {
+        Some("off") => body["thinking"] = json!({"type": "disabled"}),
+        Some(effort) => {
+            body["thinking"] = json!({"type": "enabled"});
+            body["output_config"] = json!({"effort": effort});
+        }
+        None => {}
     }
 
     Ok(body)
@@ -528,6 +581,7 @@ mod tests {
             max_tokens: 64,
             auth: Auth::ApiKey("test".into()),
             retry: RetryPlan::default(),
+            reasoning_effort: None,
         }
     }
 
@@ -546,12 +600,76 @@ mod tests {
             }],
             stop_sequences: vec!["STOP".into()],
         };
-        let body = request_body(&request, 64).expect("body");
+        let body = request_body(&request, 64, None).expect("body");
         assert_eq!(body["model"], "deepseek-flash");
         assert_eq!(body["max_tokens"], 32);
         assert_eq!(body["system"], "be brief");
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["tools"][0]["name"], "read");
+    }
+
+    #[test]
+    fn omits_reasoning_parameters_when_no_effort_is_selected() {
+        let request = Request {
+            model: "deepseek-flash".into(),
+            messages: vec![Message::user("hi")],
+            ..Request::default()
+        };
+        let body = request_body(&request, 64, None).expect("body");
+        assert!(body.get("thinking").is_none(), "{body}");
+        assert!(body.get("output_config").is_none(), "{body}");
+    }
+
+    #[test]
+    fn sends_thinking_enabled_and_effort_for_a_level() {
+        let request = Request {
+            model: "deepseek-flash".into(),
+            messages: vec![Message::user("hi")],
+            ..Request::default()
+        };
+        for effort in ["low", "high", "max"] {
+            let body = request_body(&request, 64, Some(effort)).expect("body");
+            assert_eq!(body["thinking"]["type"], "enabled", "{effort}: {body}");
+            assert_eq!(body["output_config"]["effort"], effort, "{body}");
+        }
+    }
+
+    #[test]
+    fn off_disables_thinking_without_an_effort() {
+        let request = Request {
+            model: "deepseek-flash".into(),
+            messages: vec![Message::user("hi")],
+            ..Request::default()
+        };
+        let body = request_body(&request, 64, Some("off")).expect("body");
+        assert_eq!(body["thinking"]["type"], "disabled", "{body}");
+        assert!(body.get("output_config").is_none(), "{body}");
+    }
+
+    #[test]
+    fn rejects_efforts_the_endpoint_does_not_accept() {
+        let request = Request {
+            model: "deepseek-flash".into(),
+            messages: vec![Message::user("hi")],
+            ..Request::default()
+        };
+        for effort in ["minimal", "medium", "xhigh", "bogus"] {
+            let error = request_body(&request, 64, Some(effort))
+                .expect_err("unsupported effort must be rejected");
+            assert!(error.to_string().contains(effort), "{effort}: {error}");
+        }
+    }
+
+    #[test]
+    fn new_rejects_an_unsupported_effort_before_any_request() {
+        let mut bad = config();
+        bad.reasoning_effort = Some("medium".into());
+        let error = DeepSeekProvider::new(bad).expect_err("must reject before I/O");
+        assert!(error.to_string().contains("medium"), "{error}");
+
+        let mut good = config();
+        good.reasoning_effort = Some("high".into());
+        DeepSeekProvider::new(good).expect("supported effort builds");
     }
 
     #[test]
@@ -567,7 +685,7 @@ mod tests {
             }],
             ..Request::default()
         };
-        let error = request_body(&request, 64).expect_err("audio must be rejected");
+        let error = request_body(&request, 64, None).expect_err("audio must be rejected");
         assert!(error.to_string().contains("audio"), "{error}");
     }
 
@@ -704,7 +822,10 @@ mod tests {
             max_tokens: 0,
             ..Request::default()
         };
-        assert_eq!(request_body(&request, 64).expect("body")["max_tokens"], 64);
+        assert_eq!(
+            request_body(&request, 64, None).expect("body")["max_tokens"],
+            64
+        );
     }
 
     #[test]
@@ -729,6 +850,7 @@ mod tests {
             max_tokens: 32,
             auth: Auth::ApiKey("test".into()),
             retry: RetryPlan::default(),
+            reasoning_effort: None,
         })
         .expect("provider");
 

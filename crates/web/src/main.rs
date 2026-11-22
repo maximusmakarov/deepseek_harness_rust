@@ -84,6 +84,8 @@ struct ModelConfigResponse {
     #[serde(default)]
     active_provider: String,
     model: String,
+    #[serde(default)]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -2553,7 +2555,13 @@ fn App() -> impl IntoView {
                 Err(error) => format!("error: {error}"),
             };
             let model = match get_json::<ModelConfigResponse>("/v1/config/model", &value).await {
-                Ok(config) => format!("{} · {}", config.active_provider, config.model),
+                Ok(config) => {
+                    let effort = config
+                        .reasoning_effort
+                        .map(|level| format!(" · reasoning {level}"))
+                        .unwrap_or_default();
+                    format!("{} · {}{effort}", config.active_provider, config.model)
+                }
                 Err(_) => "unknown".to_owned(),
             };
             settings_server.set(format!(

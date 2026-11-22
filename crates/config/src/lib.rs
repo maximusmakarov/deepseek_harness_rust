@@ -28,8 +28,8 @@ pub use credentials::{
 };
 pub use models::{
     CATALOG, CatalogProvider, MODELS_VERSION, ModelEntry, ModelsDocument, ModelsError, Protocol,
-    ProviderProfile, ReasoningEfforts, ResolvedProvider, RetryBackoff, RetryMode, RetryPolicy,
-    catalog_entry, known_route,
+    ProviderProfile, REASONING_LEVELS, ReasoningEfforts, ResolvedProvider, RetryBackoff, RetryMode,
+    RetryPolicy, catalog_entry, known_route,
 };
 
 pub const CONFIG_VERSION: u32 = 1;
@@ -97,6 +97,10 @@ pub struct ModelConfig {
     pub name: String,
     /// Optional endpoint override.
     pub base_url: Option<String>,
+    /// Reasoning level selected for this model, e.g. `high`. Absent means the
+    /// provider's own default; the level must be one the model declares in
+    /// `models.yaml`.
+    pub reasoning_effort: Option<String>,
 }
 
 impl Default for ModelConfig {
@@ -105,6 +109,7 @@ impl Default for ModelConfig {
             provider: "deepseek-account".to_owned(),
             name: "deepseek-flash".to_owned(),
             base_url: None,
+            reasoning_effort: None,
         }
     }
 }

@@ -3,7 +3,7 @@
 # here is the best available signal before pushing.
 #
 #   scripts/check.sh            # everything
-#   scripts/check.sh quick      # fmt + clippy + workspace tests
+#   scripts/check.sh quick      # everything except evals, perf and browser gates
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,11 +13,27 @@ step() {
     "$@"
 }
 
+# cargo-deny is a separately installed binary (not a workspace dependency), so a
+# missing install would otherwise surface as a bare "command not found" and fail a
+# clean machine. CI runs the same advisory set through cargo-deny-action, so skip
+# loudly here instead of pretending the gate ran.
+deny_check() {
+    if command -v cargo-deny >/dev/null 2>&1; then
+        cargo deny check
+        return
+    fi
+    echo "cargo-deny not installed: skipping the advisory/license gate." >&2
+    echo "  install it with: cargo install cargo-deny --locked" >&2
+    echo "  CI still enforces it through cargo-deny-action (see .github/workflows/ci.yml)." >&2
+}
+
 step cargo fmt --all -- --check
 step scripts/check-runtime-assets.sh
 step scripts/test-sync-homebrew-tap.sh
+step deny_check
 step cargo clippy --workspace --all-targets -- -D warnings
 step cargo test --workspace
+step cargo test --workspace --doc
 
 if [ "${1:-}" = "quick" ]; then
     echo

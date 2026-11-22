@@ -42,8 +42,8 @@ fn authorized(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
         .map_err(|_| error(StatusCode::UNAUTHORIZED, "missing or invalid bearer token"))
 }
 
-/// The active route, model and endpoint from `config.yaml`.
-fn active_model(state: &AppState) -> (String, String, Option<String>) {
+/// The active route, model, endpoint and reasoning level from `config.yaml`.
+fn active_model(state: &AppState) -> (String, String, Option<String>, Option<String>) {
     let config = read_user_config(&state.config.home);
     // Without a persisted selection the live adapter names the route; its
     // `deepseek` alias still resolves to the catalog entry.
@@ -61,7 +61,13 @@ fn active_model(state: &AppState) -> (String, String, Option<String>) {
         .as_str()
         .filter(|value| !value.is_empty())
         .map(str::to_owned);
-    (provider, model, base_url)
+    // The stored level, not its wire value: only `dshr serve` resolves it
+    // against the profile when it builds the provider.
+    let reasoning_effort = config["model"]["reasoning_effort"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned);
+    (provider, model, base_url, reasoning_effort)
 }
 
 /// Credential facts for a row: configured, masked preview, source.
@@ -127,6 +133,7 @@ fn catalog_json() -> Value {
                     "models": entry.models.iter().map(|model| json!({
                         "id": model.id,
                         "name": model.name,
+                        "reasoning_levels": model.reasoning_levels,
                     })).collect::<Vec<_>>(),
                 })
             })
@@ -208,7 +215,7 @@ pub async fn get_providers(
         ModelsDocument::load(&state.config.home).map_err(|error| models_error(&error))?;
     let credentials_document = CredentialsDocument::load(&state.config.home)
         .map_err(|failure| credentials_error(&failure))?;
-    let (active, model, config_base_url) = active_model(&state);
+    let (active, model, config_base_url, reasoning_effort) = active_model(&state);
     let configured_active = (!active.is_empty()).then_some(active.as_str());
     let routes = document.visible_routes(configured_active);
     let rows: Vec<Value> = routes
@@ -227,7 +234,11 @@ pub async fn get_providers(
         "revision": document.revision,
         "credentials_revision": credentials_document.revision,
         "writable": true,
-        "active": { "provider": active, "model": model },
+        "active": {
+            "provider": active,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        },
         "catalog": catalog_json(),
         "providers": rows,
         "welcome_version": document.welcome_version,

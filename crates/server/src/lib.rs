@@ -955,6 +955,35 @@ fn valid_base_url(value: &str) -> bool {
         && !value.chars().any(char::is_whitespace)
 }
 
+/// Rejects a level the selected model does not declare.
+///
+/// The profile is the only place that knows which levels a model offers, so a
+/// model it does not describe can only be checked against the tool-wide level
+/// list. Refusing here means an unsupported level never reaches a restart that
+/// would fail to start the server.
+fn validate_reasoning_level(
+    document: &dshr_config::ModelsDocument,
+    provider: &str,
+    model: &str,
+    level: &str,
+) -> Result<(), StatusCode> {
+    let Some(entry) = document
+        .providers
+        .get(provider)
+        .and_then(|profile| profile.models.iter().find(|entry| entry.id == model))
+    else {
+        return if dshr_config::REASONING_LEVELS.contains(&level) {
+            Ok(())
+        } else {
+            Err(StatusCode::BAD_REQUEST)
+        };
+    };
+    entry
+        .reasoning_effort_value(Some(level))
+        .map(|_| ())
+        .map_err(|_| StatusCode::BAD_REQUEST)
+}
+
 async fn get_model_config(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -970,11 +999,18 @@ async fn get_model_config(
     } else {
         ""
     };
+    // The stored level, not its wire value: `models.yaml` owns the mapping and
+    // only `dshr serve` resolves it against the profile.
+    let reasoning_effort = config["model"]["reasoning_effort"]
+        .as_str()
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_owned);
     Ok(Json(json!({
         "provider": provider,
         "active_provider": state.provider.name(),
         "model": state.provider.model(),
         "base_url": base_url,
+        "reasoning_effort": reasoning_effort,
         "routes": PROVIDER_ROUTES,
         "note": "credentials are read from the environment; a route or model change needs a restart",
     })))
@@ -986,6 +1022,9 @@ struct ModelConfigRequest {
     model: String,
     #[serde(default)]
     base_url: Option<String>,
+    /// Selected reasoning level, or absent/empty for the provider's default.
+    #[serde(default)]
+    reasoning_effort: Option<String>,
 }
 
 async fn set_model_config(
@@ -1018,6 +1057,15 @@ async fn set_model_config(
     {
         return Err(StatusCode::BAD_REQUEST);
     }
+    let reasoning_effort = body
+        .reasoning_effort
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    if let Some(level) = reasoning_effort.as_deref() {
+        validate_reasoning_level(&document, &body.provider, &body.model, level)?;
+    }
     let mut config = read_user_config(&state.config.home);
     let model = config["model"].as_object_mut();
     let model = match model {
@@ -1033,6 +1081,10 @@ async fn set_model_config(
         Some(url) => model.insert("base_url".into(), json!(url)),
         None => model.remove("base_url"),
     };
+    match reasoning_effort {
+        Some(level) => model.insert("reasoning_effort".into(), json!(level)),
+        None => model.remove("reasoning_effort"),
+    };
     write_user_config(&state.config.home, &config)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(json!({
@@ -1040,6 +1092,7 @@ async fn set_model_config(
         "restart_required": true,
         "provider": config["model"]["provider"],
         "model": config["model"]["name"],
+        "reasoning_effort": config["model"]["reasoning_effort"],
     })))
 }
 

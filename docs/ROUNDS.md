@@ -2331,6 +2331,38 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Проверки: config 25, server 9, web 19, e2e 24/25 (прежний bash timeout
   среды); clippy/fmt чисто.
 
+## Раунд 148 — Reasoning effort на проводе + гейты `cargo deny` и doc-тестов (22.11.2026)
+
+- Закрыт записанный техдолг «адаптеры не отправляют reasoning effort»:
+  `model.reasoning_effort` в `config.yaml` (пусто = ключ убирается, значение
+  обязано быть объявленным уровнем, иначе 400) резолвится `serve` в значение
+  провайдера из `models.yaml` и живёт на конфиге соединения
+  (`DeepSeekConfig`/`OpenAiConfig.reasoning_effort`), поэтому
+  `dshr_llm::Request`, `crates/agent` и `title.rs` не тронуты —
+  [ADR-043](adr/043-reasoning-effort-wire.md).
+- DeepSeek: `thinking` + `output_config.effort` (при `off` только
+  `thinking: disabled`); OpenAI-compatible: плоский `reasoning_effort` для
+  `gpt-oss`, вложенный `reasoning.effort` для прочих `gpt-*`, ничего для
+  остальных. Неподдерживаемый уровень падает до сетевого ввода-вывода; при
+  отсутствии уровня reasoning-параметр не отправляется вовсе (upstream
+  подставляет `high` — расхождение записано в PARITY).
+- Models UI: селектор уровня активной модели с пунктом **Provider default**,
+  показывается только при ≥ 2 объявленных уровнях; `GET /v1/config/providers`
+  отдаёт `active.reasoning_effort`, поэтому селектор не сбрасывается после
+  сохранения. `run`/`tui`/`acp` остались env-only (записано в TECH-DEBT).
+- Живая проверка (headless Chrome + CDP, 14/14): уровень появляется/скрывается
+  по метаданным модели, сохранение пишет `config.yaml`, «Provider default»
+  убирает ключ, рестарт `dshr serve` применяет значение.
+- Гейты: `scripts/check.sh` догнал CI — добавлены `cargo deny check` (с
+  понятным сообщением, если бинарь не установлен: он не workspace-зависимость)
+  и `cargo test --workspace --doc`. Сам `cargo deny` был красным ещё до этой
+  работы: цепочка wasmtime 50.0.1 → 50.0.3 (сняты `RUSTSEC-2026-0566..0573`,
+  `-0587`), yanked `wasmi` 2.0.0 → 2.0.2, unmaintained `chrono` — обоснованный
+  ignore в `deny.toml`.
+- Проверки: config 26, llm-deepseek 15, llm-openai 13, provider_settings 10,
+  web 23, wasm 11, doc-тесты 0 passed/5 suites, `check.sh quick` зелёный,
+  e2e 25/25, plugin-smoke 89/89.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

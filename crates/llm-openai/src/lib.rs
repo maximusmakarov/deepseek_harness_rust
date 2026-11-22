@@ -16,6 +16,10 @@ use tokio_util::sync::CancellationToken;
 const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 const DEFAULT_MODEL: &str = "deepseek-chat";
 
+/// Model families that take the reasoning effort under different keys.
+const GPT_OSS: &str = "gpt-oss";
+const GPT_PREFIX: &str = "gpt-";
+
 #[derive(Clone)]
 pub struct OpenAiConfig {
     pub base_url: String,
@@ -23,6 +27,9 @@ pub struct OpenAiConfig {
     pub max_tokens: u32,
     pub api_key: String,
     pub retry: RetryPlan,
+    /// Reasoning effort sent on the wire, already resolved from the selected
+    /// level by the caller. `None` leaves the choice to the provider.
+    pub reasoning_effort: Option<String>,
 }
 
 impl fmt::Debug for OpenAiConfig {
@@ -33,6 +40,7 @@ impl fmt::Debug for OpenAiConfig {
             .field("model", &self.model)
             .field("max_tokens", &self.max_tokens)
             .field("api_key", &"<redacted>")
+            .field("reasoning_effort", &self.reasoning_effort)
             .finish()
     }
 }
@@ -72,10 +80,18 @@ impl OpenAiProvider {
             max_tokens: max_tokens.unwrap_or(2048).max(1),
             api_key,
             retry: RetryPlan::default(),
+            reasoning_effort: None,
         })
     }
 
     pub fn new(config: OpenAiConfig) -> Result<Self, LlmError> {
+        if let Some(effort) = config.reasoning_effort.as_deref()
+            && effort.trim().is_empty()
+        {
+            return Err(LlmError::Config(
+                "the reasoning effort is empty; drop it or name a level".to_owned(),
+            ));
+        }
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
@@ -160,7 +176,11 @@ impl LlmProvider for OpenAiProvider {
         request: Request,
         cancel: CancellationToken,
     ) -> Result<ChunkStream, LlmError> {
-        let body = request_body(&request, self.config.max_tokens);
+        let body = request_body(
+            &request,
+            self.config.max_tokens,
+            self.config.reasoning_effort.as_deref(),
+        );
         let url = format!(
             "{}/chat/completions",
             self.config.base_url.trim_end_matches('/')
@@ -209,7 +229,11 @@ impl LlmProvider for OpenAiProvider {
     }
 }
 
-fn request_body(request: &Request, default_max_tokens: u32) -> Value {
+fn request_body(
+    request: &Request,
+    default_max_tokens: u32,
+    reasoning_effort: Option<&str>,
+) -> Value {
     let mut messages = Vec::new();
     if let Some(system) = &request.system
         && !system.trim().is_empty()
@@ -321,6 +345,24 @@ fn request_body(request: &Request, default_max_tokens: u32) -> Value {
                 }))
                 .collect::<Vec<_>>()
         );
+    }
+
+    // Mirrors upstream's per-family mapping:
+    //   * gpt-oss takes a flat `reasoning_effort`,
+    //   * every other `gpt-*` model takes `reasoning.effort`,
+    //   * anything else gets no reasoning parameter at all, because a gateway
+    //     serving a non-OpenAI model rejects the field outright.
+    // `off` never sends the parameter: a missing effort is how these APIs are
+    // told not to reason.
+    if let Some(effort) = reasoning_effort
+        && effort != "off"
+    {
+        let family = request.model.to_ascii_lowercase();
+        if family.contains(GPT_OSS) {
+            body["reasoning_effort"] = json!(effort);
+        } else if family.contains(GPT_PREFIX) {
+            body["reasoning"] = json!({"effort": effort});
+        }
     }
 
     body
@@ -495,7 +537,7 @@ mod tests {
 
     #[test]
     fn builds_openai_request_body() {
-        let body = request_body(&request(), 64);
+        let body = request_body(&request(), 64, None);
         assert_eq!(body["model"], "deepseek-v4-flash-latest");
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][1]["role"], "user");
@@ -516,7 +558,7 @@ mod tests {
                 },
             ],
         }];
-        let body = request_body(&request, 64);
+        let body = request_body(&request, 64, None);
         let parts = body["messages"][1]["content"].as_array().expect("parts");
         assert_eq!(parts[0]["type"], "text");
         assert_eq!(parts[1]["type"], "input_audio");
@@ -530,11 +572,65 @@ mod tests {
                 data: "aGk=".into(),
             }],
         }];
-        let body = request_body(&request, 64);
+        let body = request_body(&request, 64, None);
         assert_eq!(
             body["messages"][1]["content"][0]["input_audio"]["format"],
             "mp3"
         );
+    }
+
+    #[test]
+    fn sends_a_flat_effort_for_gpt_oss() {
+        let mut request = request();
+        request.model = "openai/gpt-oss-120b".into();
+        let body = request_body(&request, 64, Some("high"));
+        assert_eq!(body["reasoning_effort"], "high");
+        assert!(body.get("reasoning").is_none(), "{body}");
+    }
+
+    #[test]
+    fn sends_a_nested_effort_for_other_gpt_models() {
+        let mut request = request();
+        request.model = "gpt-5.1".into();
+        let body = request_body(&request, 64, Some("medium"));
+        assert_eq!(body["reasoning"]["effort"], "medium");
+        assert!(body.get("reasoning_effort").is_none(), "{body}");
+    }
+
+    #[test]
+    fn omits_reasoning_for_models_without_a_known_family() {
+        let mut request = request();
+        request.model = "deepseek-v4-flash-latest".into();
+        let body = request_body(&request, 64, Some("high"));
+        assert!(body.get("reasoning_effort").is_none(), "{body}");
+        assert!(body.get("reasoning").is_none(), "{body}");
+    }
+
+    #[test]
+    fn off_sends_no_reasoning_parameter() {
+        let mut request = request();
+        request.model = "gpt-5.1".into();
+        let body = request_body(&request, 64, Some("off"));
+        assert!(body.get("reasoning").is_none(), "{body}");
+        assert!(body.get("reasoning_effort").is_none(), "{body}");
+
+        request.model = "openai/gpt-oss-120b".into();
+        let body = request_body(&request, 64, Some("off"));
+        assert!(body.get("reasoning_effort").is_none(), "{body}");
+    }
+
+    #[test]
+    fn new_rejects_a_blank_effort() {
+        let provider = OpenAiProvider::new(OpenAiConfig {
+            base_url: "https://example.test/v1".into(),
+            model: "gpt-5.1".into(),
+            api_key: "test".into(),
+            max_tokens: 64,
+            retry: RetryPlan::default(),
+            reasoning_effort: Some("   ".into()),
+        });
+        let error = provider.expect_err("a blank effort must be refused");
+        assert!(error.to_string().contains("reasoning effort"), "{error}");
     }
 
     #[test]
@@ -545,6 +641,7 @@ mod tests {
             api_key: "test".into(),
             max_tokens: 64,
             retry: RetryPlan::default(),
+            reasoning_effort: None,
         })
         .expect("provider");
         assert!(provider.capabilities().audio);
@@ -644,6 +741,7 @@ mod tests {
             api_key: "test".into(),
             max_tokens: 16,
             retry: plan,
+            reasoning_effort: None,
         })
         .expect("provider");
 

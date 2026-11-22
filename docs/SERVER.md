@@ -16,10 +16,13 @@ dshr serve --bind 127.0.0.1 --port 4317 --rate-limit 60
 
 `/v1/sessions`, `/v1/sessions/{id}`, `/v1/sessions/{id}/turns`, `/v1/sessions/{id}/events` (SSE), `/v1/sessions/{id}/cancel`, approvals, `/v1/rpc`.
 
-`/v1/config/model` (GET/POST) — активный маршрут/модель/base URL.
+`/v1/config/model` (GET/POST) — активный маршрут/модель/base URL и reasoning effort (`reasoning_effort`: пустое значение убирает ключ, непустое обязано быть объявленным уровнем модели, иначе `400`).
 
 `/v1/config/providers` (GET) — каталог провайдеров, сохранённые профили и
-активный выбор из `<home>/models.yaml` (см. [CONFIG](CONFIG.md#models-провайдеры-и-списки-моделей)).
+активный выбор из `<home>/models.yaml`; блок `active` содержит `provider`,
+`model` и `reasoning_effort` (уровень активной модели или `null`), а элементы
+моделей — `reasoning_efforts` (объявленные уровни) и каталоговые
+`reasoning_levels` (см. [CONFIG](CONFIG.md#models-провайдеры-и-списки-моделей)).
 `POST /v1/credentials/describe` (`references`) — состояние и маска до 64
 ключей (без значений); `PUT /v1/credentials/{reference}`
 (`{value, expected_revision}`) — write-only запись, `DELETE` с ревизией.

@@ -96,6 +96,9 @@ async fn lists_the_catalog_and_the_active_route() {
     assert_eq!(body["writable"], true);
     assert_eq!(body["active"]["provider"], "deepseek-account");
     assert_eq!(body["active"]["model"], "deepseek-flash");
+    // No level selected yet, so the snapshot says "provider default" rather
+    // than inventing one.
+    assert!(body["active"]["reasoning_effort"].is_null());
 
     let catalog = body["catalog"].as_array().expect("catalog");
     let ids: Vec<&str> = catalog
@@ -105,6 +108,25 @@ async fn lists_the_catalog_and_the_active_route() {
     assert!(ids.contains(&"deepseek-official"));
     assert!(ids.contains(&"openai-compatible"));
     assert!(ids.contains(&"routerai"));
+
+    // Catalog entries announce the levels their models offer: the DeepSeek
+    // endpoint's, but none for the OpenAI-style routes.
+    let deepseek = catalog
+        .iter()
+        .find(|entry| entry["id"] == "deepseek-official")
+        .expect("deepseek-official entry");
+    assert_eq!(
+        deepseek["models"][0]["reasoning_levels"],
+        serde_json::json!(["off", "low", "high", "max"])
+    );
+    let openai = catalog
+        .iter()
+        .find(|entry| entry["id"] == "openai")
+        .expect("openai entry");
+    assert_eq!(
+        openai["models"][0]["reasoning_levels"],
+        serde_json::json!([])
+    );
 
     // The active route appears even without a stored profile, with the
     // catalog's models and a derived credential state.
@@ -118,6 +140,12 @@ async fn lists_the_catalog_and_the_active_route() {
     assert_eq!(row["protocol"], "anthropic-messages");
     assert_eq!(row["models_from_profile"], false);
     assert_eq!(row["models"][0]["id"], "deepseek-flash");
+    // Catalog models carry their levels, so the selector works before the
+    // user has ever saved a profile.
+    assert_eq!(
+        row["models"][0]["reasoning_efforts"]["max"], "max",
+        "the catalog model declares its levels"
+    );
     assert!(row["credential_configured"].is_boolean());
 }
 
@@ -407,6 +435,134 @@ async fn rejects_invalid_profiles() {
         "POST",
         "/v1/config/model",
         Some(json!({"provider": "my-gateway", "model": "not-listed"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn stores_and_checks_the_active_reasoning_level() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("config.yaml"),
+        "version: 1\nmodel:\n  provider: my-gateway\n  name: gateway-model\n",
+    )
+    .expect("seed config");
+    let app = router(state(dir.path()));
+
+    let (status, answer) = call(
+        &app,
+        "PUT",
+        "/v1/config/providers/my-gateway",
+        Some(json!({
+            "expected_revision": 0,
+            "protocol": "openai-chat",
+            "base_url": "https://gateway.example/v1",
+            "api_key_env": "GATEWAY_KEY",
+            "models": [{
+                "id": "gateway-model",
+                "reasoning_efforts": {"off": "off", "low": "low", "high": "high"}
+            }]
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+
+    // A declared level is stored next to the selection.
+    let (status, answer) = call(
+        &app,
+        "POST",
+        "/v1/config/model",
+        Some(json!({
+            "provider": "my-gateway",
+            "model": "gateway-model",
+            "reasoning_effort": "high"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["reasoning_effort"], "high");
+    let config: Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(dir.path().join("config.yaml")).expect("config"),
+    )
+    .expect("yaml");
+    assert_eq!(config["model"]["reasoning_effort"], "high");
+
+    let (status, answer) = call(&app, "GET", "/v1/config/model", None).await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    assert_eq!(answer["reasoning_effort"], "high");
+
+    // The Models page reads its snapshot from here, so the level has to travel
+    // with it or a reload would silently show "provider default" again.
+    let snapshot = get(&app).await;
+    assert_eq!(snapshot["active"]["reasoning_effort"], "high");
+
+    // A level the model does not declare is refused before it can be persisted
+    // and break the next `dshr serve`.
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/config/model",
+        Some(json!({
+            "provider": "my-gateway",
+            "model": "gateway-model",
+            "reasoning_effort": "minimal"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let config: Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(dir.path().join("config.yaml")).expect("config"),
+    )
+    .expect("yaml");
+    assert_eq!(config["model"]["reasoning_effort"], "high");
+
+    // Absent (or blank) means the provider's own default and clears the key.
+    for absent in [
+        json!({"provider": "my-gateway", "model": "gateway-model"}),
+        json!({
+            "provider": "my-gateway",
+            "model": "gateway-model",
+            "reasoning_effort": "  "
+        }),
+    ] {
+        let (status, answer) = call(&app, "POST", "/v1/config/model", Some(absent)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        assert!(answer["reasoning_effort"].is_null(), "{answer}");
+        let config: Value = serde_saphyr::from_str(
+            &std::fs::read_to_string(dir.path().join("config.yaml")).expect("config"),
+        )
+        .expect("yaml");
+        assert!(
+            config["model"].get("reasoning_effort").is_none(),
+            "{config}"
+        );
+        assert!(get(&app).await["active"]["reasoning_effort"].is_null());
+    }
+
+    // A catalog route has no profile of its own, so the level is checked
+    // against the list every model can use.
+    let (status, answer) = call(
+        &app,
+        "POST",
+        "/v1/config/model",
+        Some(json!({
+            "provider": "openai",
+            "model": "gpt-4o",
+            "reasoning_effort": "medium"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{answer}");
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/config/model",
+        Some(json!({
+            "provider": "openai",
+            "model": "gpt-4o",
+            "reasoning_effort": "turbo"
+        })),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

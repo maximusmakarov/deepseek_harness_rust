@@ -2,6 +2,21 @@
 
 ## 0.1.0 — current
 
+- Reasoning effort now reaches the wire: the active model's level
+  (`config.yaml` -> `model.reasoning_effort`, chosen in Models with a
+  **Provider default** entry) is resolved through `models.yaml` into the
+  provider value and handed to both adapters. DeepSeek sends `thinking` plus
+  `output_config.effort` (only `thinking: disabled` for `off`);
+  OpenAI-compatible sends a flat `reasoning_effort` for `gpt-oss`, a nested
+  `reasoning.effort` for other `gpt-*` and nothing otherwise. An unsupported
+  level fails before any network I/O, and an absent level sends no reasoning
+  parameter at all. `dshr serve` is the only command that reads the level;
+  `run`/`tui`/`acp` stay environment-only (ADR 043).
+- `scripts/check.sh` now runs `cargo deny check` and
+  `cargo test --workspace --doc`, the two CI gates it was missing. `cargo deny`
+  is clean again: the wasmtime chain moved to 50.0.3 (clearing
+  `RUSTSEC-2026-0566..0573` and `-0587`), the yanked `wasmi` 2.0.0 family moved
+  to 2.0.2, and unmaintained `chrono` carries a justified `deny.toml` ignore.
 - The Models first-run key field spans the welcome card with its hint below,
   and retry jitter is stored as f64 so the API and UI show `0.1` instead of an
   f32 artifact.
@@ -28,7 +43,7 @@
   protocol, endpoint, key variable, at least one model) and per-model reasoning
   levels (off/on, level -> API value rows, validated and persisted in
   `models.yaml`). The editor is one card shared by catalog adoption, editing and
-  creation; adapters do not send the effort yet.
+  creation (sending the effort itself landed later — see the first entry).
 - Models settings is now a real provider section, not a single route pair:
   a five-provider catalog (DeepSeek Account / DeepSeek API / OpenAI /
   OpenAI-compatible / RouterAI), per-provider profiles in `<home>/models.yaml`

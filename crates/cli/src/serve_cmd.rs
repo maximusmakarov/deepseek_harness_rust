@@ -267,6 +267,7 @@ fn build_provider(
         .clone()
         .unwrap_or_else(|| default_key_reference(&route).to_owned());
     let retry = retry_plan(&resolved);
+    let reasoning_effort = reasoning_effort(&resolved, &model, config)?;
     let (secret, account_token) = read_secret(&reference, &resolved, home)
         .ok_or_else(|| {
             LlmError::MissingCredentials(format!(
@@ -288,6 +289,7 @@ fn build_provider(
                     max_tokens: args.max_tokens.max(1),
                     auth,
                     retry: retry.clone(),
+                    reasoning_effort: reasoning_effort.clone(),
                 })
                 .map_err(llm_error)?,
             ))
@@ -299,10 +301,46 @@ fn build_provider(
                 max_tokens: args.max_tokens.max(1),
                 api_key: secret,
                 retry,
+                reasoning_effort,
             })
             .map_err(llm_error)?,
         )),
     }
+}
+
+/// Turns the configured level into the value the endpoint expects.
+///
+/// A profile that lists its models also declares which levels each one
+/// offers, so the level is checked against that list and an undeclared one is
+/// a configuration error rather than a silent downgrade. A model the profile
+/// does not describe (catalog models, or a gateway whose model list is empty)
+/// cannot be checked; the level is passed through and the adapter decides
+/// whether the endpoint accepts it.
+fn reasoning_effort(
+    resolved: &ResolvedProvider,
+    model: &str,
+    config: &Config,
+) -> Result<Option<String>> {
+    let Some(level) = config
+        .model
+        .reasoning_effort
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(entry) = resolved.models.iter().find(|entry| entry.id == model) else {
+        tracing::warn!(
+            provider = %resolved.route,
+            model = %model,
+            level = %level,
+            "the model is not listed in its provider profile, so the reasoning level cannot be checked"
+        );
+        return Ok(Some(level.to_owned()));
+    };
+    entry
+        .reasoning_effort_value(Some(level))
+        .map_err(|error| DshrError::config(format!("provider '{}': {error}", resolved.route)))
 }
 
 fn retry_plan(resolved: &ResolvedProvider) -> RetryPlan {

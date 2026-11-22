@@ -6,6 +6,7 @@
 model:
   provider: deepseek-account
   name: deepseek-flash
+  reasoning_effort: high   # null/пусто = дефолт провайдера
 profile-композиция: `profiles/<name>/profile.yaml` может включать
 `bundles: [base, tools]` — сначала применяются `<home>/bundles/<bundle>/config.yaml`
 (с учётом `requires: [name@^1.0]`, semver-проверка и циклы запрещены), bundle-патчи `patches: [file.yaml]` (до профиля), затем `patches` профиля
@@ -120,3 +121,29 @@ providers:
   прочитанную ревизию, устаревшая получает `409`.
 - Изменения профиля/списка применяются `dshr serve` при следующем запуске
   (адаптер и модель фиксируются на старте).
+### `model.reasoning_effort`
+
+Уровень reasoning effort активной модели живёт в `config.yaml` (поле
+`model.reasoning_effort`), а не в `models.yaml`: провайдерский документ
+описывает, **какие** уровни модель поддерживает (`reasoning_efforts`, карта
+уровень → значение для провайдера), а выбор пользователя — одно значение.
+
+- Пустое/отсутствующее поле (или пункт **Provider default** в Models) убирает
+  ключ `model.reasoning_effort` из конфигурации: запрос уходит без
+  reasoning-параметра.
+- Значение обязано быть объявленным уровнем этой модели (иначе
+  `POST /v1/config/model` → 400). Для модели, отсутствующей в профиле,
+  проверяется общий список уровней: `off`, `minimal`, `low`, `medium`, `high`,
+  `xhigh`, `max`.
+- `dshr serve` резолвит уровень в значение провайдера из `models.yaml`
+  (`reasoning_efforts.<level>`) и передаёт его адаптеру; необъявленный уровень
+  не отбрасывается молча — `serve` предупреждает и отправляет как есть
+  (permissive), а объявленный, но неподдерживаемый протоколом уровень
+  отклоняется до сетевого запроса.
+- На провод уходит по-разному: DeepSeek Messages — `thinking` плюс
+  `output_config.effort` (для `off` — только `thinking: disabled`);
+  OpenAI-compatible — плоский `reasoning_effort` для моделей `gpt-oss`,
+  вложенный `reasoning.effort` для остальных `gpt-*`, ничего для прочих
+  ([ADR-043](adr/043-reasoning-effort-wire.md)).
+- Читает поле только `dshr serve`; `run`/`tui`/`acp` берут reasoning из
+  env-ключей. Правка применяется после рестарта `dshr serve`.

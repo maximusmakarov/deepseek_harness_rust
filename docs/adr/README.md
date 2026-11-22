@@ -46,5 +46,6 @@
 | [040](040-react-client-half.md) | React-совместимость клиентской половины: plugin-shipped runtime и путь B → C | Proposed (C-lite/C1/C1.1/C2 реализованы) |
 | [041](041-c-full-decision.md) | C-full: решение по полной React-совместимости (отложена, точечные инкременты) | Superseded by 042 (C-full — отдельная фаза) |
 | [042](042-c-full-phase.md) | C-full отдельной фазой: renderer-семантика ядра, mounted-model сессий, host-сервисы | Accepted; фаза закрыта 16.11.2026 |
+| [043](043-reasoning-effort-wire.md) | Reasoning effort на проводе: конфиг соединения, а не запрос | Accepted |
 
 Шаблон: [000-template.md](000-template.md).

@@ -20,6 +20,9 @@ struct ActiveSelection {
     provider: String,
     #[serde(default)]
     model: String,
+    /// The stored level; absent means the provider's own default.
+    #[serde(default)]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -28,6 +31,9 @@ struct CatalogModel {
     id: String,
     #[serde(default)]
     name: String,
+    /// Levels the catalog offers for this model, in escalation order.
+    #[serde(default)]
+    reasoning_levels: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -235,7 +241,7 @@ impl ProviderDraft {
                     max_tokens: String::new(),
                     text: true,
                     image: false,
-                    reasoning_efforts: None,
+                    reasoning_efforts: catalog_efforts(&model.reasoning_levels),
                 })
                 .collect(),
             configured: false,
@@ -270,6 +276,18 @@ impl ProviderDraft {
 
 /// Levels the adapters accept, in escalation order.
 const REASONING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// A catalog model's levels as a declaration: absent when it lists none.
+fn catalog_efforts(levels: &[String]) -> Option<Value> {
+    (!levels.is_empty()).then(|| {
+        reasoning_object(
+            &levels
+                .iter()
+                .map(|level| (level.clone(), level.clone()))
+                .collect::<Vec<_>>(),
+        )
+    })
+}
 
 /// The level -> value rows of a model's reasoning declaration.
 fn reasoning_entries(value: &Option<Value>) -> Vec<(String, String)> {
@@ -612,6 +630,22 @@ fn parse_capacity(value: &str, label: &str) -> Result<Option<u64>, String> {
 struct ActiveRequest {
     provider: String,
     model: String,
+    /// Sent only when a level is selected, so an untouched selection keeps the
+    /// provider default instead of pinning one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+}
+
+/// Levels the active model offers, in escalation order.
+///
+/// A model that declares nothing offers no control at all, and one that
+/// declares a single level (`{off: off}`) has nothing to choose between.
+fn offered_levels(levels: &[String]) -> Vec<String> {
+    REASONING_LEVELS
+        .iter()
+        .filter(|level| levels.iter().any(|declared| declared == *level))
+        .map(|level| (*level).to_owned())
+        .collect()
 }
 
 async fn send(
@@ -894,7 +928,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         });
     };
 
-    let activate = move |provider: String, model: String| {
+    let activate = move |provider: String, model: String, reasoning_effort: Option<String>| {
         if model.is_empty() {
             error.set("the provider lists no models yet".into());
             return;
@@ -903,14 +937,18 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         let body = ActiveRequest {
             provider: provider.clone(),
             model: model.clone(),
+            reasoning_effort: reasoning_effort.clone(),
         };
         busy.set(true);
         spawn_local(async move {
             let body = serde_json::to_value(body).unwrap_or(Value::Null);
             match send("POST", "/v1/config/model", &value, Some(&body)).await {
                 Ok(_) => {
+                    let effort = reasoning_effort
+                        .map(|level| format!(" · reasoning {level}"))
+                        .unwrap_or_default();
                     status.set(format!(
-                        "active route: {provider} · {model} — restart dshr serve to apply"
+                        "active route: {provider} · {model}{effort} — restart dshr serve to apply"
                     ));
                     error.set(String::new());
                     load();
@@ -1091,6 +1129,50 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             {move || (!error.get().is_empty()).then(|| view! {
                 <p class="models-error" role="alert">{move || error.get()}</p>
             })}
+            {move || {
+                // The control belongs to the active model only: it edits the
+                // stored selection in config.yaml, which the running server
+                // resolved once at start-up.
+                let selected = snapshot.get()?;
+                let route = selected.active.provider.clone();
+                let model = selected.active.model.clone();
+                let row = selected.providers.iter().find(|row| row.id == route)?;
+                let entry = row.models.iter().find(|entry| entry.id == model)?;
+                let levels = offered_levels(
+                    &reasoning_entries(&entry.reasoning_efforts)
+                        .into_iter()
+                        .map(|(level, _)| level)
+                        .collect::<Vec<_>>(),
+                );
+                if levels.len() < 2 {
+                    return None;
+                }
+                let current = selected.active.reasoning_effort.clone().unwrap_or_default();
+                let label = entry.name.clone().unwrap_or_else(|| entry.id.clone());
+                Some(view! {
+                    <div class="models-field models-reasoning">
+                        <label>{format!("Reasoning effort · {label}")}</label>
+                        <select
+                            prop:value=current
+                            on:change=move |event| {
+                                let level = event_target_value(&event);
+                                activate(
+                                    route.clone(),
+                                    model.clone(),
+                                    Some(level).filter(|level| !level.is_empty()),
+                                );
+                            }
+                            disabled=move || busy.get()
+                        >
+                            <option value="">"Provider default"</option>
+                            {levels.into_iter().map(|level| view! {
+                                <option value=level.clone()>{level.clone()}</option>
+                            }).collect_view()}
+                        </select>
+                        <p class="tool">"Applies to the active model after a restart of dshr serve."</p>
+                    </div>
+                })
+            }}
             <ul class="models-rows">
                 {move || {
                     let Some(snapshot_value) = snapshot.get() else {
@@ -1170,7 +1252,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                     disabled=move || busy.get()
                                                 >"Edit"</button>
                                                 <button
-                                                    on:click=move |_| activate(use_route.clone(), use_model.clone())
+                                                    on:click=move |_| activate(use_route.clone(), use_model.clone(), None)
                                                     disabled=move || busy.get()
                                                 >"Use"</button>
                                             })}
@@ -1720,7 +1802,13 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                 title="make this the active model"
                                                 disabled=move || busy.get() || !can_use
                                                 on:click=move |_| {
-                                                    activate(provider_for_use.clone(), model_id_for_use.clone());
+                                                    // A level is declared per model, so switching
+                                                    // resets it to the provider default.
+                                                    activate(
+                                                        provider_for_use.clone(),
+                                                        model_id_for_use.clone(),
+                                                        None,
+                                                    );
                                                 }
                                             >"Use"</button>
                                             <button
@@ -2089,10 +2177,12 @@ mod tests {
                 CatalogModel {
                     id: "gpt-4o-mini".into(),
                     name: "GPT-4o mini".into(),
+                    ..CatalogModel::default()
                 },
                 CatalogModel {
                     id: "gpt-4o".into(),
                     name: "GPT-4o".into(),
+                    ..CatalogModel::default()
                 },
             ],
             ..CatalogEntry::default()
@@ -2102,6 +2192,42 @@ mod tests {
         assert_eq!(draft.models[1].id, "gpt-4o");
         assert_eq!(draft.api_key_env, "OPENAI_API_KEY");
         assert!(draft.models.iter().all(|model| model.text));
+        // The OpenAI routes declare no levels, so the draft keeps the field
+        // absent rather than inventing a declaration.
+        assert!(
+            draft
+                .models
+                .iter()
+                .all(|model| model.reasoning_efforts.is_none())
+        );
+    }
+
+    #[test]
+    fn a_catalog_draft_carries_the_levels_the_catalog_declares() {
+        let levels = ["off", "low", "high", "max"];
+        let entry = CatalogEntry {
+            id: "deepseek-official".into(),
+            display_name: "DeepSeek API".into(),
+            protocol: "anthropic-messages".into(),
+            models: vec![CatalogModel {
+                id: "deepseek-flash".into(),
+                name: "DeepSeek Flash".into(),
+                reasoning_levels: levels.iter().map(|level| (*level).to_owned()).collect(),
+            }],
+            ..CatalogEntry::default()
+        };
+        let draft = ProviderDraft::from_catalog(&entry);
+        let efforts = draft.models[0]
+            .reasoning_efforts
+            .clone()
+            .expect("a declaration");
+        assert!(reasoning_enabled(&Some(efforts.clone())));
+        let entries = reasoning_entries(&Some(efforts));
+        // The map itself does not carry an order; the control reimposes the
+        // escalation order the catalog declared.
+        let declared: Vec<String> = entries.iter().map(|(level, _)| level.clone()).collect();
+        assert_eq!(offered_levels(&declared), levels);
+        assert!(entries.iter().all(|(level, value)| level == value));
     }
 
     #[test]
@@ -2136,6 +2262,65 @@ mod tests {
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!(false));
         assert!(draft_body(&value).is_ok());
+    }
+
+    #[test]
+    fn offered_levels_follow_the_declaration_and_the_escalation_order() {
+        // Declared order in the map is not the order the control shows.
+        let declared = vec!["high".to_owned(), "off".to_owned(), "low".to_owned()];
+        assert_eq!(offered_levels(&declared), ["off", "low", "high"]);
+
+        // A model that declares nothing gets no control at all.
+        assert!(offered_levels(&[]).is_empty());
+        // One level is not a choice.
+        assert_eq!(offered_levels(&["off".to_owned()]), ["off"]);
+        // Unknown declarations are dropped rather than shown and rejected later.
+        assert_eq!(
+            offered_levels(&["banana".to_owned(), "max".to_owned()]),
+            ["max"]
+        );
+    }
+
+    #[test]
+    fn an_active_request_only_sends_a_selected_level() {
+        let default = serde_json::to_value(ActiveRequest {
+            provider: "deepseek".into(),
+            model: "deepseek-flash".into(),
+            reasoning_effort: None,
+        })
+        .expect("body");
+        assert_eq!(
+            default,
+            json!({"provider": "deepseek", "model": "deepseek-flash"})
+        );
+
+        let selected = serde_json::to_value(ActiveRequest {
+            provider: "deepseek".into(),
+            model: "deepseek-flash".into(),
+            reasoning_effort: Some("high".into()),
+        })
+        .expect("body");
+        assert_eq!(
+            selected,
+            json!({"provider": "deepseek", "model": "deepseek-flash", "reasoning_effort": "high"})
+        );
+    }
+
+    #[test]
+    fn the_active_selection_reads_the_stored_level() {
+        let selection: ActiveSelection = serde_json::from_value(json!({
+            "provider": "deepseek",
+            "model": "deepseek-flash",
+            "reasoning_effort": "max"
+        }))
+        .expect("selection");
+        assert_eq!(selection.reasoning_effort.as_deref(), Some("max"));
+
+        // Older servers omit the field; that is the provider default.
+        let selection: ActiveSelection =
+            serde_json::from_value(json!({"provider": "deepseek", "model": "flash"}))
+                .expect("selection");
+        assert_eq!(selection.reasoning_effort, None);
     }
 
     fn candidate(id: &str) -> DiscoveredModel {
