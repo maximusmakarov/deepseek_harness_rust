@@ -27,13 +27,37 @@ deny_check() {
     echo "  CI still enforces it through cargo-deny-action (see .github/workflows/ci.yml)." >&2
 }
 
+# CI runs the workspace suite through nextest; plain cargo test is the fallback.
+# Running both would only double the time, so pick the same runner CI uses and say
+# which one ran.
+workspace_tests() {
+    if command -v cargo-nextest >/dev/null 2>&1; then
+        cargo nextest run --workspace --no-fail-fast
+        return
+    fi
+    echo "cargo-nextest not installed: running the workspace suite through cargo test instead." >&2
+    echo "  install it with: cargo install cargo-nextest --locked" >&2
+    cargo test --workspace
+}
+
+# The web crate is a separate workspace member exclusion (Cargo.toml) because its
+# tests need the host target and its build needs wasm32, so neither
+# `cargo test --workspace` nor a CI nextest run reaches it. Its bundle is compiled
+# into the server through include_bytes!, so a broken crate or a stale dist breaks
+# the shipped binary rather than a test. Gate both halves explicitly.
+web_check() {
+    CARGO_INCREMENTAL=0 cargo test --manifest-path crates/web/Cargo.toml
+    CARGO_INCREMENTAL=0 cargo check --manifest-path crates/web/Cargo.toml --target wasm32-unknown-unknown
+}
+
 step cargo fmt --all -- --check
 step scripts/check-runtime-assets.sh
 step scripts/test-sync-homebrew-tap.sh
 step deny_check
 step cargo clippy --workspace --all-targets -- -D warnings
-step cargo test --workspace
+step workspace_tests
 step cargo test --workspace --doc
+step web_check
 
 if [ "${1:-}" = "quick" ]; then
     echo

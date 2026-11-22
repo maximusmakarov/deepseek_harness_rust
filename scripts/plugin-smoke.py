@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -1169,6 +1170,20 @@ def run(args: argparse.Namespace) -> int:
         with urllib.request.urlopen(request, timeout=10) as response:
             return json.load(response)
 
+    def api_status(port: int, method: str, path: str, body: dict | None = None) -> int:
+        """HTTP status only: the refusal checks assert on the code, not the body."""
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{path}",
+            method=method,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
+
     def click(selector: str, label: str) -> bool:
         return bool(
             shell.eval(
@@ -1318,6 +1333,82 @@ def run(args: argparse.Namespace) -> int:
                 for client in c2_halves.values()
             ),
             c2_halves,
+        )
+
+        # Models config API ---------------------------------------------------
+        # The browser gate drives the selector through the UI; these checks cover
+        # the REST contract underneath it, which the UI can mask: a level must
+        # round-trip through config.yaml, an unsupported level must be refused
+        # before any restart, and the route list must stay what the UI offers.
+        providers = api(port, "GET", "/v1/config/providers")
+        check(
+            "models api exposes the active reasoning effort",
+            "reasoning_effort" in providers.get("active", {}),
+            providers.get("active"),
+        )
+        check(
+            "models api carries the route catalog with per-model levels",
+            {"deepseek-account", "deepseek-official", "openai", "openai-compatible", "routerai"}
+            <= {entry["id"] for entry in providers["catalog"]}
+            and any(
+                model.get("reasoning_levels")
+                for entry in providers["catalog"]
+                for model in entry["models"]
+            ),
+            [entry["id"] for entry in providers["catalog"]],
+        )
+        check(
+            "the running profile is listed as a provider row",
+            any(row["active"] for row in providers["providers"]),
+            [row["id"] for row in providers["providers"]],
+        )
+        level = "high"
+        saved = api(
+            port,
+            "POST",
+            "/v1/config/model",
+            {"provider": "deepseek", "model": "deepseek-flash", "reasoning_effort": level},
+        )
+        check(
+            "saving a reasoning level round-trips",
+            saved.get("reasoning_effort") == level,
+            saved,
+        )
+        stored = api(port, "GET", "/v1/config/model")
+        check(
+            "the stored level survives a re-read",
+            stored.get("reasoning_effort") == level and "model" in stored,
+            stored,
+        )
+        rejected = api_status(
+            port,
+            "POST",
+            "/v1/config/model",
+            {"provider": "deepseek", "model": "deepseek-flash", "reasoning_effort": "turbo"},
+        )
+        check(
+            "an undeclared reasoning level is refused before a restart",
+            rejected == 400,
+            rejected,
+        )
+        # Absent effort means "provider default": the key must leave config.yaml
+        # rather than persist as an empty string the adapters would try to send.
+        cleared = api(
+            port,
+            "POST",
+            "/v1/config/model",
+            {"provider": "deepseek", "model": "deepseek-flash"},
+        )
+        check(
+            "clearing the level falls back to the provider default",
+            cleared.get("reasoning_effort") is None,
+            cleared,
+        )
+        check(
+            "the cleared level leaves config.yaml",
+            "reasoning_effort"
+            not in (home / "config.yaml").read_text(encoding="utf-8"),
+            (home / "config.yaml").read_text(encoding="utf-8"),
         )
 
         # A deterministic transcript: create a session over REST and replay one

@@ -2,7 +2,6 @@
 yanked = "deny"
 ignore = [
   { id = "RUSTSEC-2026-0441", reason = "pin-utils is pulled only by the dev-only expectrl/nix TUI test harness; it is not linked into the shipped dshr binary" },
-  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error is a build-time dependency of glib-macros, pulled only by Linux Tauri/GTK crates; Tauri 2.12 has no safe upgrade yet and macOS builds do not link it" },
   { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, not vulnerable: the advisory covers every version and offers no safe upgrade. dshr uses it for RFC-3339 timestamps, day arithmetic in dshr-schedule and the local UTC offset in the Tauri sign-in; replacing it with jiff/time is tracked in docs/TECH-DEBT.md" },
 ]
 

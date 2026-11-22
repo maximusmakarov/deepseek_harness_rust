@@ -192,7 +192,7 @@ shim'ы.
   (генерация 1→2), добавление/удаление плагина в `profile.yaml` стартует/останавливает
   sidecar, `POST /v1/plugins/reload` отвечает, `GET /v1/plugins/status` отражает
   состояние; `/v1/plugins/installed` следует за супервизором.
-- Клиентская половина: `python3 scripts/plugin-smoke.py` — 89
+- Клиентская половина: `python3 scripts/plugin-smoke.py` — 97
   проверок в headless Chrome: eager registry-кадры всех половин, монтаж слота в
   регион по таблице `slot key → регион` (31 регион), fallback незнакомого имени
   в панель, `context` повторяющихся регионов, адресный `resize`, live-тема,

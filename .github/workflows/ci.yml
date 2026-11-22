@@ -158,6 +158,51 @@ jobs:
             evals.log
           if-no-files-found: ignore
 
+  web:
+    name: web ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # crates/web is excluded from the root workspace, so neither the workspace
+      # test run nor nextest reaches it. The crate's bundle is compiled into the
+      # server with include_bytes!, so gate the host tests and the wasm build here.
+      - name: web ui host tests
+        shell: bash
+        run: |
+          set -o pipefail
+          CARGO_INCREMENTAL=0 cargo test --manifest-path crates/web/Cargo.toml 2>&1 | tee web-ui-test.log
+      - name: web ui wasm build
+        shell: bash
+        run: |
+          set -o pipefail
+          CARGO_INCREMENTAL=0 cargo check --manifest-path crates/web/Cargo.toml --target wasm32-unknown-unknown 2>&1 | tee web-ui-wasm.log
+      - name: publish web ui failures
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Web UI gate failed"
+            for log in web-ui-test.log web-ui-wasm.log; do
+              [ -f "$log" ] || continue
+              echo "### $log"
+              echo '```'
+              grep -a -E "^(FAIL|error|test result: FAILED)" "$log" | head -40 || true
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-ui-logs
+          path: |
+            web-ui-test.log
+            web-ui-wasm.log
+
   web-e2e:
     name: web e2e
     runs-on: ubuntu-latest

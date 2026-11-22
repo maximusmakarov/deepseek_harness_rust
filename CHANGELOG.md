@@ -16,7 +16,22 @@
   `cargo test --workspace --doc`, the two CI gates it was missing. `cargo deny`
   is clean again: the wasmtime chain moved to 50.0.3 (clearing
   `RUSTSEC-2026-0566..0573` and `-0587`), the yanked `wasmi` 2.0.0 family moved
-  to 2.0.2, and unmaintained `chrono` carries a justified `deny.toml` ignore.
+  to 2.0.2, `url` moved to 2.5.9 for `RUSTSEC-2026-0592` (stack overflow in
+  `Url::origin()` on nested `blob:` URLs), and unmaintained `chrono` carries a
+  justified `deny.toml` ignore.
+- The UI crate is gated. `crates/web` is excluded from the root workspace, so
+  neither `cargo test --workspace` nor nextest reached it even though its bundle
+  is compiled into the server with `include_bytes!`. `check.sh` gained
+  `web_check` (host tests plus a `wasm32-unknown-unknown` check) and CI gained a
+  `web` job with the same two steps. `check.sh` also runs the workspace suite
+  through nextest when it is installed, matching CI, instead of always falling
+  back to `cargo test`, and `rust-version` is raised to the real dependency
+  floor of 1.97.
+- `scripts/plugin-smoke.py` covers the Models config API: the active reasoning
+  effort, the route catalog with per-model levels, the running profile as a
+  provider row, a reasoning level that round-trips and survives a re-read, an
+  undeclared level refused before a restart, and **Provider default** clearing
+  the key from `config.yaml` (97 checks).
 - The Models first-run key field spans the welcome card with its hint below,
   and retry jitter is stored as f64 so the API and UI show `0.1` instead of an
   f32 artifact.

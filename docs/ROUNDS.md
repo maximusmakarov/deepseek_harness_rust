@@ -2359,9 +2359,32 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   работы: цепочка wasmtime 50.0.1 → 50.0.3 (сняты `RUSTSEC-2026-0566..0573`,
   `-0587`), yanked `wasmi` 2.0.0 → 2.0.2, unmaintained `chrono` — обоснованный
   ignore в `deny.toml`.
+- Ретроспектива того же раунда закрыла четыре расхождения. `crates/web`
+  исключён из workspace, поэтому ни `cargo test --workspace`, ни nextest его не
+  видели, хотя `dist` вкомпилирован в сервер через `include_bytes!`: добавлены
+  шаг `web_check` в `check.sh` (хост-тесты + `cargo check --target
+  wasm32-unknown-unknown`, ~0.2 с) и джоб `web` в CI. `workspace_tests()`
+  выбирает тот же раннер, что CI (nextest, иначе громкий откат на `cargo test`),
+  чтобы не гонять набор дважды. `rust-version` поднят до реального пола 1.97
+  (его задаёт `wasmtime-wasi 50.0.3`; `crates/desktop` — отдельный workspace с
+  собственным lockfile, его 1.90 не тронут). Удалён мёртвый ignore
+  `RUSTSEC-2024-0370` (advisory больше ничего не матчит — проверено зелёным
+  `cargo deny check` без него), устаревший `chrono` заведён строкой в
+  TECH-DEBT. Там же всплыл свежий `RUSTSEC-2026-0592` (`url` 2.5.8: переполнение
+  стека в `Url::origin()` на вложенных `blob:`-URL) — по политике это апгрейд,
+  а не ignore, `url` 2.5.9 + `form_urlencoded` 1.2.3. В `plugin-smoke.py`
+  добавлен блок Models API (8 проверок:
+  `active.reasoning_effort`, каталог маршрутов с уровнями, round-trip уровня,
+  отказ на необъявленном уровне до рестарта, снятие ключа при «Provider
+  default»).
+- Инцидент этого раунда: `scripts/check.sh quick` выглядел зелёным, хотя
+  `cargo fmt --all -- --check` печатал расхождения — вывод шёл через `| tail
+  -40`, и статусом процесса был `tail`. Правило («код возврата берётся у самой
+  команды, `set -o pipefail` + `${PIPESTATUS[0]}`») записано в
+  `docs/DEVELOPMENT.md`; гейты с тех пор запускаются без пайпа.
 - Проверки: config 26, llm-deepseek 15, llm-openai 13, provider_settings 10,
   web 23, wasm 11, doc-тесты 0 passed/5 suites, `check.sh quick` зелёный,
-  e2e 25/25, plugin-smoke 89/89.
+  e2e 25/25, plugin-smoke 97/97.
 
 ## Формализация и каталог тестов (14.11.2026)
 
