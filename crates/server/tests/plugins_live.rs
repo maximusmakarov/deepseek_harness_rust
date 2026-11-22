@@ -138,6 +138,7 @@ async fn state_with_internal(
             allow_plugin_routes_lan,
             internal_token: internal_token.map(ToOwned::to_owned),
             wasm: None,
+            language: "ru".into(),
         },
         provider,
         Arc::clone(&registry),

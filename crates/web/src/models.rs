@@ -9,6 +9,8 @@
 use gloo_net::http::Request;
 use leptos::prelude::*;
 
+use dshr_i18n::{Lang, ModelsLabels};
+
 use crate::SlotRegion;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -330,17 +332,31 @@ fn reasoning_default() -> Value {
 /// First-run notice version this UI asks the server to acknowledge.
 const WELCOME_VERSION: u32 = 1;
 
-/// Failure-code choices, in DSH's order and with its labels.
-const RETRY_CODE_CHOICES: [(&str, &str); 8] = [
-    ("EMPTY_RESPONSE", "Empty response"),
-    ("RATE_LIMIT", "Rate limited"),
-    ("SERVER", "Server error"),
-    ("TIMEOUT", "Timeout"),
-    ("TRANSPORT", "Transport"),
-    ("STREAM_CLOSED", "Stream closed"),
-    ("MALFORMED_RESPONSE", "Malformed response"),
-    ("QUOTA", "Quota"),
+/// Failure-code choices, in DSH's order; the wire value stays here and the
+/// display label comes from the shared string table.
+const RETRY_CODE_CHOICES: [&str; 8] = [
+    "EMPTY_RESPONSE",
+    "RATE_LIMIT",
+    "SERVER",
+    "TIMEOUT",
+    "TRANSPORT",
+    "STREAM_CLOSED",
+    "MALFORMED_RESPONSE",
+    "QUOTA",
 ];
+
+fn retry_code_label(code: &str, labels: &ModelsLabels) -> &'static str {
+    match code {
+        "EMPTY_RESPONSE" => labels.err_empty_response,
+        "RATE_LIMIT" => labels.err_rate_limited,
+        "SERVER" => labels.err_server_error,
+        "TIMEOUT" => labels.err_timeout,
+        "TRANSPORT" => labels.err_transport,
+        "STREAM_CLOSED" => labels.err_stream_closed,
+        "MALFORMED_RESPONSE" => labels.err_malformed_response,
+        _ => labels.err_quota,
+    }
+}
 
 const RETRY_DEFAULT_CODES: [&str; 5] = [
     "EMPTY_RESPONSE",
@@ -418,25 +434,26 @@ fn number_text(value: &Value, fallback: u64) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn retry_body(draft: &RetryDraft) -> Result<Value, String> {
+fn retry_body(draft: &RetryDraft, lang: Lang) -> Result<Value, String> {
+    let labels = lang.models_labels();
     if draft.mode != "normal" && draft.mode != "always" {
-        return Err("choose a retry mode".into());
+        return Err(labels.choose_retry_mode.into());
     }
-    let initial = parse_number(&draft.initial_delay, "retry initial delay")?;
-    let max = parse_number(&draft.max_delay, "retry maximum delay")?;
+    let initial = parse_number(&draft.initial_delay, labels.retry_initial_delay, lang)?;
+    let max = parse_number(&draft.max_delay, labels.retry_maximum_delay, lang)?;
     if initial == 0 || max == 0 {
-        return Err("retry delays must be greater than zero".into());
+        return Err(labels.retry_delays_positive.into());
     }
     if initial > max {
-        return Err("the retry initial delay must not exceed the maximum delay".into());
+        return Err(labels.retry_initial_exceeds_max.into());
     }
     let jitter: f64 = draft
         .jitter
         .trim()
         .parse()
-        .map_err(|_| "retry jitter must be a number between 0 and 1".to_owned())?;
+        .map_err(|_| labels.retry_jitter_not_number.to_owned())?;
     if !(0.0..=1.0).contains(&jitter) {
-        return Err("retry jitter must be between 0 and 1".into());
+        return Err(labels.retry_jitter_out_of_range.into());
     }
     let backoff = json!({
         "initial_delay_ms": initial,
@@ -452,9 +469,9 @@ fn retry_body(draft: &RetryDraft) -> Result<Value, String> {
         }));
     }
     if draft.codes.is_empty() {
-        return Err("select at least one retryable error code".into());
+        return Err(labels.select_retryable_code.into());
     }
-    let max_retries = parse_number(&draft.max_retries, "maximum retries")?;
+    let max_retries = parse_number(&draft.max_retries, labels.maximum_retries, lang)?;
     Ok(json!({
         "mode": "normal",
         "max_retries": max_retries,
@@ -463,14 +480,12 @@ fn retry_body(draft: &RetryDraft) -> Result<Value, String> {
     }))
 }
 
-fn parse_number(value: &str, label: &str) -> Result<u64, String> {
+fn parse_number(value: &str, label: &str, lang: Lang) -> Result<u64, String> {
     let value = value.trim();
     if value.is_empty() {
-        return Err(format!("{label} must be a whole number"));
+        return Err(lang.models_whole_number(label));
     }
-    value
-        .parse()
-        .map_err(|_| format!("{label} must be a whole number"))
+    value.parse().map_err(|_| lang.models_whole_number(label))
 }
 
 /// Merge a discovery reply into the drafted model list: checked candidates are
@@ -481,6 +496,7 @@ fn merge_discovered(
     models: &[ModelDraft],
     candidates: &[DiscoveredModel],
     selected: &std::collections::BTreeSet<String>,
+    lang: Lang,
 ) -> Result<Vec<ModelDraft>, String> {
     let had_rows = !models.is_empty();
     let mut next = models.to_vec();
@@ -503,7 +519,7 @@ fn merge_discovered(
         }
     }
     if next.is_empty() && had_rows {
-        return Err("that selection would empty the model list; keep at least one row".into());
+        return Err(lang.models_labels().selection_empties_list.into());
     }
     Ok(next)
 }
@@ -526,12 +542,13 @@ fn model_draft(model: &ModelInfo) -> ModelDraft {
     }
 }
 
-fn draft_body(draft: &ProviderDraft) -> Result<Value, String> {
+fn draft_body(draft: &ProviderDraft, lang: Lang) -> Result<Value, String> {
+    let labels = lang.models_labels();
     let base_url = draft.base_url.trim();
     if !base_url.is_empty()
         && !(base_url.starts_with("https://") || base_url.starts_with("http://"))
     {
-        return Err("the base URL must start with http:// or https://".into());
+        return Err(labels.base_url_scheme.into());
     }
     let reference = draft.api_key_env.trim();
     if !reference.is_empty()
@@ -543,44 +560,40 @@ fn draft_body(draft: &ProviderDraft) -> Result<Value, String> {
                 .chars()
                 .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_'))
     {
-        return Err("the API key variable must be UPPER_SNAKE_CASE".into());
+        return Err(labels.api_key_upper_snake.into());
     }
     let mut seen = std::collections::BTreeSet::new();
     let mut models = Vec::with_capacity(draft.models.len());
     for model in &draft.models {
         let id = model.id.trim();
         if id.is_empty() {
-            return Err("every model needs an id".into());
+            return Err(labels.every_model_needs_id.into());
         }
         if id.chars().any(char::is_whitespace) {
-            return Err(format!("model id '{id}' must not contain whitespace"));
+            return Err(lang.models_id_whitespace(id));
         }
         if !seen.insert(id.to_owned()) {
-            return Err(format!("model id '{id}' is listed twice"));
+            return Err(lang.models_id_listed_twice(id));
         }
-        let context_window = parse_capacity(&model.context_window, "context window")?;
-        let max_tokens = parse_capacity(&model.max_tokens, "max output tokens")?;
+        let context_window = parse_capacity(&model.context_window, labels.context_window, lang)?;
+        let max_tokens = parse_capacity(&model.max_tokens, labels.max_output_tokens, lang)?;
         if let Some(efforts) = &model.reasoning_efforts {
             match efforts {
                 Value::Bool(false) => {}
                 Value::Object(levels) => {
                     if levels.is_empty() {
-                        return Err(format!("model '{id}' enables reasoning without any level"));
+                        return Err(lang.models_reasoning_without_level(id));
                     }
                     for (level, value) in levels {
                         if !REASONING_LEVELS.contains(&level.as_str()) {
-                            return Err(format!(
-                                "model '{id}' names an unknown reasoning level '{level}'"
-                            ));
+                            return Err(lang.models_unknown_level(id, level));
                         }
                         if !value.as_str().is_some_and(|value| !value.trim().is_empty()) {
-                            return Err(format!(
-                                "model '{id}' has an empty value for reasoning level '{level}'"
-                            ));
+                            return Err(lang.models_empty_level_value(id, level));
                         }
                     }
                 }
-                _ => return Err(format!("model '{id}' has an invalid reasoning declaration")),
+                _ => return Err(lang.models_invalid_reasoning(id)),
             }
         }
         let mut input = Vec::new();
@@ -600,7 +613,7 @@ fn draft_body(draft: &ProviderDraft) -> Result<Value, String> {
         }));
     }
     let retry = match &draft.retry {
-        Some(retry) => retry_body(retry)?,
+        Some(retry) => retry_body(retry, lang)?,
         None => Value::Null,
     };
     Ok(json!({
@@ -612,16 +625,14 @@ fn draft_body(draft: &ProviderDraft) -> Result<Value, String> {
     }))
 }
 
-fn parse_capacity(value: &str, label: &str) -> Result<Option<u64>, String> {
+fn parse_capacity(value: &str, label: &str, lang: Lang) -> Result<Option<u64>, String> {
     let value = value.trim();
     if value.is_empty() {
         return Ok(None);
     }
-    let parsed: u64 = value
-        .parse()
-        .map_err(|_| format!("the {label} must be a whole number"))?;
+    let parsed: u64 = value.parse().map_err(|_| lang.models_whole_number(label))?;
     if parsed == 0 {
-        return Err(format!("the {label} must be greater than zero"));
+        return Err(lang.models_greater_than_zero(label));
     }
     Ok(Some(parsed))
 }
@@ -687,19 +698,21 @@ async fn send(
     Ok(value)
 }
 
-fn credential_dot(row: &ProviderRow) -> (&'static str, &'static str) {
+fn credential_dot(row: &ProviderRow, lang: Lang) -> (&'static str, &'static str) {
+    let labels = lang.models_labels();
     match row.credential_configured {
-        Some(true) => ("models-dot ok", "key configured"),
-        Some(false) => ("models-dot missing", "no key in the environment"),
-        None => ("models-dot unknown", "no API key for this route"),
+        Some(true) => ("models-dot ok", labels.key_configured),
+        Some(false) => ("models-dot missing", labels.no_key_in_environment),
+        None => ("models-dot unknown", labels.no_key_for_route),
     }
 }
 
-fn protocol_label(protocol: &str) -> &'static str {
+fn protocol_label(protocol: &str, lang: Lang) -> &'static str {
+    let labels = lang.models_labels();
     match protocol {
-        "anthropic-messages" => "Anthropic Messages",
-        "openai-chat" => "OpenAI Chat Completions",
-        _ => "Custom protocol",
+        "anthropic-messages" => labels.anthropic_messages,
+        "openai-chat" => labels.openai_chat_completions,
+        _ => labels.custom_protocol,
     }
 }
 
@@ -730,7 +743,10 @@ fn valid_route(route: &str) -> bool {
 }
 
 #[component]
-pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
+pub fn ModelsSettings(token: RwSignal<String>, lang: RwSignal<Lang>) -> impl IntoView {
+    // Read the labels through the signal so a late `ui.language` reply re-renders
+    // the tab instead of freezing the initial guess.
+    let labels = Signal::derive(move || lang.get().models_labels());
     let snapshot = RwSignal::new(None::<ModelsSnapshot>);
     let error = RwSignal::new(String::new());
     let status = RwSignal::new(String::new());
@@ -759,7 +775,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         error.set(String::new());
                     }
                     Err(problem) => {
-                        error.set(format!("cannot read the models snapshot: {problem}"));
+                        error.set(
+                            lang.get_untracked()
+                                .models_snapshot_error(&problem.to_string()),
+                        );
                     }
                 },
                 Err(message) => error.set(message),
@@ -780,7 +799,9 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         if draft.custom {
             if !valid_route(&draft.id) {
                 error.set(
-                    "the provider id must start with a letter and use lowercase letters, digits or '-'"
+                    lang.get_untracked()
+                        .models_labels()
+                        .provider_id_format
                         .into(),
                 );
                 return;
@@ -789,19 +810,34 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 .get_untracked()
                 .is_some_and(|value| value.providers.iter().any(|row| row.id == draft.id));
             if taken {
-                error.set(format!("a provider with id '{}' already exists", draft.id));
+                error.set(lang.get_untracked().models_provider_exists(&draft.id));
                 return;
             }
             if draft.base_url.trim().is_empty() {
-                error.set("a custom provider needs a base URL".into());
+                error.set(
+                    lang.get_untracked()
+                        .models_labels()
+                        .custom_needs_base_url
+                        .into(),
+                );
                 return;
             }
             if draft.models.is_empty() {
-                error.set("a custom provider needs at least one model".into());
+                error.set(
+                    lang.get_untracked()
+                        .models_labels()
+                        .custom_needs_model
+                        .into(),
+                );
                 return;
             }
             if draft.models.iter().any(|model| model.id.trim().is_empty()) {
-                error.set("every model needs an id".into());
+                error.set(
+                    lang.get_untracked()
+                        .models_labels()
+                        .every_model_needs_id
+                        .into(),
+                );
                 return;
             }
         }
@@ -810,7 +846,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             draft.api_key_env = derive_key_ref(&draft.id);
         }
         let key_reference = draft.api_key_env.trim().to_owned();
-        let mut body = match draft_body(&draft) {
+        let mut body = match draft_body(&draft, lang.get_untracked()) {
             Ok(body) => body,
             Err(message) => {
                 error.set(message);
@@ -848,15 +884,17 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         )
                         .await
                         {
-                            error.set(format!(
-                                "profile saved, but the key was not stored: {message}"
-                            ));
+                            error.set(
+                                lang.get_untracked()
+                                    .models_profile_saved_key_failed(&message),
+                            );
                             load();
                             busy.set(false);
                             return;
                         }
                     }
-                    status.set(format!("saved {route} · restart dshr serve to apply"));
+                    busy.set(false);
+                    status.set(lang.get_untracked().models_saved_route(&route));
                     editing.set(None);
                     candidates.set(None);
                     candidate_checked.set(std::collections::BTreeSet::new());
@@ -896,7 +934,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             draft.api_key_source = None;
                         }
                     });
-                    status.set(format!("removed the stored key {reference}"));
+                    busy.set(false);
+                    status.set(lang.get_untracked().models_key_removed(&reference));
                     error.set(String::new());
                     load();
                 }
@@ -917,7 +956,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             let path = format!("/v1/config/providers/{route}?expected_revision={revision}");
             match send("DELETE", &path, &value, None).await {
                 Ok(_) => {
-                    status.set(format!("removed {route} · catalog defaults apply again"));
+                    busy.set(false);
+                    status.set(lang.get_untracked().models_route_removed(&route));
                     confirm.set(None);
                     error.set(String::new());
                     load();
@@ -930,7 +970,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
 
     let activate = move |provider: String, model: String, reasoning_effort: Option<String>| {
         if model.is_empty() {
-            error.set("the provider lists no models yet".into());
+            error.set(lang.get_untracked().models_labels().no_models_yet.into());
             return;
         }
         let value = token.get_untracked();
@@ -944,12 +984,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             let body = serde_json::to_value(body).unwrap_or(Value::Null);
             match send("POST", "/v1/config/model", &value, Some(&body)).await {
                 Ok(_) => {
+                    let current = lang.get_untracked();
                     let effort = reasoning_effort
-                        .map(|level| format!(" · reasoning {level}"))
+                        .map(|level| current.models_reasoning_suffix(&level))
                         .unwrap_or_default();
-                    status.set(format!(
-                        "active route: {provider} · {model}{effort} — restart dshr serve to apply"
-                    ));
+                    busy.set(false);
+                    status.set(current.models_active_route(&provider, &model, &effort));
                     error.set(String::new());
                     load();
                 }
@@ -970,7 +1010,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             explicit
         };
         if base_url.is_empty() {
-            error.set("enter a base URL before fetching models".into());
+            error.set(lang.get_untracked().models_labels().enter_base_url.into());
             return;
         }
         let reference = draft.api_key_env.trim().to_owned();
@@ -1014,7 +1054,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         error.set(String::new());
                     }
                     Err(problem) => {
-                        error.set(format!("cannot read the model listing: {problem}"));
+                        error.set(
+                            lang.get_untracked()
+                                .models_listing_error(&problem.to_string()),
+                        );
                     }
                 },
                 Err(message) => error.set(message),
@@ -1031,7 +1074,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             return;
         };
         let selected = candidate_checked.get_untracked();
-        match merge_discovered(&draft.models, &list, &selected) {
+        match merge_discovered(&draft.models, &list, &selected, lang.get_untracked()) {
             Ok(models) => draft.models = models,
             Err(message) => {
                 error.set(message);
@@ -1066,7 +1109,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 )
                 .await
                 {
-                    error.set(format!("the key was not stored: {message}"));
+                    error.set(lang.get_untracked().models_key_not_stored(&message));
                     acknowledging.set(false);
                     return;
                 }
@@ -1114,14 +1157,14 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
         <div class="models-section">
             <p class="tool">
                 {move || snapshot.get().map(|value| {
+                    let labels = labels.get();
                     if value.active.provider.is_empty() {
-                        "No active provider is persisted yet; choose one below.".to_owned()
+                        labels.no_active_provider.to_owned()
                     } else {
-                        format!(
-                            "Active route: {} · {} — {}",
-                            value.active.provider,
-                            value.active.model,
-                            value.note,
+                        lang.get_untracked().models_active_route_line(
+                            &value.active.provider,
+                            &value.active.model,
+                            &value.note,
                         )
                     }
                 }).unwrap_or_default()}
@@ -1151,7 +1194,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 let label = entry.name.clone().unwrap_or_else(|| entry.id.clone());
                 Some(view! {
                     <div class="models-field models-reasoning">
-                        <label>{format!("Reasoning effort · {label}")}</label>
+                        <label>{lang.get_untracked().models_effort_heading(&label)}</label>
                         <select
                             prop:value=current
                             on:change=move |event| {
@@ -1164,19 +1207,19 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             }
                             disabled=move || busy.get()
                         >
-                            <option value="">"Provider default"</option>
+                            <option value="">{move || labels.get().provider_default}</option>
                             {levels.into_iter().map(|level| view! {
                                 <option value=level.clone()>{level.clone()}</option>
                             }).collect_view()}
                         </select>
-                        <p class="tool">"Applies to the active model after a restart of dshr serve."</p>
+                        <p class="tool">{move || labels.get().applies_after_restart}</p>
                     </div>
                 })
             }}
             <ul class="models-rows">
                 {move || {
                     let Some(snapshot_value) = snapshot.get() else {
-                        return view! { <li class="tool">"loading…"</li> }.into_any();
+                        return view! { <li class="tool">{move || labels.get().loading}</li> }.into_any();
                     };
                     let active_snapshot = snapshot_value.active.clone();
                     let active_model = active_snapshot.model.clone();
@@ -1185,13 +1228,13 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         .into_iter()
                         .map(|row| {
                             let card_id = row.id.clone();
-                            let (dot_class, dot_label) = credential_dot(&row);
+                            let (dot_class, dot_label) = credential_dot(&row, lang.get_untracked());
                             let active = row.active;
                             let editable = row.editable;
                             let configured = row.configured;
                             let name = row.display_name.clone();
                             let route = row.id.clone();
-                            let protocol = protocol_label(&row.protocol);
+                            let protocol = protocol_label(&row.protocol, lang.get_untracked());
                             let models_count = row.models.len();
                             let catalog_entry = snapshot_value
                                 .catalog
@@ -1236,10 +1279,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         <span class=dot_class title=dot_label></span>
                                         <span class="models-name">{name.clone()}</span>
                                         <span class="models-tag">{route.clone()}</span>
-                                        {active.then(|| view! { <span class="models-tag active">"active"</span> })}
-                                        {(!configured).then(|| view! { <span class="models-tag">"defaults"</span> })}
+                                        {active.then(|| view! { <span class="models-tag active">{move || labels.get().active_tag}</span> })}
+                                        {(!configured).then(|| view! { <span class="models-tag">{move || labels.get().defaults_tag}</span> })}
                                         <span class="models-tag">{protocol}</span>
-                                        {row.models_from_profile.then(|| view! { <span class="models-tag">"custom list"</span> })}
+                                        {row.models_from_profile.then(|| view! { <span class="models-tag">{move || labels.get().custom_list}</span> })}
                                         <span class="models-actions">
                                             {editable.then(|| view! {
                                                 <button
@@ -1250,11 +1293,11 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                         error.set(String::new());
                                                     }
                                                     disabled=move || busy.get()
-                                                >"Edit"</button>
+                                                >{move || labels.get().edit}</button>
                                                 <button
                                                     on:click=move |_| activate(use_route.clone(), use_model.clone(), None)
                                                     disabled=move || busy.get()
-                                                >"Use"</button>
+                                                >{move || labels.get().use_route}</button>
                                             })}
                                             {row.removable.then(|| view! {
                                                 <button
@@ -1265,7 +1308,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                         }));
                                                     }
                                                     disabled=move || busy.get()
-                                                >"Delete"</button>
+                                                >{move || labels.get().delete}</button>
                                             })}
                                         </span>
                                     </div>
@@ -1275,7 +1318,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     <p class="tool">
                                         {row.summary.clone()}
                                         {row.effective_base_url.as_ref().map(|url| format!(" · {url}"))}
-                                        {format!(" · {models_count} model(s)")}
+                                        {lang.get_untracked().models_model_count(models_count)}
                                     </p>
                                     <SlotRegion
                                         region="settings.models.card"
@@ -1300,7 +1343,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 let editor_id = draft.id.clone();
                 let header_name = if custom {
                     if draft.display_name.trim().is_empty() {
-                        "New custom provider".to_owned()
+                        labels.get().new_custom_provider.to_owned()
                     } else {
                         draft.display_name.clone()
                     }
@@ -1324,7 +1367,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         <div class="models-row-head">
                             <span class="models-name">{header_name}</span>
                             <span class="models-tag">{header_tag}</span>
-                            <span class="models-tag">{protocol_label(&protocol)}</span>
+                            <span class="models-tag">{protocol_label(&protocol, lang.get_untracked())}</span>
                             <span class="models-actions">
                                 <button on:click=move |_| {
                                 editing.set(None);
@@ -1332,12 +1375,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 candidate_checked.set(std::collections::BTreeSet::new());
                                 confirm.set(None);
                                 load();
-                            }>"Cancel"</button>
+                            }>{move || labels.get().cancel}</button>
                             </span>
                         </div>
                         {custom.then(|| view! {
                             <div class="models-field">
-                                <label>"Provider ID"</label>
+                                <label>{move || labels.get().provider_id}</label>
                                 <input
                                     placeholder="acme-gateway"
                                     prop:value=move || editing.get().map(|draft| draft.id).unwrap_or_default()
@@ -1346,12 +1389,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         editing.update(|draft| { if let Some(draft) = draft { draft.id = value; } });
                                     }
                                 />
-                                <span class="tool">"fixed after creation"</span>
+                                <span class="tool">{move || labels.get().fixed_after_creation}</span>
                             </div>
                             <div class="models-field">
-                                <label>"Display name"</label>
+                                <label>{move || labels.get().display_name}</label>
                                 <input
-                                    placeholder="optional"
+                                    placeholder=move || labels.get().optional
                                     prop:value=move || editing.get().map(|draft| draft.display_name).unwrap_or_default()
                                     on:input=move |event| {
                                         let value = event_target_value(&event);
@@ -1360,7 +1403,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 />
                             </div>
                             <div class="models-field">
-                                <label>"Protocol"</label>
+                                <label>{move || labels.get().protocol}</label>
                                 <select
                                     prop:value=move || editing.get().map(|draft| draft.protocol).unwrap_or_default()
                                     on:change=move |event| {
@@ -1368,13 +1411,13 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         editing.update(|draft| { if let Some(draft) = draft { draft.protocol = value; } });
                                     }
                                 >
-                                    <option value="openai-chat">"OpenAI Chat Completions"</option>
-                                    <option value="anthropic-messages">"Anthropic Messages"</option>
+                                    <option value="openai-chat">{move || labels.get().openai_chat_completions}</option>
+                                    <option value="anthropic-messages">{move || labels.get().anthropic_messages}</option>
                                 </select>
                             </div>
                         })}
                         <div class="models-field">
-                            <label>"Base URL"</label>
+                            <label>{move || labels.get().base_url}</label>
                             <input
                                 placeholder=default_base
                                 prop:value=move || editing.get().map(|draft| draft.base_url).unwrap_or_default()
@@ -1385,7 +1428,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             />
                         </div>
                         <div class="models-field">
-                            <label>"API key variable"</label>
+                            <label>{move || labels.get().api_key_variable}</label>
                             <input
                                 placeholder=default_key
                                 prop:value=move || editing.get().map(|draft| draft.api_key_env).unwrap_or_default()
@@ -1394,32 +1437,29 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     editing.update(|draft| { if let Some(draft) = draft { draft.api_key_env = value; } });
                                 }
                             />
-                            <span class="tool">"the value lives in credentials.json (0600); env wins"</span>
+                            <span class="tool">{move || labels.get().value_lives_in_credentials}</span>
                         </div>
                         {move || {
                             let Some(draft) = editing.get() else {
                                 return view! { <span></span> }.into_any();
                             };
+                            let current = lang.get_untracked();
                             let placeholder = if draft.api_key_saved {
-                                format!(
-                                    "saved {}",
-                                    draft.api_key_mask.clone().unwrap_or_default()
-                                )
+                                current.models_saved_bare(&draft.api_key_mask.clone().unwrap_or_default())
                             } else {
-                                "not configured".to_owned()
+                                current.models_labels().not_configured.to_owned()
                             };
                             let status = if draft.api_key_saved {
-                                format!(
-                                    "saved {} ({}) — an environment variable with the same name wins",
-                                    draft.api_key_mask.clone().unwrap_or_default(),
-                                    draft.api_key_source.clone().unwrap_or_default(),
+                                current.models_saved_env_wins(
+                                    &draft.api_key_mask.clone().unwrap_or_default(),
+                                    &draft.api_key_source.clone().unwrap_or_default(),
                                 )
                             } else {
-                                "no saved key for this reference".to_owned()
+                                current.models_labels().no_saved_key.to_owned()
                             };
                             view! {
                                 <div class="models-field">
-                                    <label>"API key"</label>
+                                    <label>{move || labels.get().api_key}</label>
                                     <input
                                         type=move || if api_key_visible.get() { "text" } else { "password" }
                                         placeholder=placeholder
@@ -1434,7 +1474,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         type="button"
                                         on:click=move |_| api_key_visible.update(|visible| *visible = !*visible)
                                     >
-                                        {move || if api_key_visible.get() { "Hide" } else { "Show" }}
+                                        {move || if api_key_visible.get() { labels.get().hide } else { labels.get().show }}
                                     </button>
                                 </div>
                                 <p class="tool">{status}</p>
@@ -1443,7 +1483,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         <button
                                             on:click=move |_| remove_saved_key()
                                             disabled=move || busy.get()
-                                        >"Remove saved key"</button>
+                                        >{move || labels.get().remove_saved_key}</button>
                                     </div>
                                 })}
                             }.into_any()
@@ -1451,7 +1491,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                         <div class="models-retry">
                             <details>
                                 <summary>
-                                    <span>"Retry policy"</span>
+                                    <span>{move || labels.get().retry_policy}</span>
                                     <span class="models-tag">
                                         {move || editing.get()
                                             .and_then(|draft| draft.retry)
@@ -1460,7 +1500,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     </span>
                                 </summary>
                                 <div class="models-field">
-                                    <label>"Mode"</label>
+                                    <label>{move || labels.get().mode}</label>
                                     <select
                                         prop:value=move || editing.get()
                                             .and_then(|draft| draft.retry)
@@ -1480,9 +1520,9 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             });
                                         }
                                     >
-                                        <option value="inherit">"Inherited (adapter default)"</option>
-                                        <option value="normal">"Transient errors only"</option>
-                                        <option value="always">"Always retry"</option>
+                                        <option value="inherit">{move || labels.get().inherited_adapter}</option>
+                                        <option value="normal">{move || labels.get().transient_only}</option>
+                                        <option value="always">{move || labels.get().always_retry}</option>
                                     </select>
                                 </div>
                                 {move || {
@@ -1492,7 +1532,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     view! {
                                         {(retry.mode == "normal").then(|| view! {
                                             <div class="models-field">
-                                                <label>"Max retries"</label>
+                                                <label>{move || labels.get().max_retries}</label>
                                                 <input
                                                     prop:value=retry.max_retries.clone()
                                                     on:input=move |event| {
@@ -1508,10 +1548,10 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                 />
                                             </div>
                                             <div class="models-codes">
-                                                {RETRY_CODE_CHOICES.iter().map(|(code, label)| {
+                                                {RETRY_CODE_CHOICES.iter().map(|code| {
                                                     let code_value = (*code).to_owned();
                                                     let checked = retry.codes.iter().any(|selected| selected == code);
-                                                    let label = *label;
+                                                    let label = retry_code_label(code, &labels.get());
                                                     view! {
                                                         <label class="models-check">
                                                             <input
@@ -1542,7 +1582,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             </div>
                                         })}
                                         <div class="models-field">
-                                            <label>"Initial delay (ms)"</label>
+                                            <label>{move || labels.get().initial_delay_ms}</label>
                                             <input
                                                 prop:value=retry.initial_delay.clone()
                                                 on:input=move |event| {
@@ -1558,7 +1598,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             />
                                         </div>
                                         <div class="models-field">
-                                            <label>"Max delay (ms)"</label>
+                                            <label>{move || labels.get().max_delay_ms}</label>
                                             <input
                                                 prop:value=retry.max_delay.clone()
                                                 on:input=move |event| {
@@ -1574,7 +1614,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             />
                                         </div>
                                         <div class="models-field">
-                                            <label>"Jitter (0-1)"</label>
+                                            <label>{move || labels.get().jitter_ratio}</label>
                                             <input
                                                 prop:value=retry.jitter.clone()
                                                 on:input=move |event| {
@@ -1594,18 +1634,18 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             </details>
                         </div>
                         <div class="models-models-head">
-                            <strong>"Models"</strong>
+                            <strong>{move || labels.get().models}</strong>
                             <button
                                 on:click=move |_| discover()
                                 disabled=move || busy.get() || discovering.get()
                             >
-                                {move || if discovering.get() { "Fetching…" } else { "Fetch available models" }}
+                                {move || if discovering.get() { labels.get().fetching } else { labels.get().fetch_available }}
                             </button>
                             <span class="tool">
                                 {if custom {
-                                    "A custom provider needs at least one model."
+                                    labels.get().custom_needs_one_model
                                 } else {
-                                    "Save an empty list to inherit the catalog defaults."
+                                    labels.get().empty_list_inherits
                                 }}
                             </span>
                         </div>
@@ -1626,9 +1666,9 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                             view! {
                                 <div class="models-picker">
                                     <div class="models-picker-head">
-                                        <strong>{format!("{} available model(s)", visible.len())}</strong>
+                                        <strong>{lang.get_untracked().models_available_count(visible.len())}</strong>
                                         <input
-                                            placeholder="filter models"
+                                            placeholder=move || labels.get().filter_models
                                             prop:value=move || candidate_filter.get()
                                             on:input=move |event| candidate_filter.set(event_target_value(&event))
                                         />
@@ -1636,8 +1676,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             let ids = candidates.get_untracked().unwrap_or_default()
                                                 .into_iter().map(|model| model.id).collect();
                                             candidate_checked.set(ids);
-                                        }>"Select all"</button>
-                                        <button on:click=move |_| candidate_checked.set(std::collections::BTreeSet::new())>"Deselect all"</button>
+                                        }>{move || labels.get().select_all}</button>
+                                        <button on:click=move |_| candidate_checked.set(std::collections::BTreeSet::new())>{move || labels.get().deselect_all}</button>
                                     </div>
                                     <div class="models-candidates">
                                         {visible.into_iter().map(|candidate| {
@@ -1668,11 +1708,11 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         }).collect_view()}
                                     </div>
                                     <div class="row">
-                                        <button on:click=move |_| apply_candidates()>"Update list"</button>
+                                        <button on:click=move |_| apply_candidates()>{move || labels.get().update_list}</button>
                                         <button on:click=move |_| {
                                             candidates.set(None);
                                             candidate_checked.set(std::collections::BTreeSet::new());
-                                        }>"Cancel"</button>
+                                        }>{move || labels.get().cancel}</button>
                                     </div>
                                 </div>
                             }.into_any()
@@ -1707,7 +1747,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         <div class="models-model-row">
                                             <input
                                                 class="model-id"
-                                                placeholder="model id"
+                                                placeholder=move || labels.get().model_id
                                                 prop:value=id_value
                                                 on:input=move |event| {
                                                     let value = event_target_value(&event);
@@ -1721,7 +1761,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                 }
                                             />
                                             <input
-                                                placeholder="display name"
+                                                placeholder=move || labels.get().display_name
                                                 prop:value=name_value
                                                 on:input=move |event| {
                                                     let value = event_target_value(&event);
@@ -1736,7 +1776,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             />
                                             <input
                                                 class="model-number"
-                                                placeholder="context"
+                                                placeholder=move || labels.get().context
                                                 prop:value=context_value
                                                 on:input=move |event| {
                                                     let value = event_target_value(&event);
@@ -1751,7 +1791,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                             />
                                             <input
                                                 class="model-number"
-                                                placeholder="max out"
+                                                placeholder=move || labels.get().max_out
                                                 prop:value=output_value
                                                 on:input=move |event| {
                                                     let value = event_target_value(&event);
@@ -1799,7 +1839,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                 "image"
                                             </label>
                                             <button
-                                                title="make this the active model"
+                                                title=move || labels.get().make_active
                                                 disabled=move || busy.get() || !can_use
                                                 on:click=move |_| {
                                                     // A level is declared per model, so switching
@@ -1810,9 +1850,9 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                         None,
                                                     );
                                                 }
-                                            >"Use"</button>
+                                            >{move || labels.get().use_route}</button>
                                             <button
-                                                title="remove this row"
+                                                title=move || labels.get().remove_row
                                                 on:click=move |_| {
                                                     confirm.set(Some(ConfirmAction::Model {
                                                         name: provider_name.clone(),
@@ -1842,7 +1882,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                         });
                                                     }
                                                 />
-                                                "reasoning levels"
+                                                {move || labels.get().reasoning_levels}
                                             </label>
                                             {reasoning_on.then(|| view! {
                                                 <div class="models-levels">
@@ -1872,7 +1912,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                                     {REASONING_LEVELS.iter().map(|choice| view! { <option value=*choice>{*choice}</option> }).collect_view()}
                                                                 </select>
                                                                 <input
-                                                                    placeholder="API value"
+                                                                    placeholder=move || labels.get().api_value
                                                                     prop:value=api_value
                                                                     on:input=move |event| {
                                                                         let value = event_target_value(&event);
@@ -1918,8 +1958,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                                                     model.reasoning_efforts = Some(reasoning_object(&rows));
                                                                 }
                                                             });
-                                                        }>"Add level"</button>
-                                                        {level_rows.is_empty().then(|| view! { <span class="tool">"at least one level is required"</span> })}
+                                                        }>{move || labels.get().add_level}</button>
+                                                        {level_rows.is_empty().then(|| view! { <span class="tool">{move || labels.get().at_least_one_level}</span> })}
                                                     </div>
                                                 </div>
                                             })}
@@ -1944,11 +1984,11 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         });
                                     }
                                 });
-                            }>"Add model"</button>
+                            }>{move || labels.get().add_model}</button>
                             {move || (!editing.get().is_some_and(|draft| draft.custom)).then(|| view! {
                                 <button on:click=move |_| {
                                     editing.update(|draft| { if let Some(draft) = draft { draft.models.clear(); } });
-                                }>"Restore catalog defaults"</button>
+                                }>{move || labels.get().restore_catalog}</button>
                             })}
                         </div>
                         <div class="row">
@@ -1956,14 +1996,14 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 class="primary"
                                 on:click=move |_| save()
                                 disabled=move || busy.get()
-                            >"Save"</button>
+                            >{move || labels.get().save}</button>
                             <button on:click=move |_| {
                                 editing.set(None);
                                 candidates.set(None);
                                 candidate_checked.set(std::collections::BTreeSet::new());
                                 confirm.set(None);
                                 load();
-                            }>"Cancel"</button>
+                            }>{move || labels.get().cancel}</button>
                         </div>
                     </div>
                 }.into_any()
@@ -1974,7 +2014,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                     <button
                         class:active=move || add_mode.get() == "catalog"
                         on:click=move |_| add_mode.set("catalog".into())
-                    >"Catalog provider"</button>
+                    >{move || labels.get().catalog_provider}</button>
                     <button
                         class:active=move || add_mode.get() == "custom"
                         on:click=move |_| {
@@ -1983,14 +2023,14 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                 add_custom();
                             }
                         }
-                    >"Custom model API"</button>
+                    >{move || labels.get().custom_model_api}</button>
                 </div>
                 {move || (add_mode.get() == "catalog").then(|| view! {
                     <select
                         prop:value=move || add_choice.get()
                         on:change=move |event| add_choice.set(event_target_value(&event))
                     >
-                        <option value="">"choose a catalog provider…"</option>
+                        <option value="">{move || labels.get().choose_catalog_provider}</option>
                         {move || snapshot.get().map(|value| {
                             value.catalog.into_iter().map(|entry| {
                                 let id = entry.id.clone();
@@ -2001,12 +2041,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                     </select>
                 })}
                 {move || (add_mode.get() == "catalog").then(|| view! {
-                    <button on:click=move |_| add_catalog() disabled=move || busy.get()>"Add"</button>
+                    <button on:click=move |_| add_catalog() disabled=move || busy.get()>{move || labels.get().add}</button>
                 })}
                 {move || (add_mode.get() == "custom").then(|| view! {
-                    <button on:click=move |_| add_custom() disabled=move || busy.get()>"New custom provider"</button>
+                    <button on:click=move |_| add_custom() disabled=move || busy.get()>{move || labels.get().new_custom_provider}</button>
                 })}
-                <span class="tool">{move || if busy.get() { "working…" } else { "" }}</span>
+                <span class="tool">{move || if busy.get() { labels.get().working } else { "" }}</span>
             </div>
             {move || {
                 let show = !welcome_dismissed.get()
@@ -2024,13 +2064,13 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                 });
                 view! {
                     <div class="models-modal models-welcome" role="presentation">
-                        <div class="models-modal-card" role="dialog" aria-modal="true" aria-label="Welcome to Models">
-                            <h4>"Welcome to Models"</h4>
-                            <p>"Configure providers and their model lists here. Profiles live in models.yaml; keys are stored write-only in credentials.json (0600), and an environment variable with the same name wins."</p>
+                        <div class="models-modal-card" role="dialog" aria-modal="true" aria-label=move || labels.get().welcome_title>
+                            <h4>{move || labels.get().welcome_title}</h4>
+                            <p>{move || labels.get().welcome_intro}</p>
                             {(!usable).then(|| view! {
-                                <p>"No provider has a key yet. Save one here, or set DEEPSEEK_API_KEY / DSH_DEEPSEEK_TOKEN in the environment (desktop Settings writes desktop.env)."</p>
+                                <p>{move || labels.get().welcome_no_key}</p>
                                 <div class="models-field">
-                                    <label>"DeepSeek API key"</label>
+                                    <label>{move || labels.get().deepseek_api_key}</label>
                                     <input
                                         type="password"
                                         autocomplete="new-password"
@@ -2038,7 +2078,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         prop:value=move || welcome_key.get()
                                         on:input=move |event| welcome_key.set(event_target_value(&event))
                                     />
-                                    <span class="tool">"stored in credentials.json (0600); env wins"</span>
+                                    <span class="tool">{move || labels.get().stored_in_credentials}</span>
                                 </div>
                             })}
                             <div class="row">
@@ -2046,7 +2086,7 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                     class="primary"
                                     on:click=move |_| acknowledge_welcome()
                                     disabled=move || acknowledging.get()
-                                >"Continue"</button>
+                                >{move || labels.get().continue_label}</button>
                             </div>
                         </div>
                     </div>
@@ -2055,12 +2095,12 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
             {move || confirm.get().map(|action| {
                 let (title, body) = match &action {
                     ConfirmAction::Provider { name, .. } => (
-                        "Delete provider".to_owned(),
-                        format!("Delete the stored profile for {name} and its model list? The catalog defaults return."),
+                        labels.get().delete_provider.to_owned(),
+                        lang.get_untracked().models_delete_provider_confirm(&name),
                     ),
                     ConfirmAction::Model { name, model_id, .. } => (
-                        "Delete model".to_owned(),
-                        format!("Remove '{model_id}' from {name}? Save the provider to apply the list."),
+                        labels.get().delete_model.to_owned(),
+                        lang.get_untracked().models_delete_model_confirm(&model_id, &name),
                     ),
                 };
                 let action_for_delete = action.clone();
@@ -2089,8 +2129,8 @@ pub fn ModelsSettings(token: RwSignal<String>) -> impl IntoView {
                                         }
                                         confirm.set(None);
                                     }
-                                >"Delete"</button>
-                                <button on:click=move |_| confirm.set(None)>"Cancel"</button>
+                                >{move || labels.get().delete}</button>
+                                <button on:click=move |_| confirm.set(None)>{move || labels.get().cancel}</button>
                             </div>
                         </div>
                     </div>
@@ -2139,24 +2179,24 @@ mod tests {
     fn draft_body_rejects_bad_endpoints_keys_and_models() {
         let mut value = draft();
         value.base_url = "ftp://example".into();
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.api_key_env = "lower-case".into();
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.models[0].context_window = "1.5".into();
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.models.push(value.models[0].clone());
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
     }
 
     #[test]
     fn draft_body_preserves_reasoning_levels_and_input_types() {
-        let body = draft_body(&draft()).expect("valid draft");
+        let body = draft_body(&draft(), Lang::En).expect("valid draft");
         assert_eq!(body["protocol"], "anthropic-messages");
         assert_eq!(body["api_key_env"], "DEEPSEEK_API_KEY");
         assert!(body["base_url"].is_null());
@@ -2245,23 +2285,23 @@ mod tests {
 
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!({}));
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!({"banana": "high"}));
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!({"high": "  "}));
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!(true));
-        assert!(draft_body(&value).is_err());
+        assert!(draft_body(&value, Lang::En).is_err());
 
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!(false));
-        assert!(draft_body(&value).is_ok());
+        assert!(draft_body(&value, Lang::En).is_ok());
     }
 
     #[test]
@@ -2349,18 +2389,21 @@ mod tests {
             &[model_row("kept"), model_row("listed")],
             &[candidate("listed"), candidate("new")],
             &selected,
+            Lang::En,
         )
         .expect("merge");
         let ids: Vec<&str> = merged.iter().map(|model| model.id.as_str()).collect();
         assert_eq!(ids, vec!["kept", "new"]);
 
-        let empty = merge_discovered(&[], &[candidate("new")], &selected).expect("first add");
+        let empty =
+            merge_discovered(&[], &[candidate("new")], &selected, Lang::En).expect("first add");
         assert_eq!(empty[0].id, "new");
 
         let refused = merge_discovered(
             &[model_row("listed")],
             &[candidate("listed")],
             &std::collections::BTreeSet::new(),
+            Lang::En,
         );
         assert!(refused.is_err());
     }
@@ -2389,26 +2432,26 @@ mod tests {
         assert_eq!(draft.codes, vec!["RATE_LIMIT", "SERVER"]);
         assert_eq!(draft.initial_delay, "250");
         assert_eq!(draft.jitter, "0.2");
-        let body = retry_body(&draft).expect("valid retry");
+        let body = retry_body(&draft, Lang::En).expect("valid retry");
         assert_eq!(body["mode"], "normal");
         assert_eq!(body["backoff"]["initial_delay_ms"], 250);
 
         let mut invalid = draft.clone();
         invalid.codes.clear();
-        assert!(retry_body(&invalid).is_err());
+        assert!(retry_body(&invalid, Lang::En).is_err());
         let mut invalid = draft.clone();
         invalid.initial_delay = "5000".into();
         invalid.max_delay = "1000".into();
-        assert!(retry_body(&invalid).is_err());
+        assert!(retry_body(&invalid, Lang::En).is_err());
         let mut invalid = draft.clone();
         invalid.jitter = "2".into();
-        assert!(retry_body(&invalid).is_err());
+        assert!(retry_body(&invalid, Lang::En).is_err());
 
         let always = RetryDraft {
             mode: "always".into(),
             ..draft
         };
-        let body = retry_body(&always).expect("always policy");
+        let body = retry_body(&always, Lang::En).expect("always policy");
         assert_eq!(body["mode"], "always");
         assert!(body["retryable_codes"].is_null());
     }

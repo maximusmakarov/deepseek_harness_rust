@@ -7,13 +7,15 @@ dshr serve --bind 127.0.0.1 --port 55678
 # token печатается при старте; можно задать DSHR_API_TOKEN
 ```
 
-Аутентификация — `Authorization: Bearer <token>`. Для SSE допускается `?token=<token>`, потому что `EventSource` не умеет задавать заголовки. `/v1/health` публичный.
+Аутентификация — `Authorization: Bearer <token>`. Для SSE допускается `?token=<token>`, потому что `EventSource` не умеет задавать заголовки. `/v1/health` публичный. Поле `language` (`ru`/`en`) отдаёт `ui.language` из
+`config.yaml`: веб-UI статичен и не может прочитать конфиг сам, поэтому язык
+секции Models приходит вместе с рукопожатием.
 
 ## REST
 
 | Метод | Путь | Тело / параметры | Ответ |
 |---|---|---|---|
-| GET | `/v1/health` | — | `{status, version}` |
+| GET | `/v1/health` | — | `{status, version, language}` |
 | GET | `/v1/tools` | — | `{tools: [{name, description, input_schema}]}` |
 | GET | `/v1/plugins/search` | `?q=` | `{packages: [{name, version, description}]}` (npm registry) |
 | GET | `/v1/plugins/info` | `?name=` | npm metadata (version/description/homepage/repository) |

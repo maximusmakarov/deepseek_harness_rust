@@ -208,6 +208,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ServeArgs) -> Result<u8> {
             allow_plugin_routes_lan: args.allow_lan_plugin_routes,
             internal_token: None,
             wasm: Some(wasm),
+            language: config.ui.language.clone(),
         },
         provider,
         serving,

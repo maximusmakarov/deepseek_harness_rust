@@ -2,6 +2,17 @@
 
 ## 0.1.0 — current
 
+- The Models settings section speaks Russian and English. Its 103 display
+  strings and 27 parameterized messages moved into `dshr-i18n` as
+  `ModelsLabels` (the `ExportLabels` shape: one `match` arm per language, so the
+  two languages cannot drift), and the section reads `ui.language` from
+  `config.yaml`. The Web bundle is a compiled-in static that never sees the
+  config, so the server now returns `language` from the public `GET /v1/health`
+  handshake and the UI switches on the reply; the language defaults to `ru` and
+  an older server that omits the field leaves the UI working. Wire values —
+  provider ids, protocols, model ids, API-key variable names, status codes —
+  stay untranslated. The rest of the Web UI is still English, so with the
+  default `ru` the Models tab is Russian inside an English shell.
 - Reasoning effort now reaches the wire: the active model's level
   (`config.yaml` -> `model.reasoning_effort`, chosen in Models with a
   **Provider default** entry) is resolved through `models.yaml` into the

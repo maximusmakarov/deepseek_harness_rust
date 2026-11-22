@@ -42,6 +42,7 @@ fn state(dir: &std::path::Path) -> AppState {
             allow_plugin_routes_lan: false,
             internal_token: None,
             wasm: None,
+            language: "ru".into(),
         },
         provider.clone() as Arc<dyn LlmProvider>,
         Arc::new(ToolRegistry::with_builtin()),

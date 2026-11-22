@@ -37,7 +37,7 @@
 | 1 | Каталог, профили, список моделей, API, serve-резолв | ✅ раунд 140 |
 | 2 | Кастомный провайдер в UI (id/protocol/endpoint/минимум одна модель) — ✅ раунд 141; discovery `/v1/models` с пикером — ✅ раунд 143 | ✅ |
 | 3 | Редактор reasoning-уровней — ✅ раунд 141 (сохранение/валидация), отправка effort обоими адаптерами + селектор в UI — ✅ раунд 148; retry-policy (normal/always, maxRetries, коды, backoff, исполнение в адаптерах) — ✅ раунд 142 | ✅ |
-| 4 | Модальные диалоги удаления и first-run notice (`welcome_version`) — ✅ раунд 144; слоты `settings.models.provider-card`/`.footer` в собственных регионах — ✅ раунд 145; DeepSeek-онбординг с ключом, i18n ru/en — ⏳ | ⏳ |
+| 4 | Модальные диалоги удаления и first-run notice (`welcome_version`) — ✅ раунд 144; слоты `settings.models.provider-card`/`.footer` в собственных регионах — ✅ раунд 145; DeepSeek-онбординг с ключом, i18n ru/en — ✅ раунд 151 | ✅ |
 | 5 | Хранилище ключей (`credentials.json`, 0600, write-only API, env важнее) — ✅ раунд 146; применение без рестарта — ⏳ | ⏳ |
 
 ## Отличия от оригинала (осознанные)

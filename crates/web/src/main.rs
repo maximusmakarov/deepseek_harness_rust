@@ -5,11 +5,11 @@ mod models;
 use models::ModelsSettings;
 
 use gloo_net::http::Request;
-use std::collections::BTreeMap;
 use leptos::prelude::*;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen_futures::spawn_local;
@@ -48,6 +48,9 @@ struct ToolInfo {
 #[derive(Clone, Debug, Deserialize)]
 struct HealthResponse {
     version: String,
+    /// UI language from the server; absent on servers that predate it.
+    #[serde(default)]
+    language: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -247,7 +250,10 @@ fn initial_token() -> String {
 /// A known id is replaced in place (title/turns/usage change over time); a new
 /// one is inserted newest-first so the list follows the journal, not the poll.
 fn merge_session_summary(sessions: &mut Vec<SessionSummary>, incoming: SessionSummary) {
-    if let Some(existing) = sessions.iter_mut().find(|session| session.id == incoming.id) {
+    if let Some(existing) = sessions
+        .iter_mut()
+        .find(|session| session.id == incoming.id)
+    {
         *existing = incoming;
         return;
     }
@@ -671,7 +677,9 @@ fn apply_frame_height(token: &str, height: f64) {
     };
     let height = height.clamp(24.0, 640.0);
     let element: &web_sys::HtmlElement = frame.as_ref();
-    let _ = element.style().set_property("height", &format!("{height}px"));
+    let _ = element
+        .style()
+        .set_property("height", &format!("{height}px"));
 }
 
 fn field_of(value: &wasm_bindgen::JsValue, key: &str) -> String {
@@ -753,9 +761,7 @@ fn read_strings(value: &wasm_bindgen::JsValue, key: &str) -> Vec<String> {
     let Ok(list) = list.dyn_into::<js_sys::Array>() else {
         return Vec::new();
     };
-    list.iter()
-        .filter_map(|item| item.as_string())
-        .collect()
+    list.iter().filter_map(|item| item.as_string()).collect()
 }
 
 /// Slots announced by a `slots` bridge message, ordered like the bridge does.
@@ -786,7 +792,11 @@ fn read_slots(data: &wasm_bindgen::JsValue, plugin: &str) -> Vec<ClientSlot> {
             let children = read_strings(&value, "children");
             Some(ClientSlot {
                 plugin: plugin.to_owned(),
-                name: if name.is_empty() { "panel".into() } else { name },
+                name: if name.is_empty() {
+                    "panel".into()
+                } else {
+                    name
+                },
                 id: id.clone(),
                 title: if title.is_empty() { id } else { title },
                 order: number_of(&value, "order") as i64,
@@ -885,12 +895,7 @@ fn SlotFrame(
         context = encode(&context),
     );
     let src = move || {
-        let version = ui
-            .versions
-            .get()
-            .get(&version_plugin)
-            .copied()
-            .unwrap_or(0);
+        let version = ui.versions.get().get(&version_plugin).copied().unwrap_or(0);
         format!("{base}&v={version}")
     };
     let anchor_token = token.clone();
@@ -950,7 +955,7 @@ fn SlotFrame(
             />
         </div>
     }
-        .into_any()
+    .into_any()
 }
 
 /// Mounts the registrations of one child slot key at its anchor inside the
@@ -1013,9 +1018,7 @@ fn NestedSeat(
             .collect::<Vec<_>>()
     };
     let slot_chain = name.clone();
-    let chain = move || {
-        !chain_candidates(&ui.slots.get(), &slot_chain).is_empty()
-    };
+    let chain = move || !chain_candidates(&ui.slots.get(), &slot_chain).is_empty();
     let slot_chain_view = name.clone();
     let occurrence_chain = occurrence.clone();
     let context_chain = context.clone();
@@ -1046,7 +1049,7 @@ fn NestedSeat(
             />
         </div>
     }
-        .into_any()
+    .into_any()
 }
 
 /// Single owner-renderer for one chain slot.
@@ -1132,7 +1135,7 @@ fn ChainHost(
             }}
         </div>
     }
-        .into_any()
+    .into_any()
 }
 
 /// Mount point of one shell region: renders one slot frame per registration the
@@ -1149,7 +1152,8 @@ fn SlotRegion(
     #[prop(optional)] context: Option<String>,
     #[prop(optional)] owner_props: Option<String>,
     /// Keyed-region occurrence key (`conversation.chat.node` node kind, ...).
-    #[prop(optional)] entry_key: Option<String>,
+    #[prop(optional)]
+    entry_key: Option<String>,
 ) -> impl IntoView {
     let ui = expect_context::<UiState>();
     let occurrence = occurrence.unwrap_or_default();
@@ -1170,9 +1174,7 @@ fn SlotRegion(
                 slot.region == region
                     && slot.kind != "chain"
                     && !children.contains(&slot.name)
-                    && (entry_key.is_empty()
-                        || slot.kind != "keyed"
-                        || slot.key == entry_key)
+                    && (entry_key.is_empty() || slot.kind != "keyed" || slot.key == entry_key)
             })
             .map(|slot| {
                 let token = slot_token(&slot, &occurrence);
@@ -1502,7 +1504,10 @@ impl ChatNode {
 }
 
 fn block_type(block: &Value) -> &str {
-    block.get("type").and_then(Value::as_str).unwrap_or_default()
+    block
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
 }
 
 fn image_url(block: &Value) -> Option<String> {
@@ -1515,7 +1520,10 @@ fn image_url(block: &Value) -> Option<String> {
 }
 
 fn text_block(block: &Value) -> &str {
-    block.get("text").and_then(Value::as_str).unwrap_or_default()
+    block
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
 }
 
 /// Project the session transcript into the reference turn/node model.
@@ -1718,12 +1726,7 @@ fn push_tool_start(
     streaming.set(true);
 }
 
-fn push_tool_end(
-    nodes: RwSignal<Vec<ChatNode>>,
-    name: &str,
-    ok: bool,
-    content: &str,
-) {
+fn push_tool_end(nodes: RwSignal<Vec<ChatNode>>, name: &str, ok: bool, content: &str) {
     nodes.update(|items| {
         let pending = items
             .iter_mut()
@@ -1911,7 +1914,10 @@ fn chat_node_owner(node: &ChatNode) -> String {
     // bundle stays small, otherwise a plugin gets the count and the `*.images`
     // seats render them.
     let images: Vec<String> = node.images.iter().take(4).cloned().collect();
-    let shared_images = if serde_json::to_string(&images).map(|json| json.len() <= 16_000).unwrap_or(false) {
+    let shared_images = if serde_json::to_string(&images)
+        .map(|json| json.len() <= 16_000)
+        .unwrap_or(false)
+    {
         images
     } else {
         Vec::new()
@@ -2215,16 +2221,14 @@ fn ChatNodeRow(index: usize) -> impl IntoView {
     };
     let kind_token = kind.clone();
     let occurrence_token = occurrence.clone();
-    let token_attr = move || {
-        match chat_node_renderer(
-            &ui.slots.get(),
-            &kind_token,
-            &occurrence_token,
-            &ui.renderer_errors.get(),
-        ) {
-            ChatNodeRenderer::Builtin => String::new(),
-            ChatNodeRenderer::Plugin { token } => token,
-        }
+    let token_attr = move || match chat_node_renderer(
+        &ui.slots.get(),
+        &kind_token,
+        &occurrence_token,
+        &ui.renderer_errors.get(),
+    ) {
+        ChatNodeRenderer::Builtin => String::new(),
+        ChatNodeRenderer::Plugin { token } => token,
     };
     let entry_key = kind.clone();
     let owner_slot = owner.clone();
@@ -2492,6 +2496,9 @@ fn App() -> impl IntoView {
         panel_error.set(String::new());
     };
     let version = RwSignal::new(String::new());
+    // Labels mount before any fetch resolves, so Russian is the initial guess
+    // and the first health reply corrects it. Mirrors `ui.language`'s default.
+    let lang = RwSignal::new(dshr_i18n::Lang::Ru);
     let custom_frame = web_sys::window()
         .and_then(|window| window.location().search().ok())
         .is_some_and(|search| search.contains("frame=custom"))
@@ -2611,8 +2618,8 @@ fn App() -> impl IntoView {
         {
             let _ = root.set_attribute("data-theme", &value);
         }
-        if let Some(storage) = web_sys::window()
-            .and_then(|window| window.local_storage().ok().flatten())
+        if let Some(storage) =
+            web_sys::window().and_then(|window| window.local_storage().ok().flatten())
         {
             let _ = storage.set_item("dshr-theme", &value);
         }
@@ -2643,17 +2650,16 @@ fn App() -> impl IntoView {
     let broadcast_host_state = move || {
         let entries = session_entries();
         let current_session = current.get_untracked();
-        push_host_state_all(
-            &theme.get_untracked(),
-            current_session.as_deref(),
-            &entries,
-        );
+        push_host_state_all(&theme.get_untracked(), current_session.as_deref(), &entries);
     };
     {
         let token_value = token.get_untracked();
         spawn_local(async move {
             if let Ok(health) = get_json::<HealthResponse>("/v1/health", &token_value).await {
                 version.set(health.version);
+                if let Some(code) = health.language {
+                    lang.set(dshr_i18n::Lang::parse(&code));
+                }
             }
         });
     }
@@ -2673,6 +2679,9 @@ fn App() -> impl IntoView {
                     broadcast_host_state();
                     if let Ok(health) = get_json::<HealthResponse>("/v1/health", &value).await {
                         version.set(health.version);
+                        if let Some(code) = health.language {
+                            lang.set(dshr_i18n::Lang::parse(&code));
+                        }
                     }
                     if let Ok(installed) =
                         get_json::<InstalledResponse>("/v1/plugins/installed", &value).await
@@ -2754,7 +2763,9 @@ fn App() -> impl IntoView {
                 Err(error) => status.set(format!("error: {error}")),
             }
         });
-        connect_events(id, value, nodes, streaming, busy, status, approval, question);
+        connect_events(
+            id, value, nodes, streaming, busy, status, approval, question,
+        );
         broadcast_host_state();
     };
 
@@ -2809,11 +2820,7 @@ fn App() -> impl IntoView {
         let token_value = token.get_untracked();
         prompt.set(String::new());
         nodes.update(|items| {
-            let turn = items
-                .iter()
-                .filter(|node| node.kind == "user")
-                .count()
-                + 1;
+            let turn = items.iter().filter(|node| node.kind == "user").count() + 1;
             let seq = items.len();
             items.push(ChatNode {
                 key: format!("{turn}:{seq}"),
@@ -3004,12 +3011,9 @@ fn App() -> impl IntoView {
                     spawn_local(async move {
                         let path = format!("/v1/config-forms/{entry}");
                         match get_json::<Value>(&path, &value).await {
-                            Ok(snapshot) => post_config_snapshot(
-                                source,
-                                &id,
-                                Some(&snapshot.to_string()),
-                                "",
-                            ),
+                            Ok(snapshot) => {
+                                post_config_snapshot(source, &id, Some(&snapshot.to_string()), "")
+                            }
                             Err(error) => post_config_snapshot(source, &id, None, &error),
                         }
                     });
@@ -3040,12 +3044,9 @@ fn App() -> impl IntoView {
                     spawn_local(async move {
                         let path = format!("/v1/config-forms/{entry}");
                         match post_json::<Value>(&path, &value, &body).await {
-                            Ok(snapshot) => post_config_snapshot(
-                                source,
-                                &id,
-                                Some(&snapshot.to_string()),
-                                "",
-                            ),
+                            Ok(snapshot) => {
+                                post_config_snapshot(source, &id, Some(&snapshot.to_string()), "")
+                            }
                             Err(error) => post_config_snapshot(source, &id, None, &error),
                         }
                     });
@@ -3159,10 +3160,8 @@ fn App() -> impl IntoView {
             }
         });
         if let Some(window) = web_sys::window() {
-            let _ = window.add_event_listener_with_callback(
-                "message",
-                on_message.as_ref().unchecked_ref(),
-            );
+            let _ = window
+                .add_event_listener_with_callback("message", on_message.as_ref().unchecked_ref());
         }
         PANEL_LISTENER.with(|slot| *slot.borrow_mut() = Some(on_message));
     }
@@ -3209,10 +3208,20 @@ fn App() -> impl IntoView {
             };
             match result {
                 Ok(response) if response.ok() => {
-                    plugin_status.set(format!("installed {name} — it will appear once the config watcher reloads"));
-                    refresh_plugin_views(token_value, live_plugins, clients, registry_frames, slots);
+                    plugin_status.set(format!(
+                        "installed {name} — it will appear once the config watcher reloads"
+                    ));
+                    refresh_plugin_views(
+                        token_value,
+                        live_plugins,
+                        clients,
+                        registry_frames,
+                        slots,
+                    );
                 }
-                Ok(response) => plugin_status.set(format!("install failed: HTTP {}", response.status())),
+                Ok(response) => {
+                    plugin_status.set(format!("install failed: HTTP {}", response.status()))
+                }
                 Err(error) => plugin_status.set(format!("install error: {error}")),
             }
         });
@@ -3581,7 +3590,7 @@ fn App() -> impl IntoView {
                             </div>
                         })}
                         {move || (settings_tab.get() == "models").then(|| view! {
-                            <ModelsSettings token=token />
+                            <ModelsSettings token=token lang=lang />
                         })}
                         {move || (settings_tab.get() == "search").then(|| view! {
                             <div>

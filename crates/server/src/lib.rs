@@ -70,6 +70,9 @@ pub struct ServerConfig {
     pub internal_token: Option<String>,
     /// WASM plugin hot-reload manager.
     pub wasm: Option<Arc<dshr_wasm::WasmManager>>,
+    /// UI language (`ru`/`en`) from `ui.language`, served so the web UI can
+    /// pick its labels without a second round-trip.
+    pub language: String,
 }
 
 #[derive(Clone)]
@@ -2801,8 +2804,12 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
-async fn health() -> impl IntoResponse {
-    Json(json!({"status": "ok", "version": env!("CARGO_PKG_VERSION")}))
+async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    Json(json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "language": &state.config.language,
+    }))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -3370,6 +3377,7 @@ mod tests {
                 allow_plugin_routes_lan: false,
                 internal_token: None,
                 wasm: None,
+                language: "ru".into(),
             },
             provider,
             Arc::new(ToolRegistry::new()),

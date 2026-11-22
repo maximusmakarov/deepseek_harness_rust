@@ -183,7 +183,8 @@ def run(args: argparse.Namespace) -> int:
     chrome_port = smoke.free_port()
     while chrome_port == serve_port:
         chrome_port = smoke.free_port()
-    smoke_server = smoke_chrome = None
+    ru_home = Path(tempfile.mkdtemp(prefix="dshr-web-ru-home-"))
+    smoke_server = smoke_chrome = ru_server = None
     model_server = None
     models_url = ""
     failures: list[str] = []
@@ -220,8 +221,16 @@ def run(args: argparse.Namespace) -> int:
             failures.append(label)
 
     try:
+        # The harness asserts English labels across the shell and the Models
+        # tab, so the smoke home pins the UI language instead of inheriting the
+        # product default (`ru`).
         (home / "config.yaml").write_text(
-            "version: 1\nmodel:\n  provider: deepseek-account\n  name: deepseek-flash\n"
+            "version: 1\n"
+            "model:\n"
+            "  provider: deepseek-account\n"
+            "  name: deepseek-flash\n"
+            "ui:\n"
+            "  language: en\n"
         )
         smoke_server = start_serve(binary, home, workspace, serve_port, cassette)
         model_server, models_url = start_model_endpoint()
@@ -808,6 +817,85 @@ def run(args: argparse.Namespace) -> int:
             + ("" if tool_ok else " (the bash tool reported an error; see messages)"),
         )
 
+        # The Models tab follows `ui.language`, so the same bundle rendered
+        # against a Russian home must show Russian labels. The shell stays
+        # English; only the Models section is translated.
+        (ru_home / "cassette.json").write_text(json.dumps(CASSETTE))
+        (ru_home / "config.yaml").write_text(
+            "version: 1\n"
+            "model:\n"
+            "  provider: deepseek-account\n"
+            "  name: deepseek-flash\n"
+            "ui:\n"
+            "  language: ru\n"
+        )
+        ru_port = smoke.free_port()
+        ru_server = start_serve(binary, ru_home, workspace, ru_port, ru_home / "cassette.json")
+        dt.call("Page.navigate", {"url": f"http://127.0.0.1:{ru_port}/?token={TOKEN}"})
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!!document.querySelector('textarea')"),
+            timeout=LOAD_TIMEOUT,
+            label="web ui loaded in russian",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const button = [...document.querySelectorAll('header button')]
+                    .find(b => b.textContent.trim() === 'Settings');
+                if (!button) return false;
+                button.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!!document.querySelector('.settings-nav button')"),
+            timeout=STEP_TIMEOUT,
+            label="settings dialog in russian",
+        )
+        evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const tab = [...document.querySelectorAll('.settings-nav button')]
+                    .find(b => b.textContent.trim() === 'Models');
+                if (!tab) return false;
+                tab.click();
+                return true;
+            })()""",
+        )
+        smoke.wait_until(
+            lambda: evaluate(smoke, dt, "!!document.querySelector('.models-section')"),
+            timeout=STEP_TIMEOUT,
+            label="models section in russian",
+        )
+        # The section paints before the providers arrive, so wait for the
+        # catalog row instead of reading the placeholder text.
+        smoke.wait_until(
+            lambda: evaluate(
+                smoke,
+                dt,
+                "!!document.querySelector('.models-row[data-provider=\\\"deepseek-account\\\"]')",
+            ),
+            timeout=STEP_TIMEOUT,
+            label="russian catalog provider row",
+        )
+        russian = evaluate(
+            smoke,
+            dt,
+            """(() => {
+                const section = document.querySelector('.models-section');
+                return section ? section.innerText : '';
+            })()""",
+        )
+        cyrillic = any('\u0400' <= ch <= '\u04FF' for ch in (russian or ''))
+        check("models tab follows ui.language=ru", cyrillic, (russian or '')[:200])
+        check(
+            "russian models tab keeps the wire route values",
+            "deepseek-account" in (russian or ''),
+            (russian or '')[:200],
+        )
+
         sessions = json.loads(
             urllib.request.urlopen(
                 urllib.request.Request(
@@ -842,7 +930,7 @@ def run(args: argparse.Namespace) -> int:
         if model_server is not None:
             model_server.shutdown()
             model_server.server_close()
-        for process in (smoke_chrome, smoke_server):
+        for process in (smoke_chrome, smoke_server, ru_server):
             if process is not None and process.poll() is None:
                 process.terminate()
                 try:
@@ -850,7 +938,7 @@ def run(args: argparse.Namespace) -> int:
                 except subprocess.TimeoutExpired:
                     process.kill()
         if not args.keep:
-            for path in (home, workspace, profile):
+            for path in (home, ru_home, workspace, profile):
                 shutil.rmtree(path, ignore_errors=True)
 
     print(f"web-e2e: {checks - len(failures)}/{checks} checks passed")

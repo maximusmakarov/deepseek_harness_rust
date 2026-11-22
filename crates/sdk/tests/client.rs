@@ -33,6 +33,7 @@ async fn sdk_creates_and_runs_a_session() {
             allow_plugin_routes_lan: false,
             internal_token: None,
             wasm: None,
+            language: "ru".into(),
         },
         Arc::new(ScriptedProvider::new(
             "test-model",

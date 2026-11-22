@@ -52,6 +52,7 @@ fn state_with_bridge(dir: &std::path::Path, internal_token: Option<&str>) -> App
             allow_plugin_routes_lan: false,
             internal_token: internal_token.map(str::to_owned),
             wasm: None,
+            language: "ru".into(),
         },
         provider,
         Arc::new(ToolRegistry::with_builtin()),
@@ -147,6 +148,19 @@ async fn creates_session_runs_turn_and_lists_it() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(listed["sessions"].as_array().expect("sessions").len(), 1);
+}
+
+#[tokio::test]
+async fn health_reports_the_configured_language() {
+    // The Web bundle is a compiled-in static that cannot read config.yaml, so
+    // the public health handshake is the only way it learns `ui.language`.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let app = router(state(dir.path()));
+    let (status, body) = call(&app, "GET", "/v1/health", None, Body::empty()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "ok", "{body}");
+    assert_eq!(body["language"], "ru", "{body}");
+    assert!(body["version"].is_string(), "{body}");
 }
 
 #[tokio::test]
@@ -276,6 +290,7 @@ async fn rate_limits_api_requests() {
         allow_plugin_routes_lan: false,
         internal_token: None,
         wasm: None,
+        language: "ru".into(),
     };
     let app = router(AppState::new(
         config,

@@ -288,10 +288,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "669a445ee724c5c69b1b06fe0b63e70a1c84bc9bb7d9696cd4f4e3ec45050408"
 
 [[package]]
+name = "dshr-i18n"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "dshr-web-ui"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "dshr-i18n",
  "gloo-net",
  "js-sys",
  "leptos",
