@@ -850,7 +850,19 @@ mod tests {
     }
 
     fn pack_archive(dir: &Path, root: &str) -> PathBuf {
-        let path = dir.join(format!("{root}.tar.gz"));
+        pack_archive_with(dir, root, false)
+    }
+
+    #[cfg(unix)]
+    fn pack_archive_symlinked(dir: &Path, root: &str) -> PathBuf {
+        pack_archive_with(dir, root, true)
+    }
+
+    fn pack_archive_with(dir: &Path, root: &str, symlink: bool) -> PathBuf {
+        let path = dir.join(format!(
+            "{root}{}.tar.gz",
+            if symlink { "-symlinked" } else { "" }
+        ));
         let file = File::create(&path).expect("create");
         let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
         let mut builder = tar::Builder::new(encoder);
@@ -873,21 +885,34 @@ mod tests {
             .append_data(&mut header, format!("{root}/lib/npm-cli.js"), &lib[..])
             .expect("append lib");
 
-        let mut header = tar::Header::new_gnu();
-        header.set_entry_type(tar::EntryType::Symlink);
-        header.set_size(0);
-        header.set_mode(0o777);
-        header
-            .set_link_name("../lib/npm-cli.js")
-            .expect("link name");
-        header.set_cksum();
-        builder
-            .append_data(&mut header, format!("{root}/bin/npm"), io::empty())
-            .expect("append symlink");
+        if symlink {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_size(0);
+            header.set_mode(0o777);
+            header
+                .set_link_name("../lib/npm-cli.js")
+                .expect("link name");
+            header.set_cksum();
+            builder
+                .append_data(&mut header, format!("{root}/bin/npm"), io::empty())
+                .expect("append symlink");
+        }
 
         let encoder = builder.into_inner().expect("finish tar");
         encoder.finish().expect("finish gzip");
         path
+    }
+
+    /// `file://` URL for a local path. `Path::display` yields backslashes on
+    /// Windows, which curl cannot parse as a URL.
+    fn local_url(path: &Path) -> String {
+        let text = path.to_string_lossy().replace('\\', "/");
+        if text.starts_with('/') {
+            format!("file://{text}")
+        } else {
+            format!("file:///{text}")
+        }
     }
 
     fn request(home: &TempDir, archive: &Path, version: &str) -> InstallRequest {
@@ -912,18 +937,29 @@ mod tests {
             fs::read_to_string(engine_dir(home.path(), "node").join(CURRENT)).expect("current"),
             "22.11.0\n"
         );
-        let npm = installed.dir.join("bin/npm");
-        assert!(npm.is_symlink(), "archive symlink is reproduced");
-        assert_eq!(
-            fs::read_to_string(&npm).expect("read through the symlink"),
-            "module.exports = {};\n"
-        );
         assert_eq!(
             current_program(home.path(), "node"),
             Some(installed.program())
         );
         assert!(current(home.path(), "node").expect("current").is_some());
         assert_eq!(list(home.path()).expect("list").len(), 1);
+    }
+
+    // Symlink entries are rejected off unix, so the pack builder can only
+    // exercise link reproduction on unix hosts. Keep the gated body thin.
+    #[cfg(unix)]
+    #[test]
+    fn install_reproduces_archive_symlinks() {
+        let home = TempDir::new().expect("home");
+        let work = TempDir::new().expect("work");
+        let archive = pack_archive_symlinked(work.path(), "node-v22.11.0");
+        let installed = install(home.path(), request(&home, &archive, "22.11.0")).expect("install");
+        let npm = installed.dir.join("bin/npm");
+        assert!(npm.is_symlink(), "archive symlink is reproduced");
+        assert_eq!(
+            fs::read_to_string(&npm).expect("read through the symlink"),
+            "module.exports = {};\n"
+        );
     }
 
     #[test]
@@ -952,7 +988,7 @@ mod tests {
         let sha = sha256_of(&archive);
         let spec = NodePackSpec {
             version: "24.21.0".to_owned(),
-            url: format!("file://{}", archive.display()),
+            url: local_url(&archive),
             sha256: sha,
             bin: DEFAULT_BIN.to_owned(),
         };
@@ -987,7 +1023,7 @@ mod tests {
         let archive = pack_archive(work.path(), "node-v24.21.0");
         let spec = NodePackSpec {
             version: "24.21.0".to_owned(),
-            url: format!("file://{}", archive.display()),
+            url: local_url(&archive),
             sha256: "0".repeat(64),
             bin: DEFAULT_BIN.to_owned(),
         };
