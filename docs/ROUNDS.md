@@ -2514,6 +2514,15 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
 - Локальный offset в Tauri-входе: `jiff::Zoned::now().offset().seconds()`.
 - `deny.toml`: игнор `RUSTSEC-2026-0543` удалён, `cargo deny check` →
   `advisories ok, bans ok, licenses ok, sources ok`.
+- Пойман собственный промах: `crates/desktop` — **отдельный** крейт со своим
+  lockfile и `target/`, не член workspace, поэтому ни `cargo test --workspace`,
+  ни `cargo clippy --workspace`, ни `cargo fmt --all` его не видят. Правка
+  `chrono` → `jiff` там компилировалась только в CI-шаге `desktop check`
+  (macOS), где и упала сначала на `jiff.workspace = true` (вне workspace
+  наследование недоступно), затем на имени типа (`jiff::ZonedDateTime`, а не
+  `Zoned`). В `scripts/check.sh` добавлен шаг `desktop_check`: на macOS гоняет
+  `cargo test --manifest-path crates/desktop/Cargo.toml` и `rustfmt --check`, на
+  других платформах громко пропускается (Linux-сборке нужен webkit2gtk).
 
 ## Раунд 153 — per-model `thinkingLevelMap` и таблица ремапа effort (23.11.2026)
 

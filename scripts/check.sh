@@ -50,6 +50,20 @@ web_check() {
     CARGO_INCREMENTAL=0 cargo check --manifest-path crates/web/Cargo.toml --target wasm32-unknown-unknown
 }
 
+# The Tauri shell is its own crate with its own lockfile and target directory, so
+# `cargo test --workspace` and `cargo clippy --workspace` never reach it; CI runs
+# it as a separate macOS-only step. Mirror that here, loudly skipping elsewhere
+# because the Linux build needs webkit2gtk.
+desktop_check() {
+    if [ "$(uname -s)" != "Darwin" ]; then
+        echo "skip: the desktop shell is checked on macOS only"
+        return 0
+    fi
+    CARGO_INCREMENTAL=0 cargo test --manifest-path crates/desktop/Cargo.toml
+    rustfmt --edition 2024 --config-path rustfmt.toml --check \
+        crates/desktop/src/*.rs crates/desktop/tests/*.rs
+}
+
 step cargo fmt --all -- --check
 step python3 scripts/check-platform-branches.py
 step scripts/check-runtime-assets.sh
@@ -59,6 +73,7 @@ step cargo clippy --workspace --all-targets -- -D warnings
 step workspace_tests
 step cargo test --workspace --doc
 step web_check
+step desktop_check
 
 if [ "${1:-}" = "quick" ]; then
     echo

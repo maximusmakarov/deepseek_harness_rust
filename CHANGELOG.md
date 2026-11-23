@@ -11,7 +11,10 @@
   survives, so session search is unchanged. `croner` still lists `chrono` as an
   optional dependency, so the lockfile keeps the entry while nothing compiles it;
   `cargo deny check` resolves features, so removing the advisory ignore now fails
-  on any build that actually enables it again.
+  on any build that actually enables it again. `scripts/check.sh` also gates the
+  Tauri shell now: it is a separate crate with its own lockfile, so neither
+  `cargo test --workspace` nor clippy ever reached it, and a stale `chrono`
+  dependency there went unnoticed until CI's macOS step.
 - Reasoning levels now follow upstream's per-model `thinkingLevelMap` instead of
   requiring an explicit entry per level. In `models.yaml`, `reasoning_efforts`
   may leave out the standard levels: `off`…`high` are supported by default and
