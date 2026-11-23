@@ -342,6 +342,20 @@ fn reasoning_enabled(value: &Option<Value>) -> bool {
     matches!(value, Some(Value::Object(_)))
 }
 
+/// Levels to declare when reasoning is switched on.
+///
+/// The catalog knows which levels a model accepts; the generic default would
+/// offer `medium` for a DeepSeek model, which its endpoint rejects, and hide
+/// `max`, which it accepts. A model the catalog does not describe keeps the
+/// generic default, because its vocabulary is unknown.
+fn reasoning_seed(snapshot: Option<&ModelsSnapshot>, route: &str, model: &str) -> Value {
+    snapshot
+        .and_then(|snapshot| snapshot.catalog.iter().find(|entry| entry.id == route))
+        .and_then(|entry| entry.models.iter().find(|entry| entry.id == model))
+        .and_then(|entry| catalog_efforts(&entry.reasoning_levels))
+        .unwrap_or_else(reasoning_default)
+}
+
 /// The upstream starting point when the switch turns on.
 fn reasoning_default() -> Value {
     reasoning_object(&[
@@ -1895,12 +1909,18 @@ pub fn ModelsSettings(token: RwSignal<String>, lang: RwSignal<Lang>) -> impl Int
                                                     prop:checked=reasoning_on
                                                     on:change=move |event| {
                                                         let checked = event_target_checked(&event);
+                                                        let seed = snapshot.get_untracked();
                                                         editing.update(|draft| {
                                                             if let Some(draft) = draft
                                                                 && let Some(model) = draft.models.get_mut(index)
                                                             {
+                                                                let route = draft.id.clone();
                                                                 model.reasoning_efforts = Some(if checked {
-                                                                    reasoning_default()
+                                                                    reasoning_seed(
+                                                                        seed.as_ref(),
+                                                                        &route,
+                                                                        &model.id,
+                                                                    )
                                                                 } else {
                                                                     json!(false)
                                                                 });
@@ -2311,6 +2331,50 @@ mod tests {
                 assert!(full[level].is_null(), "{level} must be declared null");
             }
         }
+    }
+
+    fn levels_of(value: &Value) -> Vec<String> {
+        let declared: Vec<String> = reasoning_entries(&Some(value.clone()))
+            .into_iter()
+            .map(|(level, _)| level)
+            .collect();
+        offered_levels(&declared)
+    }
+
+    #[test]
+    fn turning_reasoning_on_follows_the_catalog() {
+        let snapshot: ModelsSnapshot = serde_json::from_value(json!({
+            "catalog": [{
+                "id": "deepseek-account",
+                "models": [{
+                    "id": "deepseek-flash",
+                    "reasoning_levels": ["off", "low", "high", "max"]
+                }]
+            }]
+        }))
+        .expect("a catalog snapshot");
+
+        // The catalog's list wins: `medium` would be rejected by the endpoint
+        // and `max` would otherwise be dropped.
+        let seeded = reasoning_seed(Some(&snapshot), "deepseek-account", "deepseek-flash");
+        assert_eq!(levels_of(&seeded), ["off", "low", "high", "max"]);
+        assert!(seeded["medium"].is_null());
+        assert!(seeded["minimal"].is_null());
+
+        // A model the catalog does not describe keeps the generic default, as
+        // does a snapshot that has not arrived yet.
+        assert_eq!(
+            levels_of(&reasoning_seed(
+                Some(&snapshot),
+                "deepseek-account",
+                "custom-model"
+            )),
+            ["off", "low", "medium", "high"]
+        );
+        assert_eq!(
+            levels_of(&reasoning_seed(None, "deepseek-account", "deepseek-flash")),
+            ["off", "low", "medium", "high"]
+        );
     }
 
     #[test]

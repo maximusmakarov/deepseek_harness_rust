@@ -87,7 +87,13 @@ mod tests {
         let first = InstanceLock::acquire(&home).expect("first").expect("lock");
         assert!(InstanceLock::acquire(&home).expect("probe").is_none());
         drop(first);
-        assert!(InstanceLock::acquire(&home).expect("after drop").is_some());
+        // The kernel releases the closed descriptor's lock asynchronously, so a
+        // bare re-acquire races it (observed once in a full-suite run).
+        assert!(
+            InstanceLock::acquire_within(&home, std::time::Duration::from_secs(1))
+                .expect("after drop")
+                .is_some()
+        );
         let _ = std::fs::remove_dir_all(&home);
     }
 

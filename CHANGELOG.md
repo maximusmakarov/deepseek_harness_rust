@@ -2,6 +2,13 @@
 
 ## 0.1.0 — current
 
+- Turning reasoning on in the Models editor now seeds the level list from the
+  catalog instead of a fixed `off`/`low`/`medium`/`high` set. For a DeepSeek
+  model the old behaviour offered `medium`, which the endpoint rejects, and
+  dropped `max`, which it accepts; the switch now writes the same declaration
+  the catalog provides, with the other levels marked unsupported. A model the
+  catalog does not describe keeps the generic default, since its vocabulary is
+  unknown.
 - `chrono` is gone from the build graph. It was unmaintained (RUSTSEC-2026-0543,
   ignored in `deny.toml` with no upgrade path) and reached us three ways: our own
   RFC-3339 timestamps, `cron`'s mandatory dependency, and `rusqlite`'s `bundled-full`
