@@ -8,8 +8,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use chrono::{DateTime, SecondsFormat, Utc};
-use cron::Schedule;
+use croner::Cron;
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -51,10 +51,20 @@ fn default_true() -> bool {
 }
 
 impl ScheduleEntry {
-    pub fn next_after(&self, now: DateTime<Utc>) -> Result<Option<DateTime<Utc>>, ScheduleError> {
-        let schedule = Schedule::from_str(&self.cron)
+    pub fn next_after(&self, now: Timestamp) -> Result<Option<Timestamp>, ScheduleError> {
+        let cron = Cron::from_str(&self.cron)
             .map_err(|error| ScheduleError::Invalid(format!("cron '{}': {error}", self.cron)))?;
-        Ok(schedule.after(&now).next())
+        // Croner resolves occurrences inside a time zone, so the UTC instant
+        // becomes a zoned one and the answer is converted back.
+        let start = now
+            .in_tz("UTC")
+            .map_err(|error| ScheduleError::Invalid(format!("cron '{}': {error}", self.cron)))?;
+        // An expression with no future occurrence is reported as an error by
+        // `croner`; the store treats it as "nothing scheduled".
+        Ok(cron
+            .find_next_occurrence(&start, false)
+            .ok()
+            .map(|next| next.timestamp()))
     }
 }
 
@@ -90,7 +100,7 @@ impl ScheduleStore {
     pub fn add(
         &mut self,
         mut entry: ScheduleEntry,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Result<ScheduleEntry, ScheduleError> {
         if entry.prompt.trim().is_empty() {
             return Err(ScheduleError::Invalid("prompt is required".into()));
@@ -133,7 +143,7 @@ impl ScheduleStore {
         self.save()
     }
 
-    pub fn due(&self, now: DateTime<Utc>) -> Vec<ScheduleEntry> {
+    pub fn due(&self, now: Timestamp) -> Vec<ScheduleEntry> {
         self.entries
             .iter()
             .filter(|entry| entry.enabled)
@@ -151,8 +161,8 @@ impl ScheduleStore {
     pub fn mark_run(
         &mut self,
         id: &str,
-        now: DateTime<Utc>,
-    ) -> Result<Option<DateTime<Utc>>, ScheduleError> {
+        now: Timestamp,
+    ) -> Result<Option<Timestamp>, ScheduleError> {
         let entry = self
             .entries
             .iter_mut()
@@ -214,20 +224,32 @@ impl Drop for ScheduleLock {
     }
 }
 
-pub fn parse_time(value: &str) -> Option<DateTime<Utc>> {
-    DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|time| time.with_timezone(&Utc))
+pub fn parse_time(value: &str) -> Option<Timestamp> {
+    value.parse().ok()
 }
 
-pub fn format_time(time: DateTime<Utc>) -> String {
-    time.to_rfc3339_opts(SecondsFormat::Secs, true)
+/// RFC 3339 with whole seconds, matching the session timestamps.
+///
+/// The sub-second part is truncated rather than rounded, so a timestamp is
+/// never reported ahead of the instant it stands for.
+pub fn format_time(time: Timestamp) -> String {
+    Timestamp::from_second(time.as_second())
+        .unwrap_or(time)
+        .to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
+
+    /// A whole-second UTC instant, matching what the store persists.
+    fn utc(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+        let civil = jiff::civil::date(year, month, day).at(hour, minute, second, 0);
+        jiff::tz::TimeZone::UTC
+            .to_zoned_datetime(civil)
+            .expect("a valid civil time")
+            .timestamp()
+    }
 
     fn entry(cron: &str) -> ScheduleEntry {
         ScheduleEntry {
@@ -246,7 +268,7 @@ mod tests {
     fn adds_and_persists() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("schedules.yaml");
-        let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 1, 0).unwrap();
+        let now = utc(2026, 1, 1, 0, 1, 0);
         let mut store = ScheduleStore::open(&path).expect("open");
         store.add(entry("0 */5 * * * *"), now).expect("add");
         assert!(path.is_file());
@@ -263,7 +285,7 @@ mod tests {
     fn rejects_bad_cron() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut store = ScheduleStore::open(dir.path().join("schedules.yaml")).expect("open");
-        let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let now = utc(2026, 1, 1, 0, 0, 0);
         assert!(store.add(entry("not a cron"), now).is_err());
     }
 
@@ -271,9 +293,9 @@ mod tests {
     fn finds_due_and_advances() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut store = ScheduleStore::open(dir.path().join("schedules.yaml")).expect("open");
-        let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let now = utc(2026, 1, 1, 0, 0, 0);
         store.add(entry("0 */5 * * * *"), now).expect("add");
-        let later = Utc.with_ymd_and_hms(2026, 1, 1, 0, 6, 0).unwrap();
+        let later = utc(2026, 1, 1, 0, 6, 0);
         assert_eq!(store.due(later).len(), 1);
         store.mark_run("test", later).expect("mark");
         assert_eq!(
@@ -302,7 +324,7 @@ mod tests {
     fn disables_and_removes() {
         let dir = tempfile::tempdir().expect("tempdir");
         let mut store = ScheduleStore::open(dir.path().join("schedules.yaml")).expect("open");
-        let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let now = utc(2026, 1, 1, 0, 0, 0);
         store.add(entry("0 */5 * * * *"), now).expect("add");
         store.set_enabled("test", false).expect("disable");
         assert!(store.due(now).is_empty());

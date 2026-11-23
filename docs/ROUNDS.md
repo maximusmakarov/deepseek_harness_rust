@@ -2485,6 +2485,36 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   `trunk build --release` (wasm 1.87 МБ); дев-сборка даёт 43 МБ и в коммит не
   годится.
 
+## Раунд 154 — `chrono` → `jiff`: полный уход из дерева (23.11.2026)
+
+- Пункт техдолга закрыт не косметически, а по существу: `cargo tree -i chrono`
+  больше ничего не печатает (в `Cargo.lock` запись остаётся как *необязательная*
+  зависимость `croner`; `cargo deny` резолвит фичи, поэтому она не сканируется и
+  при включении снова упадёт). До правки `chrono` попадал в дерево тремя
+  путями — собственные вызовы (`dshr-schedule`, `dshr-cli`, `dshr-cordis`,
+  `dshr-server`, `dshr-desktop`), обязательная зависимость `cron 0.17` и
+  `rusqlite` с фичей `bundled-full`.
+- Выбран `jiff`, а не `time`: `time` остаётся только у `dshr-session`
+  (`now_rfc3339`), а `croner` умеет бэкенды только `chrono`/`jiff`. `jiff 1.0`
+  уже был транзитивно в дереве через `rusqlite`, так что новых семейств не
+  появилось.
+- `cron 0.17` заменён на `croner 5` (`default-features = false`, фичи
+  `std`+`jiff`). Синтаксис совместим: существующие шестипольные выражения
+  (`0 */5 * * * *`) продолжают разбираться, а `find_next_occurrence`
+  возвращает `ZonedDateTime`, поэтому UTC-момент переводится в зону и обратно
+  в `jiff::Timestamp`. Тест `adds_and_persists` по-прежнему ждёт
+  `2026-01-01T00:05:00Z` — поведение то же.
+- `rusqlite` переведён с `bundled-full` на `bundled`. FTS5 остаётся
+  доступным (`CREATE VIRTUAL TABLE ... USING fts5` работает), это проверено
+  интеграционным `sessions_reindex_and_fts_search`; вместе с фичей ушли
+  `chrono`, `jiff 0.2` и `time` из поддерева `rusqlite`.
+- `format_time` округляет до секунды перед печатью (`Timestamp::round`), чтобы
+  `next_run` в `schedules.yaml` оставался в том же формате с целыми секундами,
+  что и раньше.
+- Локальный offset в Tauri-входе: `jiff::Zoned::now().offset().seconds()`.
+- `deny.toml`: игнор `RUSTSEC-2026-0543` удалён, `cargo deny check` →
+  `advisories ok, bans ok, licenses ok, sources ok`.
+
 ## Раунд 153 — per-model `thinkingLevelMap` и таблица ремапа effort (23.11.2026)
 
 - Отличие (а) из [ADR-043](adr/043-reasoning-effort-wire.md) закрыто:

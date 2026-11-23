@@ -7,8 +7,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-chrono.workspace = true
-cron = "0.17"
+croner = { version = "5.0", default-features = false, features = ["std", "jiff"] }
+jiff.workspace = true
 serde.workspace = true
 serde-saphyr.workspace = true
 thiserror.workspace = true

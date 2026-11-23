@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 base64.workspace = true
-chrono.workspace = true
+jiff.workspace = true
 flate2.workspace = true
 dshr-core.workspace = true
 dshr-mcp.workspace = true

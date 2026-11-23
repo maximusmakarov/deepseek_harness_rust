@@ -2,6 +2,16 @@
 
 ## 0.1.0 — current
 
+- `chrono` is gone from the build graph. It was unmaintained (RUSTSEC-2026-0543,
+  ignored in `deny.toml` with no upgrade path) and reached us three ways: our own
+  RFC-3339 timestamps, `cron`'s mandatory dependency, and `rusqlite`'s `bundled-full`
+  feature set. Timestamps and schedule arithmetic now use `jiff`, `cron` is replaced
+  by `croner` (same cron syntax, including the six-field seconds form the stores
+  already use) with its `jiff` backend, and `rusqlite` drops to `bundled` — FTS5
+  survives, so session search is unchanged. `croner` still lists `chrono` as an
+  optional dependency, so the lockfile keeps the entry while nothing compiles it;
+  `cargo deny check` resolves features, so removing the advisory ignore now fails
+  on any build that actually enables it again.
 - Reasoning levels now follow upstream's per-model `thinkingLevelMap` instead of
   requiring an explicit entry per level. In `models.yaml`, `reasoning_efforts`
   may leave out the standard levels: `off`…`high` are supported by default and

@@ -305,7 +305,12 @@ pub fn install(home: &Path, request: InstallRequest) -> Result<Installed> {
         bin: request.bin.clone(),
         archive: request.archive.display().to_string(),
         bytes,
-        installed_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        installed_at: {
+            let now = jiff::Timestamp::now();
+            jiff::Timestamp::from_second(now.as_second())
+                .unwrap_or(now)
+                .to_string()
+        },
         signature: signature_record,
     };
     let encoded = serde_json::to_vec_pretty(&receipt)

@@ -9,7 +9,7 @@ license.workspace = true
 [dependencies]
 dshr-core.workspace = true
 dshr-session-jsonl.workspace = true
-rusqlite = { version = "0.42", default-features = false, features = ["bundled-full"] }
+rusqlite = { version = "0.42", default-features = false, features = ["bundled"] }
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::provider_router;
-use chrono::{DateTime, Utc};
 use clap::{Args, Subcommand};
 use dshr_agent::{Agent, AgentConfig, ApprovalPolicy, AutoApprover, NullObserver, PermissionMode};
 use dshr_config::{Config, ConfigLoader};
@@ -15,6 +14,7 @@ use dshr_sandbox::{NetworkMode as SandboxNetwork, Sandbox, SandboxMode, SandboxP
 use dshr_schedule::{ScheduleEntry, ScheduleLock, ScheduleStore, format_time, parse_time};
 use dshr_session_jsonl::SessionStore;
 use dshr_tools::{BashTool, ToolRegistry};
+use jiff::Timestamp;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Args)]
@@ -107,7 +107,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
                         last_run: None,
                         next_run: None,
                     },
-                    Utc::now(),
+                    Timestamp::now(),
                 )
                 .map_err(schedule_error)?;
             println!(
@@ -171,7 +171,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
             let interval = Duration::from_secs((*interval_secs).max(1));
             loop {
                 let mut store = ScheduleStore::open(&path).map_err(schedule_error)?;
-                run_due(loader, &mut store, Utc::now(), run).await?;
+                run_due(loader, &mut store, Timestamp::now(), run).await?;
                 tokio::select! {
                     _ = tokio::signal::ctrl_c() => break,
                     _ = tokio::time::sleep(interval) => {}
@@ -185,7 +185,7 @@ pub async fn execute(loader: &ConfigLoader, args: &ScheduleArgs) -> Result<u8> {
 async fn run_due(
     loader: &ConfigLoader,
     store: &mut ScheduleStore,
-    now: DateTime<Utc>,
+    now: Timestamp,
     options: &RunOptions,
 ) -> Result<usize> {
     let config = loader.load()?.config;
@@ -321,11 +321,11 @@ fn build_prompt(
     })
 }
 
-fn parse_now(value: Option<&str>) -> Result<DateTime<Utc>> {
+fn parse_now(value: Option<&str>) -> Result<Timestamp> {
     match value {
         Some(value) => parse_time(value)
             .ok_or_else(|| DshrError::invalid_input(format!("invalid RFC3339 instant '{value}'"))),
-        None => Ok(Utc::now()),
+        None => Ok(Timestamp::now()),
     }
 }
 

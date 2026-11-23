@@ -2995,10 +2995,12 @@ async fn start_turn(
     tokio::spawn(async move {
         // Publish the running agent so plugin host halves see the tree grow and
         // shrink; the guard removes it when the turn ends.
-        let mut live = dshr_core::LiveAgent::root(
-            session_id.clone(),
-            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        );
+        let mut live = dshr_core::LiveAgent::root(session_id.clone(), {
+            let now = jiff::Timestamp::now();
+            jiff::Timestamp::from_second(now.as_second())
+                .unwrap_or(now)
+                .to_string()
+        });
         live.title = turn_state
             .store
             .open(&session_id)

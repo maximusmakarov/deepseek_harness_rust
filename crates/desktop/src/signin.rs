@@ -110,8 +110,7 @@ fn client_headers() -> Vec<(&'static str, String)> {
 
 /// Current UTC offset in seconds, as the platform expects it.
 fn timezone_offset_seconds() -> i64 {
-    use chrono::Offset;
-    chrono::Local::now().offset().fix().local_minus_utc() as i64
+    jiff::Zoned::now().offset().seconds() as i64
 }
 
 fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {

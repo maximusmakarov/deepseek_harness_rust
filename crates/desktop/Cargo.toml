@@ -12,7 +12,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
-chrono = { version = "0.4", features = ["clock"] }
+jiff.workspace = true
 ring = "0.17"
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api", "webview-data-url", "devtools"] }
 serde = { version = "1", features = ["derive"] }
