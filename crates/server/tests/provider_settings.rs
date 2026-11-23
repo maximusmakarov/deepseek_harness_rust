@@ -462,7 +462,7 @@ async fn stores_and_checks_the_active_reasoning_level() {
             "api_key_env": "GATEWAY_KEY",
             "models": [{
                 "id": "gateway-model",
-                "reasoning_efforts": {"off": "off", "low": "low", "high": "high"}
+                "reasoning_efforts": {"off": "off", "minimal": null, "low": "low", "high": "high"}
             }]
         })),
     )
@@ -498,20 +498,23 @@ async fn stores_and_checks_the_active_reasoning_level() {
     let snapshot = get(&app).await;
     assert_eq!(snapshot["active"]["reasoning_effort"], "high");
 
-    // A level the model does not declare is refused before it can be persisted
-    // and break the next `dshr serve`.
-    let (status, _) = call(
-        &app,
-        "POST",
-        "/v1/config/model",
-        Some(json!({
-            "provider": "my-gateway",
-            "model": "gateway-model",
-            "reasoning_effort": "minimal"
-        })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // A level the model marks unsupported (`null`), and one it never declares
+    // (`xhigh` is opt-in), are refused before they can be persisted and break
+    // the next model request.
+    for refused in ["minimal", "xhigh"] {
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/v1/config/model",
+            Some(json!({
+                "provider": "my-gateway",
+                "model": "gateway-model",
+                "reasoning_effort": refused
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+    }
     let config: Value = serde_saphyr::from_str(
         &std::fs::read_to_string(dir.path().join("config.yaml")).expect("config"),
     )

@@ -2,6 +2,17 @@
 
 ## 0.1.0 — current
 
+- Reasoning levels now follow upstream's per-model `thinkingLevelMap` instead of
+  requiring an explicit entry per level. In `models.yaml`, `reasoning_efforts`
+  may leave out the standard levels: `off`…`high` are supported by default and
+  get a wire value from the remap table (`minimal` maps to `low`, the rest keep
+  their own name), while `xhigh` and `max` only exist when the profile names
+  them. A `null` value marks a level unsupported: it disappears from the
+  selector and is refused before a request. The built-in catalog writes those
+  nulls itself, so the DeepSeek models still offer exactly `off`, `low`, `high`
+  and `max` — the endpoint would reject `medium`. The Models editor keeps the
+  null entries it does not render, so editing one row cannot silently re-enable
+  a level the profile disabled.
 - Every command that talks to a model now resolves the provider the same way.
   `serve` read `<home>/models.yaml` and `<home>/credentials.json`, while `run`,
   `tui`, `acp` and `schedule` went through the adapters' `from_env` and saw

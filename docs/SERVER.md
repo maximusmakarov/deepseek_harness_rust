@@ -21,8 +21,9 @@ dshr serve --bind 127.0.0.1 --port 4317 --rate-limit 60
 `/v1/config/providers` (GET) — каталог провайдеров, сохранённые профили и
 активный выбор из `<home>/models.yaml`; блок `active` содержит `provider`,
 `model` и `reasoning_effort` (уровень активной модели или `null`), а элементы
-моделей — `reasoning_efforts` (объявленные уровни) и каталоговые
-`reasoning_levels` (см. [CONFIG](CONFIG.md#models-провайдеры-и-списки-моделей)).
+моделей — `reasoning_efforts` (объявленные уровни; значение `null` помечает
+уровень неподдерживаемым) и каталоговые `reasoning_levels` (см.
+[CONFIG](CONFIG.md#models-провайдеры-и-списки-моделей)).
 `POST /v1/credentials/describe` (`references`) — состояние и маска до 64
 ключей (без значений); `PUT /v1/credentials/{reference}`
 (`{value, expected_revision}`) — write-only запись, `DELETE` с ревизией.

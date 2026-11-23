@@ -51,9 +51,14 @@
   появятся вместе с адаптерами.
 - React-примитивы/слоты upstream не переиспользуются: секция рендерится
   Leptos-шеллом; слоты для плагинов — этап 4.
-- Effort уходит как есть из `models.yaml`: таблицы ремапа и per-model
-  `thinkingLevelMap` upstream не переносятся, а OpenAI-адаптер при отсутствии
-  effort не шлёт reasoning-параметр вовсе (upstream подставляет `high` и всегда
-  шлёт `thinking`) — см. `docs/adr/043-reasoning-effort-wire.md`.
-- Reasoning по-прежнему читается только в `serve`; `run`/`tui`/`acp` берут
-  его из env-ключей (осознанно, `docs/TECH-DEBT.md`).
+- Per-model `thinkingLevelMap` перенесён по семантике upstream (раунд 153):
+  стандартные уровни `off`…`high` можно не перечислять — они получают
+  значение из таблицы ремапа (`minimal`→`low`), `xhigh`/`max` — opt-in, а
+  `null` объявляет уровень неподдерживаемым. Осталось отличие: бюджеты
+  thinking (`thinkingBudgetTokens` у старых Anthropic-моделей) и
+  `output_config.effort` не ремапятся по семейству модели — значение из
+  `models.yaml` уходит как есть, а OpenAI-адаптер при отсутствии effort не
+  шлёт reasoning-параметр вовсе (upstream подставляет `high` и всегда шлёт
+  `thinking`) — см. `docs/adr/043-reasoning-effort-wire.md`.
+- Reasoning читают все команды: резолв общий (раунд 152), поэтому
+  `run`/`tui`/`acp`/`schedule` больше не env-only.

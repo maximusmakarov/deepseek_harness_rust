@@ -280,13 +280,23 @@ impl ProviderDraft {
 const REASONING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /// A catalog model's levels as a declaration: absent when it lists none.
+///
+/// The levels the catalog does not list are written as `null`, otherwise the
+/// standard levels the config layer supports by default would widen the
+/// choice (the DeepSeek endpoint takes `off`/`low`/`high`/`max` only).
 fn catalog_efforts(levels: &[String]) -> Option<Value> {
     (!levels.is_empty()).then(|| {
-        reasoning_object(
-            &levels
+        Value::Object(
+            REASONING_LEVELS
                 .iter()
-                .map(|level| (level.clone(), level.clone()))
-                .collect::<Vec<_>>(),
+                .map(|level| {
+                    let value = levels
+                        .iter()
+                        .any(|declared| declared == level)
+                        .then(|| Value::String((*level).to_owned()));
+                    ((*level).to_owned(), value.unwrap_or(Value::Null))
+                })
+                .collect(),
         )
     })
 }
@@ -307,12 +317,25 @@ fn reasoning_entries(value: &Option<Value>) -> Vec<(String, String)> {
 }
 
 fn reasoning_object(entries: &[(String, String)]) -> Value {
-    Value::Object(
-        entries
-            .iter()
-            .map(|(level, value)| (level.clone(), Value::String(value.clone())))
-            .collect(),
-    )
+    reasoning_object_with(entries, &None)
+}
+
+/// Rebuilds the declaration from the editor rows, keeping the levels the
+/// profile marks unsupported (`null`): the editor does not render them, so
+/// rewriting the map from its rows alone would silently re-enable them.
+fn reasoning_object_with(entries: &[(String, String)], original: &Option<Value>) -> Value {
+    let mut map = serde_json::Map::new();
+    if let Some(Value::Object(existing)) = original {
+        for (level, value) in existing {
+            if value.is_null() {
+                map.insert(level.clone(), Value::Null);
+            }
+        }
+    }
+    for (level, value) in entries {
+        map.insert(level.clone(), Value::String(value.clone()));
+    }
+    Value::Object(map)
 }
 
 fn reasoning_enabled(value: &Option<Value>) -> bool {
@@ -588,7 +611,10 @@ fn draft_body(draft: &ProviderDraft, lang: Lang) -> Result<Value, String> {
                         if !REASONING_LEVELS.contains(&level.as_str()) {
                             return Err(lang.models_unknown_level(id, level));
                         }
-                        if !value.as_str().is_some_and(|value| !value.trim().is_empty()) {
+                        // `null` is how a profile marks a level unsupported.
+                        if !value.is_null()
+                            && !value.as_str().is_some_and(|value| !value.trim().is_empty())
+                        {
                             return Err(lang.models_empty_level_value(id, level));
                         }
                     }
@@ -1904,7 +1930,8 @@ pub fn ModelsSettings(token: RwSignal<String>, lang: RwSignal<Lang>) -> impl Int
                                                                                 if !duplicate && let Some(row) = rows.get_mut(level_index) {
                                                                                     row.0 = selected;
                                                                                 }
-                                                                                model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                                let original = model.reasoning_efforts.clone();
+                                                                                model.reasoning_efforts = Some(reasoning_object_with(&rows, &original));
                                                                             }
                                                                         });
                                                                     }
@@ -1924,7 +1951,8 @@ pub fn ModelsSettings(token: RwSignal<String>, lang: RwSignal<Lang>) -> impl Int
                                                                                 if let Some(row) = rows.get_mut(level_index) {
                                                                                     row.1 = value;
                                                                                 }
-                                                                                model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                                let original = model.reasoning_efforts.clone();
+                                                                                model.reasoning_efforts = Some(reasoning_object_with(&rows, &original));
                                                                             }
                                                                         });
                                                                     }
@@ -1938,7 +1966,8 @@ pub fn ModelsSettings(token: RwSignal<String>, lang: RwSignal<Lang>) -> impl Int
                                                                             if level_index < rows.len() {
                                                                                 let _ = rows.remove(level_index);
                                                                             }
-                                                                            model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                            let original = model.reasoning_efforts.clone();
+                                                                            model.reasoning_efforts = Some(reasoning_object_with(&rows, &original));
                                                                         }
                                                                     });
                                                                 }>"×"</button>
@@ -1955,7 +1984,8 @@ pub fn ModelsSettings(token: RwSignal<String>, lang: RwSignal<Lang>) -> impl Int
                                                                     if let Some(level) = REASONING_LEVELS.iter().find(|candidate| !rows.iter().any(|(used, _)| used == *candidate)) {
                                                                         rows.push(((*level).to_owned(), (*level).to_owned()));
                                                                     }
-                                                                    model.reasoning_efforts = Some(reasoning_object(&rows));
+                                                                    let original = model.reasoning_efforts.clone();
+                                                                    model.reasoning_efforts = Some(reasoning_object_with(&rows, &original));
                                                                 }
                                                             });
                                                         }>{move || labels.get().add_level}</button>
@@ -2268,6 +2298,19 @@ mod tests {
         let declared: Vec<String> = entries.iter().map(|(level, _)| level.clone()).collect();
         assert_eq!(offered_levels(&declared), levels);
         assert!(entries.iter().all(|(level, value)| level == value));
+        // The levels the catalog leaves out are declared unsupported, so the
+        // config layer's defaults cannot offer them.
+        let full = draft.models[0]
+            .reasoning_efforts
+            .clone()
+            .expect("a declaration");
+        for level in REASONING_LEVELS {
+            if levels.contains(&level) {
+                assert_eq!(full[level], Value::String(level.to_owned()), "{level}");
+            } else {
+                assert!(full[level].is_null(), "{level} must be declared null");
+            }
+        }
     }
 
     #[test]
@@ -2301,6 +2344,28 @@ mod tests {
 
         let mut value = draft();
         value.models[0].reasoning_efforts = Some(json!(false));
+        assert!(draft_body(&value, Lang::En).is_ok());
+    }
+
+    #[test]
+    fn an_unsupported_level_survives_an_edit_and_still_saves() {
+        let original = Some(json!({"off": "off", "medium": null, "high": "high"}));
+        // The editor only renders the levels that carry a value.
+        let mut rows = reasoning_entries(&original);
+        assert_eq!(rows.len(), 2);
+        let high = rows
+            .iter()
+            .position(|(level, _)| level == "high")
+            .expect("the supported high level renders");
+        rows[high].1 = "gpt-high".to_owned();
+        let saved = reasoning_object_with(&rows, &original);
+        assert_eq!(saved["medium"], Value::Null);
+        assert_eq!(saved["high"], "gpt-high");
+        assert_eq!(saved["off"], "off");
+
+        // The server accepts the post: `null` is a declaration, not an error.
+        let mut value = draft();
+        value.models[0].reasoning_efforts = Some(saved);
         assert!(draft_body(&value, Lang::En).is_ok());
     }
 

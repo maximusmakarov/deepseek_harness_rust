@@ -90,12 +90,33 @@ pub struct ModelEntry {
 pub enum ReasoningEfforts {
     /// `false`: the model does not reason.
     Disabled(bool),
-    /// Level -> value sent on the wire, in the user's chosen order.
-    Levels(BTreeMap<String, String>),
+    /// Level -> value sent on the wire. `null` marks a level the model does
+    /// not support, which is how a declaration keeps a standard level away
+    /// without inventing a value for it.
+    Levels(BTreeMap<String, Option<String>>),
 }
 
 /// Reasoning levels the adapters accept, in escalation order.
 pub const REASONING_LEVELS: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// Wire values a level gets when the declaration does not name one, mirroring
+/// upstream's `mapThinkingLevelToEffort` default arm: the two lowest levels
+/// collapse onto `low`, and `xhigh`/`max` are opt-in rather than defaulted.
+const DEFAULT_WIRE_VALUES: [(&str, &str); 5] = [
+    ("off", "off"),
+    ("minimal", "low"),
+    ("low", "low"),
+    ("medium", "medium"),
+    ("high", "high"),
+];
+
+/// The implicit wire value of a level, or `None` when the level has none.
+fn default_wire_value(level: &str) -> Option<&'static str> {
+    DEFAULT_WIRE_VALUES
+        .iter()
+        .find(|(name, _)| *name == level)
+        .map(|(_, value)| *value)
+}
 
 impl ReasoningEfforts {
     /// Whether this declaration accepts no level at all.
@@ -107,7 +128,11 @@ impl ReasoningEfforts {
         }
     }
 
-    /// Declared levels in escalation order (not the map's alphabetical order).
+    /// Supported levels in escalation order (not the map's alphabetical order).
+    ///
+    /// A level is supported when it carries a value, or when it is a standard
+    /// level through `high` that the declaration leaves out; `null` excludes a
+    /// level explicitly, and `xhigh`/`max` need an entry of their own.
     #[must_use]
     pub fn levels(&self) -> Vec<&str> {
         match self {
@@ -115,17 +140,29 @@ impl ReasoningEfforts {
             Self::Levels(levels) => REASONING_LEVELS
                 .iter()
                 .copied()
-                .filter(|level| levels.contains_key(*level))
+                .filter(|level| match levels.get(*level) {
+                    Some(Some(_)) => true,
+                    Some(None) => false,
+                    None => default_wire_value(level).is_some(),
+                })
                 .collect(),
         }
     }
 
     /// The value this declaration sends for `level`.
+    ///
+    /// The outer option is `None` when the level is not part of the
+    /// declaration and has no implicit value; the inner option is `None` when
+    /// the declaration marks the level unsupported.
     #[must_use]
-    pub fn wire_value(&self, level: &str) -> Option<&str> {
+    pub fn wire_value(&self, level: &str) -> Option<Option<&str>> {
         match self {
             Self::Disabled(_) => None,
-            Self::Levels(levels) => levels.get(level).map(String::as_str),
+            Self::Levels(levels) => match levels.get(level) {
+                Some(Some(value)) => Some(Some(value.as_str())),
+                Some(None) => Some(None),
+                None => default_wire_value(level).map(Some),
+            },
         }
     }
 }
@@ -160,7 +197,11 @@ impl ModelEntry {
             )));
         };
         match efforts.wire_value(level) {
-            Some(value) => Ok(Some(value.to_owned())),
+            Some(Some(value)) => Ok(Some(value.to_owned())),
+            Some(None) => Err(ModelsError::Invalid(format!(
+                "model '{}' marks reasoning level '{level}' as unsupported",
+                self.id
+            ))),
             None => Err(ModelsError::Invalid(format!(
                 "model '{}' does not declare reasoning level '{level}'",
                 self.id
@@ -453,14 +494,21 @@ pub fn known_route(route: &str) -> bool {
 }
 
 /// Catalog levels as a declaration: absent when the catalog lists none.
+///
+/// Every level outside the catalog's list is written as an explicit `null`, so
+/// the implicit defaults for the standard levels do not widen a catalog model's
+/// choice (the DeepSeek endpoint accepts `off`/`low`/`high`/`max` only).
 fn catalog_efforts(levels: &'static [&'static str]) -> Option<ReasoningEfforts> {
     if levels.is_empty() {
         return None;
     }
     Some(ReasoningEfforts::Levels(
-        levels
+        REASONING_LEVELS
             .iter()
-            .map(|level| ((*level).to_owned(), (*level).to_owned()))
+            .map(|level| {
+                let value = levels.contains(level).then(|| (*level).to_owned());
+                ((*level).to_owned(), value)
+            })
             .collect(),
     ))
 }
@@ -828,7 +876,9 @@ fn validate_model(model: &ModelEntry) -> Result<(), ModelsError> {
                             model.id
                         )));
                     }
-                    if value.trim().is_empty() {
+                    if let Some(value) = value
+                        && value.trim().is_empty()
+                    {
                         return Err(ModelsError::Invalid(format!(
                             "model '{}' has an empty value for reasoning level '{level}'",
                             model.id
@@ -903,7 +953,7 @@ mod tests {
                             model.id
                         );
                         for level in model.reasoning_levels {
-                            assert_eq!(declaration.wire_value(level), Some(*level));
+                            assert_eq!(declaration.wire_value(level), Some(Some(*level)));
                         }
                     }
                     None => assert!(
@@ -942,8 +992,8 @@ mod tests {
                         max_tokens: Some(64_000),
                         input: vec!["text".into(), "image".into()],
                         reasoning_efforts: Some(ReasoningEfforts::Levels(BTreeMap::from([
-                            ("off".into(), "off".into()),
-                            ("high".into(), "high".into()),
+                            ("off".into(), Some("off".into())),
+                            ("high".into(), Some("high".into())),
                         ]))),
                     }],
                     ..ProviderProfile::default()
@@ -1171,17 +1221,31 @@ mod tests {
         let model = ModelEntry {
             id: "gpt-6".into(),
             reasoning_efforts: Some(ReasoningEfforts::Levels(BTreeMap::from([
-                ("off".into(), "off".into()),
-                ("max".into(), "max".into()),
-                ("high".into(), "gpt-high".into()),
+                ("off".into(), Some("off".into())),
+                ("max".into(), Some("max".into())),
+                ("high".into(), Some("gpt-high".into())),
             ]))),
             ..ModelEntry::default()
         };
-        // The map is sorted by key; the levels come back in escalation order.
-        assert_eq!(model.reasoning_levels(), vec!["off", "high", "max"]);
+        // Standard levels the map leaves out are supported with the default
+        // remap; the map's own entries win, and `max` needs its entry.
+        assert_eq!(
+            model.reasoning_levels(),
+            vec!["off", "minimal", "low", "medium", "high", "max"]
+        );
         assert_eq!(
             model.reasoning_effort_value(Some("high")).expect("level"),
             Some("gpt-high".to_owned())
+        );
+        assert_eq!(
+            model
+                .reasoning_effort_value(Some("minimal"))
+                .expect("level"),
+            Some("low".to_owned())
+        );
+        assert_eq!(
+            model.reasoning_effort_value(Some("medium")).expect("level"),
+            Some("medium".to_owned())
         );
         assert_eq!(
             model
@@ -1189,10 +1253,41 @@ mod tests {
                 .expect("no selection means the provider default"),
             None
         );
+
+        // `xhigh` is opt-in: without an entry it is neither offered nor sent.
         assert!(matches!(
-            model.reasoning_effort_value(Some("minimal")),
-            Err(ModelsError::Invalid(message)) if message.contains("does not declare reasoning level 'minimal'")
+            model.reasoning_effort_value(Some("xhigh")),
+            Err(ModelsError::Invalid(message)) if message.contains("does not declare reasoning level 'xhigh'")
         ));
+
+        // `null` marks a standard level unsupported and hides it from the list.
+        let restricted = ModelEntry {
+            id: "deepseek-flash".into(),
+            reasoning_efforts: Some(ReasoningEfforts::Levels(BTreeMap::from([
+                ("off".into(), Some("off".into())),
+                ("minimal".into(), None),
+                ("low".into(), Some("low".into())),
+                ("medium".into(), None),
+                ("high".into(), Some("high".into())),
+                ("xhigh".into(), None),
+                ("max".into(), Some("max".into())),
+            ]))),
+            ..ModelEntry::default()
+        };
+        assert_eq!(
+            restricted.reasoning_levels(),
+            vec!["off", "low", "high", "max"]
+        );
+        assert!(matches!(
+            restricted.reasoning_effort_value(Some("medium")),
+            Err(ModelsError::Invalid(message)) if message.contains("marks reasoning level 'medium' as unsupported")
+        ));
+        assert_eq!(
+            restricted
+                .reasoning_effort_value(Some("low"))
+                .expect("level"),
+            Some("low".to_owned())
+        );
 
         // A model without reasoning metadata refuses any explicit level.
         let plain = ModelEntry {
@@ -1221,6 +1316,43 @@ mod tests {
         );
         assert!(disabled.reasoning_levels().is_empty());
         assert!(ReasoningEfforts::Levels(BTreeMap::new()).is_disabled());
+    }
+
+    #[test]
+    fn a_reasoning_declaration_reads_null_as_unsupported() {
+        let document: ModelsDocument = serde_json::from_str(
+            r#"{"providers":{"gw":{"models":[
+                {"id":"a","reasoning_efforts":{"off":"off","medium":null,"high":"high"}},
+                {"id":"b","reasoning_efforts":false}
+            ]}}}"#,
+        )
+        .expect("the declaration parses");
+        let models = &document.providers["gw"].models;
+        assert_eq!(
+            models[0].reasoning_levels(),
+            vec!["off", "minimal", "low", "high"]
+        );
+        assert!(matches!(
+            models[0].reasoning_effort_value(Some("medium")),
+            Err(ModelsError::Invalid(message)) if message.contains("unsupported")
+        ));
+        assert!(
+            models[1]
+                .reasoning_efforts
+                .as_ref()
+                .expect("declaration")
+                .is_disabled()
+        );
+
+        // `null` survives a round trip, so the editor cannot silently turn an
+        // unsupported level into a supported one.
+        let written = serde_json::to_string(&document).expect("serializes");
+        assert!(written.contains(r#""medium":null"#), "{written}");
+        let reread: ModelsDocument = serde_json::from_str(&written).expect("parses");
+        assert_eq!(
+            reread.providers["gw"].models[0].reasoning_levels(),
+            vec!["off", "minimal", "low", "high"]
+        );
     }
 
     #[test]
