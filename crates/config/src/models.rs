@@ -30,6 +30,11 @@ pub enum Protocol {
     /// Anthropic Messages (`/v1/messages`), used by the DeepSeek adapter.
     AnthropicMessages,
     /// OpenAI Chat Completions (`/chat/completions`).
+    ///
+    /// Spelled out because `kebab-case` would split the identifier into
+    /// `open-ai-chat`, which is neither the documented value nor the one the
+    /// API emits; the split form stays readable as an alias.
+    #[serde(rename = "openai-chat", alias = "open-ai-chat")]
     OpenAiChat,
 }
 
@@ -1216,5 +1221,26 @@ mod tests {
         );
         assert!(disabled.reasoning_levels().is_empty());
         assert!(ReasoningEfforts::Levels(BTreeMap::new()).is_disabled());
+    }
+
+    #[test]
+    fn the_protocol_spelling_matches_the_documented_value() {
+        // The document, the API and `Protocol::id` agree on `openai-chat`;
+        // the camel-case split form stays readable for older files.
+        let document: ModelsDocument = serde_json::from_str(
+            r#"{"providers":{"gw":{"protocol":"openai-chat"},"older":{"protocol":"open-ai-chat"}}}"#,
+        )
+        .expect("both spellings parse");
+        assert_eq!(
+            document.providers["gw"].protocol,
+            Some(Protocol::OpenAiChat)
+        );
+        assert_eq!(
+            document.providers["older"].protocol,
+            Some(Protocol::OpenAiChat)
+        );
+        let written = serde_json::to_string(&document).expect("serializes");
+        assert!(written.contains("\"openai-chat\""), "{written}");
+        assert!(!written.contains("open-ai-chat"), "{written}");
     }
 }

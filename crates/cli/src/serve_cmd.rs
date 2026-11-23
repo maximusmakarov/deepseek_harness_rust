@@ -2,17 +2,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::provider_router;
 use clap::Args;
 use dshr_agent::PermissionMode;
-use dshr_config::credentials;
-use dshr_config::{
-    Config, ConfigLoader, ModelsDocument, Protocol, ResolvedProvider, RetryMode as ConfigRetryMode,
-};
+use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
-use dshr_llm::{LlmError, LlmProvider, RetryMode as LlmRetryMode, RetryPlan};
-use dshr_llm_deepseek::{Auth, DeepSeekConfig, DeepSeekProvider};
-use dshr_llm_mock::ReplayProvider;
-use dshr_llm_openai::{OpenAiConfig, OpenAiProvider};
+use dshr_llm::LlmProvider;
 use dshr_prompt::PromptContext;
 use dshr_sandbox::{NetworkMode as SandboxNetwork, Sandbox, SandboxMode, SandboxPolicy};
 use dshr_server::ServerConfig;
@@ -224,179 +219,16 @@ fn build_provider(
     config: &Config,
     home: &std::path::Path,
 ) -> Result<Arc<dyn LlmProvider>> {
-    if let Some(path) = &args.cassette {
-        return Ok(Arc::new(
-            ReplayProvider::from_file(path).map_err(llm_error)?,
-        ));
-    }
-    let route = args
-        .provider
-        .clone()
-        .unwrap_or_else(|| config.model.provider.clone());
-    let model = args
-        .model
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| config.model.name.clone());
-    // The Models page stores per-provider profiles in `models.yaml`; a route
-    // without a profile falls back to the adapter's environment/defaults.
-    let document =
-        ModelsDocument::load(home).map_err(|error| DshrError::config(error.to_string()))?;
-    let resolved = document
-        .resolve(&route, config.model.base_url.as_deref())
-        .ok_or_else(|| {
-            DshrError::config(format!(
-                "unknown provider route '{route}'; add it in Settings -> Models or use deepseek or openai-compatible"
-            ))
-        })?;
-    if resolved.models_from_profile
-        && !resolved.models.is_empty()
-        && !resolved.models.iter().any(|entry| entry.id == model)
-    {
-        tracing::warn!(
-            provider = %route,
-            model = %model,
-            "the active model is not in the provider's model list; serving it anyway"
-        );
-    }
-    let base_url = resolved
-        .effective_base_url
-        .clone()
-        .unwrap_or_else(|| default_base_url(resolved.protocol).to_owned());
-    let reference = resolved
-        .api_key_env
-        .clone()
-        .unwrap_or_else(|| default_key_reference(&route).to_owned());
-    let retry = retry_plan(&resolved);
-    let reasoning_effort = reasoning_effort(&resolved, &model, config)?;
-    let (secret, account_token) = read_secret(&reference, &resolved, home)
-        .ok_or_else(|| {
-            LlmError::MissingCredentials(format!(
-                "set {reference} in the environment or save it in Settings -> Models"
-            ))
-        })
-        .map_err(llm_error)?;
-    match resolved.protocol {
-        Protocol::AnthropicMessages => {
-            let auth = if account_token {
-                Auth::AccountToken(secret)
-            } else {
-                Auth::ApiKey(secret)
-            };
-            Ok(Arc::new(
-                DeepSeekProvider::new(DeepSeekConfig {
-                    base_url,
-                    model,
-                    max_tokens: args.max_tokens.max(1),
-                    auth,
-                    retry: retry.clone(),
-                    reasoning_effort: reasoning_effort.clone(),
-                })
-                .map_err(llm_error)?,
-            ))
-        }
-        Protocol::OpenAiChat => Ok(Arc::new(
-            OpenAiProvider::new(OpenAiConfig {
-                base_url,
-                model,
-                max_tokens: args.max_tokens.max(1),
-                api_key: secret,
-                retry,
-                reasoning_effort,
-            })
-            .map_err(llm_error)?,
-        )),
-    }
-}
-
-/// Turns the configured level into the value the endpoint expects.
-///
-/// A profile that lists its models also declares which levels each one
-/// offers, so the level is checked against that list and an undeclared one is
-/// a configuration error rather than a silent downgrade. A model the profile
-/// does not describe (catalog models, or a gateway whose model list is empty)
-/// cannot be checked; the level is passed through and the adapter decides
-/// whether the endpoint accepts it.
-fn reasoning_effort(
-    resolved: &ResolvedProvider,
-    model: &str,
-    config: &Config,
-) -> Result<Option<String>> {
-    let Some(level) = config
-        .model
-        .reasoning_effort
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return Ok(None);
-    };
-    let Some(entry) = resolved.models.iter().find(|entry| entry.id == model) else {
-        tracing::warn!(
-            provider = %resolved.route,
-            model = %model,
-            level = %level,
-            "the model is not listed in its provider profile, so the reasoning level cannot be checked"
-        );
-        return Ok(Some(level.to_owned()));
-    };
-    entry
-        .reasoning_effort_value(Some(level))
-        .map_err(|error| DshrError::config(format!("provider '{}': {error}", resolved.route)))
-}
-
-fn retry_plan(resolved: &ResolvedProvider) -> RetryPlan {
-    let retry = &resolved.retry;
-    RetryPlan::new(
-        match retry.mode {
-            ConfigRetryMode::Normal => LlmRetryMode::Normal,
-            ConfigRetryMode::Always => LlmRetryMode::Always,
+    provider_router::build(
+        &provider_router::Request {
+            cassette: args.cassette.as_deref(),
+            provider: args.provider.as_deref(),
+            model: args.model.as_deref(),
+            max_tokens: Some(args.max_tokens),
         },
-        retry.max_retries,
-        retry.retryable_codes.clone(),
-        retry.initial_delay_ms,
-        retry.max_delay_ms,
-        retry.jitter_ratio as f32,
+        config,
+        home,
     )
-}
-
-fn default_base_url(protocol: Protocol) -> &'static str {
-    match protocol {
-        Protocol::AnthropicMessages => "https://api.deepseek.com/anthropic",
-        Protocol::OpenAiChat => "https://api.openai.com/v1",
-    }
-}
-
-fn default_key_reference(route: &str) -> &'static str {
-    match route {
-        "deepseek" | "deepseek-account" => "DSH_DEEPSEEK_TOKEN",
-        "deepseek-official" => "DEEPSEEK_API_KEY",
-        "routerai" => "ROUTERAI_API_KEY",
-        _ => "OPENAI_API_KEY",
-    }
-}
-
-/// Reads the profile's reference first, then the adapter's historical
-/// fallbacks, so an existing `desktop.env` keeps working untouched.
-/// Returns the secret and whether it is the account grant (which the DeepSeek
-/// adapter sends on a different header than an API key).
-fn read_secret(
-    reference: &str,
-    resolved: &ResolvedProvider,
-    home: &std::path::Path,
-) -> Option<(String, bool)> {
-    let read =
-        |name: &str| credentials::resolve(home, name).map(|resolved| resolved.value().to_owned());
-    if let Some(value) = read(reference) {
-        return Some((value, reference == "DSH_DEEPSEEK_TOKEN"));
-    }
-    if resolved.protocol == Protocol::AnthropicMessages {
-        return read("DEEPSEEK_API_KEY")
-            .map(|value| (value, false))
-            .or_else(|| read("DSH_DEEPSEEK_TOKEN").map(|value| (value, true)));
-    }
-    read("OPENAI_API_KEY")
-        .or_else(|| read("ROUTERAI_API_KEY"))
-        .map(|value| (value, false))
 }
 
 fn build_system_prompt(
@@ -417,8 +249,4 @@ fn build_system_prompt(
         tools: tools.names(),
         skills: skills.catalog(),
     })
-}
-
-fn llm_error(error: LlmError) -> DshrError {
-    DshrError::config(format!("llm: {error}"))
 }

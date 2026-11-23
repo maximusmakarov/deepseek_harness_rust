@@ -2485,6 +2485,42 @@ http://127.0.0.1:4317` и не порождает дочерний `dshr serve`;
   `trunk build --release` (wasm 1.87 МБ); дев-сборка даёт 43 МБ и в коммит не
   годится.
 
+## Раунд 152 — один резолвер провайдера для всех команд (23.11.2026)
+
+- `<home>/credentials.json` и `<home>/models.yaml` читал только `serve`:
+  `run`/`tui`/`acp`/`schedule` ходили через `from_env` адаптеров и видели
+  только переменные окружения. Ключ, сохранённый в Models, и профиль
+  провайдера действовали лишь на сервер.
+- Резолв вынесен в `crates/cli/src/provider_router.rs` и стал общим: флаг
+  `--provider`/`--model` → `config.yaml` → профиль в `models.yaml` (с
+  каталогом как fallback) → секрет из окружения, затем
+  `<home>/credentials.json`. Пять `build_provider` схлопнулись в один вызов,
+  четыре копии `llm_error` и три копии `read_secret`/`retry_plan`/
+  `default_key_reference`/`reasoning_effort` удалены.
+- Побочно закрылись два пункта очереди: `model.reasoning_effort` и
+  retry-policy профиля теперь доезжают до `run`/`tui`/`acp`/`schedule`, а не
+  только до `serve`; пустой `--model` больше не уходит пустой строкой, а
+  падает обратно на модель из конфига.
+- Порядок ключей изменился осознанно: reference профиля проверяется первым,
+  поэтому при одновременно заданных `DEEPSEEK_API_KEY` и `DSH_DEEPSEEK_TOKEN`
+  побеждает account-грант — ровно как в `serve`. Ошибка неизвестного маршрута
+  теперь одна на все команды и указывает на Settings -> Models; текст нигде
+  не проверялся, так что это не контракт.
+- Найден и исправлен соседний дефект: `Protocol` сериализовался как
+  `open-ai-chat` (`kebab-case` разбивает `OpenAiChat`), хотя
+  `docs/CONFIG.md`, API и `Protocol::id` используют `openai-chat`. Профиль,
+  написанный руками по документации, не парсился. Значение закреплено
+  атрибутом, разбитая форма оставлена алиасом, тест
+  `the_protocol_spelling_matches_the_documented_value` проверяет обе стороны.
+- Тесты: 8 юнит-тестов в `provider_router` (каталог, reference по маршруту,
+  неизвестный маршрут, уровень effort объявленный/необъявленный/пустой,
+  retry-plan) плюс два интеграционных — отсутствующий ключ называет свой
+  reference, а сохранённый в `<home>/credentials.json` доводит запуск до
+  запроса. Второй требует чистого окружения и `current_dir` вне репозитория:
+  `dshr` вызывает `dotenvy::dotenv()` и иначе подхватывает реальный `.env`.
+- Проверки: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
+  -- -D warnings`, `crates/config` 27, `dshr-cli` 45+1+2, workspace-тесты.
+
 ## Формализация и каталог тестов (14.11.2026)
 
 - `formal/` — три TLA+-модели (`CordisSupervisor` safety+liveness, `ClientAssets`,

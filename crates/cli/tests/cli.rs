@@ -1868,3 +1868,85 @@ fn plugin_npm_add_resolves_without_the_npm_binary() {
         "a failed resolve installs no tree: {installed:?}"
     );
 }
+
+/// A route whose key variable exists only in this test, so the assertions
+/// never depend on a real credential being present in the environment.
+const TEST_ROUTE: &str = "test-gateway";
+const TEST_KEY: &str = "DSHR_TEST_ROUTE_KEY";
+
+fn write_test_gateway_home(dir: &std::path::Path) {
+    std::fs::write(
+        dir.join("config.yaml"),
+        "model:\n  provider: test-gateway\n  name: test-model\n",
+    )
+    .expect("write config");
+    std::fs::write(
+        dir.join("models.yaml"),
+        format!(
+            "version: 1\nrevision: 0\nproviders:\n  {TEST_ROUTE}:\n    protocol: openai-chat\n    base_url: http://127.0.0.1:9/v1\n    api_key_env: {TEST_KEY}\n    retry:\n      max_retries: 0\n"
+        ),
+    )
+    .expect("write models");
+}
+
+#[test]
+fn run_names_the_missing_key_reference() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_test_gateway_home(dir.path());
+
+    // The fallbacks in the adapter chain are environment variables, so the
+    // child gets a clean environment to make the assertion deterministic.
+    dshr()
+        .args(["--home", dir.path().to_str().expect("utf8"), "run", "hi"])
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("ROUTERAI_API_KEY")
+        .env_remove("DEEPSEEK_API_KEY")
+        .env_remove("DSH_DEEPSEEK_TOKEN")
+        // `dshr` runs `dotenvy::dotenv()`, so the child must not start in the
+        // repository, whose `.env` would supply a real key.
+        .current_dir(dir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(format!(
+            "set {TEST_KEY} in the environment or save it in Settings -> Models"
+        )));
+}
+
+#[test]
+fn run_reads_the_key_saved_in_the_home() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    write_test_gateway_home(dir.path());
+    std::fs::write(
+        dir.path().join("credentials.json"),
+        format!("{{\"version\":1,\"revision\":0,\"values\":{{\"{TEST_KEY}\":\"test-secret\"}}}}"),
+    )
+    .expect("write credentials");
+
+    // No key in the environment: the document is the only source.
+    let output = dshr()
+        .args(["--home", dir.path().to_str().expect("utf8"), "run", "hi"])
+        .env_remove("OPENAI_API_KEY")
+        .env_remove("ROUTERAI_API_KEY")
+        .env_remove("DEEPSEEK_API_KEY")
+        .env_remove("DSH_DEEPSEEK_TOKEN")
+        .current_dir(dir.path())
+        .output()
+        .expect("run assistant");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "the profile endpoint is unreachable, so the run must fail"
+    );
+    assert!(
+        !stderr.contains("MissingCredentials"),
+        "the saved key must be used: {stderr}"
+    );
+    assert!(
+        !stderr.contains(TEST_KEY),
+        "the missing-key error must be gone: {stderr}"
+    );
+    assert!(
+        stderr.contains("llm:"),
+        "expected the request to fail past the key check: {stderr}"
+    );
+}

@@ -2,6 +2,28 @@
 
 ## 0.1.0 — current
 
+- Every command that talks to a model now resolves the provider the same way.
+  `serve` read `<home>/models.yaml` and `<home>/credentials.json`, while `run`,
+  `tui`, `acp` and `schedule` went through the adapters' `from_env` and saw
+  only environment variables, so a profile edited in Settings -> Models or a
+  key saved there applied to the server alone. The resolution now lives in one
+  function (`crates/cli/src/provider_router.rs`): an explicit
+  `--provider`/`--model` flag wins over `config.yaml`, the profile in
+  `models.yaml` supplies the endpoint, key reference, retry policy and
+  reasoning level, and the secret comes from the environment first and
+  `<home>/credentials.json` second. This also makes `model.reasoning_effort`
+  and the stored retry policy take effect outside `serve`, and a blank
+  `--model` now falls back to the configured model instead of being sent as an
+  empty id. Two behaviour deltas follow: the profile's key reference is tried
+  before the adapter's historical fallbacks, so with both `DEEPSEEK_API_KEY`
+  and `DSH_DEEPSEEK_TOKEN` set the account grant wins (the order `serve`
+  already had), and a route that exists only in `models.yaml` now works for
+  every command.
+- A custom provider profile written by hand with `protocol: openai-chat` was
+  rejected: `Protocol` derived `kebab-case`, which splits the identifier into
+  `open-ai-chat`, while `docs/CONFIG.md`, the provider API and `Protocol::id`
+  all use `openai-chat`. The value is now spelled out, the split form stays
+  readable as an alias, and a test pins both directions.
 - The Models settings section speaks Russian and English. Its 103 display
   strings and 27 parameterized messages moved into `dshr-i18n` as
   `ModelsLabels` (the `ExportLabels` shape: one `match` arm per language, so the

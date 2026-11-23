@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
+use crate::provider_router;
 use clap::Args;
 use dshr_agent::PermissionMode;
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
-use dshr_llm::{LlmError, LlmProvider};
-use dshr_llm_deepseek::DeepSeekProvider;
-use dshr_llm_mock::ReplayProvider;
-use dshr_llm_openai::OpenAiProvider;
+use dshr_llm::LlmProvider;
 use dshr_prompt::PromptContext;
 use dshr_sandbox::{NetworkMode as SandboxNetwork, Sandbox, SandboxMode, SandboxPolicy};
 use dshr_session_jsonl::SessionStore;
@@ -51,7 +49,7 @@ pub struct TuiArgs {
 
 pub async fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
     let config = loader.load()?.config;
-    let provider = build_provider(args, &config)?;
+    let provider = build_provider(args, &config, loader.home())?;
     let session_dir = config
         .session
         .dir
@@ -135,32 +133,21 @@ pub async fn execute(loader: &ConfigLoader, args: &TuiArgs) -> Result<u8> {
     Ok(0)
 }
 
-fn build_provider(args: &TuiArgs, config: &Config) -> Result<Arc<dyn LlmProvider>> {
-    if let Some(path) = &args.cassette {
-        return Ok(Arc::new(
-            ReplayProvider::from_file(path).map_err(llm_error)?,
-        ));
-    }
-    let route = args
-        .provider
-        .clone()
-        .unwrap_or_else(|| config.model.provider.clone());
-    let model = args
-        .model
-        .clone()
-        .or_else(|| Some(config.model.name.clone()));
-
-    match route.as_str() {
-        "deepseek" | "deepseek-account" | "deepseek-official" => Ok(Arc::new(
-            DeepSeekProvider::from_env(model, Some(args.max_tokens)).map_err(llm_error)?,
-        )),
-        "openai" | "openai-compatible" | "routerai" => Ok(Arc::new(
-            OpenAiProvider::from_env(model, Some(args.max_tokens)).map_err(llm_error)?,
-        )),
-        other => Err(DshrError::config(format!(
-            "unknown provider route '{other}'; expected deepseek or openai-compatible"
-        ))),
-    }
+fn build_provider(
+    args: &TuiArgs,
+    config: &Config,
+    home: &std::path::Path,
+) -> Result<Arc<dyn LlmProvider>> {
+    provider_router::build(
+        &provider_router::Request {
+            cassette: args.cassette.as_deref(),
+            provider: args.provider.as_deref(),
+            model: args.model.as_deref(),
+            max_tokens: Some(args.max_tokens),
+        },
+        config,
+        home,
+    )
 }
 
 fn build_system_prompt(
@@ -181,8 +168,4 @@ fn build_system_prompt(
         tools: tools.names(),
         skills: skills.catalog(),
     })
-}
-
-fn llm_error(error: LlmError) -> DshrError {
-    DshrError::config(format!("llm: {error}"))
 }

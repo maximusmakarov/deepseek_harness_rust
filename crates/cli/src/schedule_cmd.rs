@@ -2,16 +2,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::provider_router;
 use chrono::{DateTime, Utc};
 use clap::{Args, Subcommand};
 use dshr_agent::{Agent, AgentConfig, ApprovalPolicy, AutoApprover, NullObserver, PermissionMode};
 use dshr_config::{Config, ConfigLoader};
 use dshr_core::{DshrError, Result};
 use dshr_i18n::current;
-use dshr_llm::{LlmError, LlmProvider};
-use dshr_llm_deepseek::DeepSeekProvider;
-use dshr_llm_mock::ReplayProvider;
-use dshr_llm_openai::OpenAiProvider;
+use dshr_llm::LlmProvider;
 use dshr_prompt::PromptContext;
 use dshr_sandbox::{NetworkMode as SandboxNetwork, Sandbox, SandboxMode, SandboxPolicy};
 use dshr_schedule::{ScheduleEntry, ScheduleLock, ScheduleStore, format_time, parse_time};
@@ -191,7 +189,7 @@ async fn run_due(
     options: &RunOptions,
 ) -> Result<usize> {
     let config = loader.load()?.config;
-    let provider = build_provider(options, &config)?;
+    let provider = build_provider(options, &config, loader.home())?;
     let session_dir = config
         .session
         .dir
@@ -287,31 +285,21 @@ async fn run_due(
     Ok(0)
 }
 
-fn build_provider(options: &RunOptions, config: &Config) -> Result<Arc<dyn LlmProvider>> {
-    if let Some(path) = &options.cassette {
-        return Ok(Arc::new(
-            ReplayProvider::from_file(path).map_err(llm_error)?,
-        ));
-    }
-    let route = options
-        .provider
-        .clone()
-        .unwrap_or_else(|| config.model.provider.clone());
-    let model = options
-        .model
-        .clone()
-        .or_else(|| Some(config.model.name.clone()));
-    match route.as_str() {
-        "deepseek" | "deepseek-account" | "deepseek-official" => Ok(Arc::new(
-            DeepSeekProvider::from_env(model, None).map_err(llm_error)?,
-        )),
-        "openai" | "openai-compatible" | "routerai" => Ok(Arc::new(
-            OpenAiProvider::from_env(model, None).map_err(llm_error)?,
-        )),
-        other => Err(DshrError::config(format!(
-            "unknown provider route '{other}'; expected deepseek or openai-compatible"
-        ))),
-    }
+fn build_provider(
+    options: &RunOptions,
+    config: &Config,
+    home: &std::path::Path,
+) -> Result<Arc<dyn LlmProvider>> {
+    provider_router::build(
+        &provider_router::Request {
+            cassette: options.cassette.as_deref(),
+            provider: options.provider.as_deref(),
+            model: options.model.as_deref(),
+            max_tokens: None,
+        },
+        config,
+        home,
+    )
 }
 
 fn build_prompt(
@@ -352,8 +340,4 @@ fn first_line(text: &str) -> String {
 
 fn schedule_error(error: dshr_schedule::ScheduleError) -> DshrError {
     DshrError::invalid_input(error.to_string())
-}
-
-fn llm_error(error: LlmError) -> DshrError {
-    DshrError::config(format!("llm: {error}"))
 }

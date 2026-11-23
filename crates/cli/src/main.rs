@@ -10,6 +10,7 @@ mod lsp_setup;
 mod mcp_setup;
 mod plugin_cmd;
 mod prompt_cmd;
+mod provider_router;
 mod release_cmd;
 mod run_cmd;
 mod runtime_cmd;
